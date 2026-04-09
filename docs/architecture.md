@@ -1,0 +1,445 @@
+# Tavi Architecture
+
+> Tavi is our lightweight system for tracking work and projects clearly, without slowing teams down.
+
+## 1. Architecture Summary
+
+Tavi will use a full TypeScript stack approved during requirements clarification. The product will run locally in Docker during development and deploy to Kubernetes in production for resiliency and operational consistency.
+
+Recommended implementation:
+
+- **Frontend:** React + TypeScript
+- **Backend API:** Node.js + TypeScript
+- **Worker:** Node.js + TypeScript background worker for imports and asynchronous processing
+- **Database:** PostgreSQL
+- **Deployment:** Docker for local development, Kubernetes for production
+
+This architecture assumes the approved full TypeScript stack decision.
+
+## 2. Key Architectural Decisions
+
+1. Use a monorepo so shared types, schemas, lint rules, and build tooling stay consistent.
+2. Separate `web`, `api`, and `worker` runtimes for clearer scaling and operations.
+3. Use PostgreSQL as the source of truth for product data, import staging, and audit history.
+4. Use REST with OpenAPI for a stable and inspectable API surface.
+5. Use shared TypeScript schemas to reduce contract drift between frontend and backend.
+6. Use enterprise SSO in production and a local-dev auth mode outside production.
+7. Persist derived project rollups so the primary workspace stays fast.
+
+## 3. Recommended Stack
+
+| Layer | Recommendation | Notes |
+|---|---|---|
+| Package management | `pnpm` workspaces | Fast installs and good monorepo support |
+| Build orchestration | `turbo` | Optional but useful for caching and task coordination |
+| Web app | React + TypeScript + Vite | Good fit for a dense internal SPA |
+| Data fetching | TanStack Query | Caching, invalidation, and optimistic updates |
+| Table/view layer | TanStack Table + row virtualization | Supports grouped, dense, expandable views |
+| UI primitives | Radix UI + Tailwind CSS | Good accessibility with compact custom styling |
+| Local UI state | Zustand | Lightweight state for expansion, density, and transient UI state |
+| API | NestJS with Fastify adapter | Structured backend with strong TypeScript ergonomics |
+| Validation | Zod shared schemas | Reusable request/response and domain validation |
+| ORM | Prisma | Type-safe data access and migration workflow |
+| Background jobs | `pg-boss` | Postgres-backed job queue, avoids another runtime dependency |
+| Database | PostgreSQL 16+ | Reliable relational model for projects/tasks/imports |
+| Testing | Vitest, React Testing Library, Playwright | Unit, integration, and end-to-end coverage |
+| Observability | OpenTelemetry + structured logs + Prometheus metrics | Good baseline for Kubernetes operations |
+
+## 4. Repository Layout
+
+Recommended monorepo structure:
+
+```text
+apps/
+  web/
+  api/
+  worker/
+packages/
+  ui/
+  schemas/
+  config/
+  eslint-config/
+  tsconfig/
+infra/
+  docker/
+  k8s/
+```
+
+### apps/web
+
+- React SPA
+- Dense grouped workspace
+- Import flow UI
+- Saved views UI
+- Role-aware navigation
+
+### apps/api
+
+- Auth/session handling
+- Project, task, view, import, and audit APIs
+- Domain services and rollup logic
+
+### apps/worker
+
+- CSV parsing jobs
+- Import staging and commit jobs
+- Future async processing such as notifications or report generation
+
+### packages/schemas
+
+- Shared Zod schemas
+- Enums for statuses, priorities, roles
+- Generated API client types if desired
+
+## 5. Runtime Components
+
+```text
+Browser
+  -> Web App
+      -> API
+          -> PostgreSQL
+          -> OIDC/SAML Identity Provider
+      -> Worker (via job queue in PostgreSQL)
+```
+
+### Web
+
+- Serves the React application
+- Reads session state from the API
+- Stores filter/group/sort state in the URL and saved views
+
+### API
+
+- Exposes authenticated JSON endpoints
+- Enforces RBAC
+- Persists projects, tasks, views, imports, and audit events
+- Computes derived project summaries on write
+
+### Worker
+
+- Processes heavy or asynchronous tasks
+- Keeps imports and other long-running operations off the request path
+
+## 6. Data Model
+
+Recommended primary tables:
+
+- `users`
+- `role_assignments`
+- `projects`
+- `project_status_overrides`
+- `tasks`
+- `labels`
+- `project_labels`
+- `task_labels`
+- `saved_views`
+- `imports`
+- `import_rows`
+- `audit_events`
+
+### projects
+
+Important columns:
+
+- `id`
+- `title`
+- `summary`
+- `owner_user_id`
+- `due_date`
+- `priority`
+- `derived_status`
+- `display_status`
+- `status_override_reason`
+- `task_total_count`
+- `task_todo_count`
+- `task_in_progress_count`
+- `task_blocked_count`
+- `task_done_count`
+- `task_canceled_count`
+- `task_overdue_count`
+- `source_system`
+- `source_external_id`
+- `archived_at`
+- `created_at`
+- `updated_at`
+
+### tasks
+
+Important columns:
+
+- `id`
+- `project_id`
+- `title`
+- `description`
+- `assignee_user_id`
+- `status`
+- `priority`
+- `blocked_reason`
+- `due_date`
+- `sort_order`
+- `source_system`
+- `source_external_id`
+- `archived_at`
+- `created_at`
+- `updated_at`
+- `completed_at`
+
+### saved_views
+
+Store:
+
+- Name
+- Owner or team scope
+- Filters
+- Grouping mode
+- Sort configuration
+- Visible columns
+- Density preference
+
+### imports / import_rows
+
+Use these tables to:
+
+- Store import job metadata
+- Stage parsed source rows
+- Record validation errors
+- Track row-level create/update outcomes
+
+## 7. Rollup Strategy
+
+The grouped workspace is read-heavy, so project rollups should be persisted rather than recalculated from scratch for every request.
+
+Recommended approach:
+
+1. Task writes occur in a transaction.
+2. The API updates task state.
+3. The API recomputes summary counters for the affected project.
+4. The API derives the new project status unless a manual override exists.
+5. The API records an audit event.
+
+This keeps reads simple and fast while preserving a clear source of truth.
+
+## 8. API Design
+
+Use a REST JSON API under `/api`.
+
+Suggested endpoint groups:
+
+- `/auth`
+- `/users`
+- `/projects`
+- `/tasks`
+- `/views`
+- `/imports`
+- `/audit`
+
+Representative endpoints:
+
+- `GET /api/projects`
+- `POST /api/projects`
+- `GET /api/projects/:projectId`
+- `PATCH /api/projects/:projectId`
+- `POST /api/projects/:projectId/tasks`
+- `PATCH /api/tasks/:taskId`
+- `POST /api/projects/:projectId/status-override`
+- `DELETE /api/projects/:projectId/status-override`
+- `GET /api/views`
+- `POST /api/views`
+- `POST /api/imports/loop`
+- `GET /api/imports/:importId`
+
+Query behavior should support:
+
+- Filtering
+- Sorting
+- Grouping hints
+- Pagination or cursoring for large result sets
+- Inclusion of project rollup summaries with task children
+
+OpenAPI generation is recommended so the API contract remains explicit.
+
+## 9. Frontend Architecture
+
+### State Model
+
+- Server state comes from TanStack Query.
+- URL state stores filters, grouping, sorting, and focused context.
+- Local state stores expanded rows, transient editing state, and UI density.
+- Saved views persist reusable workspace configurations.
+
+### UI Composition
+
+Recommended modules:
+
+- Workspace shell
+- Grouped project/task table
+- Project detail drawer
+- Task inline editor
+- Filter and grouping controls
+- Import wizard
+- Audit/history panel
+
+### Rendering Strategy
+
+- Use row virtualization for large lists.
+- Keep primary interactions inline to minimize context switching.
+- Use optimistic updates where safe, but reconcile against server responses.
+- Preserve expansion state while filters or grouping change when practical.
+
+## 10. Backend Architecture
+
+Recommended API modules:
+
+- `auth`
+- `users`
+- `projects`
+- `tasks`
+- `views`
+- `imports`
+- `audit`
+- `health`
+
+Recommended service boundaries:
+
+- `ProjectService` for project CRUD and rollup orchestration
+- `TaskService` for task CRUD, ordering, and status updates
+- `ViewService` for saved views
+- `ImportService` for upload, preview, staging, and commit
+- `AuditService` for immutable change history
+
+Use request validation at the edge and keep business rules in service-layer code rather than controllers.
+
+## 11. Authentication and Security
+
+### Production Auth
+
+- Use OIDC or SAML with the enterprise identity provider.
+- Prefer backend-managed sessions with secure, HTTP-only cookies.
+- Run the web app and API under the same origin to simplify auth and reduce CORS complexity.
+
+### Local Development Auth
+
+- Enable a local auth mode only outside production.
+- Allow preconfigured local roles for testing admin/editor/viewer behavior.
+- Guard the local auth mode behind environment configuration so it cannot be enabled accidentally in production.
+
+### Security Controls
+
+- RBAC enforced in API guards
+- CSRF protection for session-authenticated write operations
+- Input validation on every write path
+- Audit trail for sensitive actions
+- Secret management through Kubernetes secrets or an external secret manager
+- HTTPS-only production traffic
+
+## 12. Import Architecture
+
+Recommended import flow:
+
+1. User uploads a CSV or export file.
+2. API validates basic structure and creates an import job.
+3. Worker parses rows into `import_rows`.
+4. User reviews a preview and mapping summary.
+5. Worker commits valid rows to projects/tasks in batches.
+6. Import result captures created, updated, skipped, and failed rows.
+
+Implementation notes:
+
+- Preserve source IDs for traceability.
+- Make imports idempotent where possible.
+- Batch writes to avoid long transactions.
+- Fail individual rows clearly without hiding errors behind a generic import failure.
+
+## 13. Local Development
+
+Recommended local stack via Docker Compose:
+
+- `web`
+- `api`
+- `worker`
+- `postgres`
+
+Local development requirements:
+
+- Fast container rebuilds with bind mounts
+- Seed data for realistic grouped views
+- Simple local auth mode
+- One-command startup for the full stack
+
+The developer workflow should not require Kubernetes for normal day-to-day feature work.
+
+## 14. Kubernetes Deployment
+
+Recommended production topology:
+
+- `web` Deployment
+- `api` Deployment
+- `worker` Deployment
+- Ingress for web and API routing
+- Managed PostgreSQL outside the cluster when possible
+
+Recommended Kubernetes practices:
+
+- Readiness and liveness probes on every runtime
+- Horizontal autoscaling for `web` and `api`
+- Rolling deployments
+- Pod disruption budgets for API and worker where appropriate
+- Config via ConfigMaps and secrets via Secrets or external secret sync
+
+Use separate images for `web`, `api`, and `worker` so they can scale independently.
+
+## 15. Observability and Operations
+
+Minimum operational baseline:
+
+- Structured JSON logs with request and correlation IDs
+- Metrics for request latency, error rates, job throughput, and import failures
+- Distributed traces across web request paths and background jobs
+- Health endpoints for container orchestration
+
+Operational requirements:
+
+- Automated database migrations in deployment workflows
+- Backups for PostgreSQL
+- Clear rollback path for app releases and schema changes
+
+## 16. Performance and Reliability Targets
+
+Initial targets for v1:
+
+- Initial workspace load under 2 seconds for common team views
+- Inline task update round trip under 300 ms in normal conditions
+- Import preview generation fast enough for typical Loop export sizes
+- No full-table recalculation of project status on normal page loads
+
+Key performance strategies:
+
+- Persisted rollup counters
+- Proper indexing on owner, assignee, status, due date, and label joins
+- Virtualized list rendering
+- Background processing for imports
+
+## 17. Testing Strategy
+
+Recommended coverage layers:
+
+- Unit tests for rollup logic, validation, and permissions
+- Integration tests for API modules and database behavior
+- Component tests for grouped table and inline editing
+- End-to-end tests for login, workspace filtering, status updates, and import preview
+
+Suggested tooling:
+
+- Vitest for unit and integration tests
+- React Testing Library for UI behavior
+- Playwright for end-to-end coverage
+
+## 18. Suggested Supporting Documents
+
+After this document, the next most valuable technical docs are:
+
+1. `docs/api-contract.md`
+2. `docs/data-dictionary.md`
+3. `docs/import-mapping.md`
+4. `docs/ops-runbook.md`
+5. `adr/` decision records for stack, auth, rollup persistence, and deployment model
