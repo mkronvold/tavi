@@ -1,0 +1,220 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  editor
+  viewer
+}
+
+enum Priority {
+  low
+  medium
+  high
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  blocked
+  done
+  canceled
+}
+
+enum ProjectStatus {
+  not_started
+  in_progress
+  blocked
+  done
+}
+
+enum ImportJobStatus {
+  queued_parse
+  parsing
+  awaiting_review
+  queued_commit
+  committing
+  completed
+  failed
+}
+
+enum ImportRowOutcome {
+  pending
+  created
+  updated
+  skipped
+  failed
+}
+
+enum AuditEntityType {
+  auth
+  project
+  task
+  saved_view
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  name           String
+  passwordHash   String
+  roleAssignment RoleAssignment?
+  ownedProjects  Project[]       @relation("ProjectOwner")
+  assignedTasks  Task[]          @relation("TaskAssignee")
+  createdImports ImportJob[]     @relation("ImportCreator")
+  savedViews     SavedView[]
+  auditEvents    AuditEvent[]    @relation("AuditActor")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model RoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  role      Role
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Project {
+  id                  String         @id @default(cuid())
+  title               String
+  summary             String?
+  notes               String?
+  trackerLink         String?
+  ownerUserId         String
+  owner               User           @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  dueDate             DateTime?
+  priority            Priority       @default(medium)
+  derivedStatus       ProjectStatus  @default(not_started)
+  displayStatus       ProjectStatus  @default(not_started)
+  manualStatus        ProjectStatus?
+  taskTotalCount      Int            @default(0)
+  taskTodoCount       Int            @default(0)
+  taskInProgressCount Int            @default(0)
+  taskBlockedCount    Int            @default(0)
+  taskDoneCount       Int            @default(0)
+  taskCanceledCount   Int            @default(0)
+  taskOverdueCount    Int            @default(0)
+  sourceSystem        String?
+  sourceExternalId    String?
+  archivedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  tasks               Task[]
+
+  @@unique([sourceSystem, sourceExternalId])
+  @@index([ownerUserId])
+  @@index([displayStatus])
+}
+
+model Task {
+  id               String     @id @default(cuid())
+  projectId        String
+  project          Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title            String
+  notes            String?
+  assigneeUserId   String
+  assignee         User       @relation("TaskAssignee", fields: [assigneeUserId], references: [id])
+  dueDate          DateTime?
+  priority         Priority   @default(medium)
+  status           TaskStatus @default(todo)
+  sortOrder        Int        @default(0)
+  sourceSystem     String?
+  sourceExternalId String?
+  archivedAt       DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  completedAt      DateTime?
+
+  @@unique([sourceSystem, sourceExternalId])
+  @@index([projectId, sortOrder])
+  @@index([assigneeUserId])
+  @@index([status])
+}
+
+model SavedView {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  groupBy      String         @default("owner")
+  search       String         @default("")
+  statusFilter ProjectStatus?
+  filtersJson  Json?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([userId])
+}
+
+model ImportJob {
+  id                  String          @id @default(cuid())
+  createdByUserId     String
+  createdBy           User            @relation("ImportCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  sourceSystem        String          @default("loop")
+  fileName            String
+  status              ImportJobStatus @default(queued_parse)
+  sourceContent       String
+  headers             Json?
+  mapping             Json?
+  suggestedMapping    Json?
+  totalRowCount       Int             @default(0)
+  createdRowCount     Int             @default(0)
+  updatedRowCount     Int             @default(0)
+  skippedRowCount     Int             @default(0)
+  failedRowCount      Int             @default(0)
+  createdProjectCount Int             @default(0)
+  updatedProjectCount Int             @default(0)
+  createdTaskCount    Int             @default(0)
+  updatedTaskCount    Int             @default(0)
+  lastError           String?
+  completedAt         DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  rows                ImportRow[]
+
+  @@index([status, createdAt])
+  @@index([createdByUserId, createdAt])
+}
+
+model ImportRow {
+  id               String           @id @default(cuid())
+  importId         String
+  importJob        ImportJob        @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowNumber        Int
+  rawData          Json
+  rowOutcome       ImportRowOutcome @default(pending)
+  projectOutcome   ImportRowOutcome @default(pending)
+  taskOutcome      ImportRowOutcome @default(pending)
+  projectId        String?
+  taskId           String?
+  message          String?
+  validationErrors Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([importId, rowNumber])
+  @@index([importId, rowOutcome])
+}
+
+model AuditEvent {
+  id          String          @id @default(cuid())
+  actorUserId String
+  actor       User            @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  entityType  AuditEntityType
+  entityId    String
+  action      String
+  metadata    Json?
+  createdAt   DateTime        @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+}

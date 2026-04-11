@@ -1,0 +1,20 @@
+{
+  "name": "tavi",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "corepack pnpm -r --workspace-concurrency 1 --filter \"./apps/*\" --filter \"./packages/*\" --if-present build",
+    "dev": "corepack pnpm -r --parallel --filter \"./apps/*\" --filter \"./packages/*\" --if-present dev",
+    "lint": "corepack pnpm -r --workspace-concurrency 1 --filter \"./apps/*\" --filter \"./packages/*\" --if-present lint",
+    "test": "corepack pnpm -r --workspace-concurrency 1 --filter \"./apps/*\" --filter \"./packages/*\" --if-present test",
+    "typecheck": "corepack pnpm -r --workspace-concurrency 1 --filter \"./apps/*\" --filter \"./packages/*\" --if-present typecheck",
+    "format": "prettier --check .",
+    "format:write": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.3"
+  }
+}

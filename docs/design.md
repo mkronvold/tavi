@@ -28,9 +28,9 @@ The product is optimized for review-heavy team workflows where people need to sc
 
 | Role | Primary Use | Permissions |
 |---|---|---|
-| Admin | Configure access, manage imports, resolve data issues | Full access, role assignment, import administration, archive/restore |
-| Editor | Create and manage project/task data | Create, edit, regroup, update status, save views |
-| Viewer | Follow progress and join reviews | Read-only access to projects, tasks, and saved views |
+| Admin | Configure access, manage local accounts, manage imports, resolve data issues | Full access, role assignment, local account management, import administration, export of visible data, archive/restore |
+| Editor | Create and manage project/task data | Create, edit, regroup, update status, save views, export visible data |
+| Viewer | Follow progress and join reviews | Read-only access to projects, tasks, and saved views, plus export of visible data |
 
 ## 5. Core Domain Model
 
@@ -59,26 +59,35 @@ A task is a first-class work item directly attached to a project. Tasks are not 
 Recommended fields:
 
 - Title
-- Description
+- Notes
 - Assignee
 - Due date
 - Priority
 - Status
-- Blocked reason
 - Labels/tags
 - Sort order within the project
 - Created at / updated at / completed at
 - Source metadata for imports
 
+In this phase, task notes absorb the prior task description and blocked-reason concepts into a single general-purpose field.
+
 ### Saved View
 
 A saved view stores a named combination of:
 
-- Filters
+- Search text
 - Grouping mode
-- Sort order
-- Expanded/collapsed state defaults
-- Visible columns and density preferences
+- Project-status filter
+- Expanded/collapsed defaults for the grouped workspace
+
+Milestone 4A scope:
+
+- Saved views are personal only.
+- Team/shared views are deferred.
+- Visible columns, density, and other future display settings are deferred.
+
+Panel toggle state for View, Import/Export, New Project, Settings, and per-project Add Task is browser-local UI state and is not part of saved views.
+Theme mode, Auto Collapse, Bulk Actions visibility, and Full Width are also browser-local preferences and are not part of saved views.
 
 ### Import Job
 
@@ -149,7 +158,13 @@ Rollup details shown in the UI should include:
 4. Imported checklist items become tasks under their mapped project.
 5. Import results show successes, skipped rows, and validation failures.
 
-### 7.3 Daily Review / Standup
+### 7.3 Export Current Workspace
+
+1. User opens the Import/Export panel.
+2. User exports the current filtered workspace view as CSV, XLSX, or JSON, or selects the Loop export shape.
+3. Export respects the viewer's current access and filter state.
+
+### 7.4 Daily Review / Standup
 
 1. User opens a saved view or applies filters.
 2. User groups projects by owner, status, due date bucket, or label.
@@ -157,11 +172,19 @@ Rollup details shown in the UI should include:
 4. User updates task status and notes inline during the review.
 5. Project rollup updates immediately.
 
-### 7.4 Exception Handling
+### 7.5 Exception Handling
 
-1. User marks a task blocked and provides a reason.
+1. User marks a task blocked and updates notes if context is needed.
 2. Project rollup reflects the change.
-3. If the derived project status does not match the team's desired summary, an editor or admin can apply a manual override with a reason.
+3. If the derived project status does not match the team's desired summary, an editor or admin can apply a manual override and optionally update project notes.
+
+### 7.6 Manage Local Accounts
+
+1. Admin opens Settings and expands the Local Accounts panel.
+2. Admin can export local accounts as JSON for review or bulk editing. Exported JSON omits passwords.
+3. Admin can import JSON to create or update accounts by email. Existing accounts keep their current password when the imported password field is blank, and new accounts must include a password.
+4. Admin can reset the default `admin@tavi.local`, `editor@tavi.local`, and `viewer@tavi.local` accounts back to `password123` without deleting unrelated local accounts.
+5. The login hint for the default local users returns only after the backend confirms those seeded accounts exist with their default credentials again.
 
 ## 8. Functional Requirements
 
@@ -169,18 +192,22 @@ Rollup details shown in the UI should include:
 
 - Production access uses enterprise SSO via OIDC or SAML.
 - Local development uses a simpler local auth mode.
+- Local auth must support admin-managed local accounts plus self-service password changes.
+- Admin local-account management must support JSON export, JSON import by email, and reset-to-default for the seeded `@tavi.local` accounts.
+- The login screen must show the seeded local-user hint only when the backend confirms the default `@tavi.local` accounts still exist with their default password.
 - Authorization must enforce admin/editor/viewer roles.
 
 ### FR-02 Project Management
 
 - Users can create, edit, archive, restore, and view projects.
 - Projects must support due dates, owners, labels, notes, and priority.
+- Project notes are a general field and are not required to set manual status overrides.
 - Soft deletion or archiving is preferred over hard deletion in v1.
 
 ### FR-03 Task Management
 
 - Users can create, edit, reorder, and archive tasks within a project.
-- Tasks must support assignee, due date, priority, status, labels, and blocked reason.
+- Tasks must support assignee, due date, priority, status, labels, and notes.
 - Tasks exist only under a project in v1.
 
 ### FR-04 Dense Primary Workspace
@@ -188,11 +215,20 @@ Rollup details shown in the UI should include:
 - The default workspace is a dense grouped list/table.
 - The workspace must display both project rows and task rows.
 - Expand/collapse must work at both group and project levels.
+- Settings must allow Auto Collapse so opening one project can collapse the others when the user wants a single-project focus mode.
+- Settings must allow Bulk Actions to be shown or hidden so task-selection checkboxes can stay out of the way when multi-select editing is not needed.
+- Settings must allow Full Width so the workspace can expand past the default centered reading width on large screens.
+- Search, grouping, and project-status controls should float left without a framed card.
+- Compact toggle buttons for View, Import/Export, New Project, and Settings should float to the right on the same row when space allows.
+- Per-project Add Task UI should stay hidden behind a lightweight toggle until needed.
 
 ### FR-05 Inline Editing
 
 - Core project and task fields must be editable inline without navigating away.
 - Inline edits should preserve context and avoid full-page reloads.
+- New-task and inline-task editing controls should align to the visible task-table columns.
+- Edit and History row actions should stay compact and right-justified.
+- Projects must support an optional Tracker Link field that can be opened in a separate browser tab/window.
 
 ### FR-06 Sorting, Filtering, and Regrouping
 
@@ -203,22 +239,29 @@ Rollup details shown in the UI should include:
 
 - Project status is derived from tasks by default.
 - The UI must display rollup counts and completion progress alongside each project.
+- Project rows should show completion counts and completion percentage without requiring expansion.
 - Manual overrides must remain visible and auditable.
 
 ### FR-08 Saved Views
 
-- Users can save personal or team views.
-- Views persist filters, grouping, sorting, and display density.
+- Users can save personal workspace views.
+- Milestone 4A views persist search, grouping, project-status filtering, and
+  expanded/collapsed defaults.
+- Team/shared views and future display preferences remain out of scope for this
+  pass.
+- Panel toggle state is persisted locally in the browser, not in saved views.
 
 ### FR-09 Search
 
-- Users can search across project titles, task titles, owners, assignees, and labels.
+- Users can search across project titles, project notes, task titles, task notes, owners, assignees, and labels.
 
-### FR-10 Import from Loop
+### FR-10 Import and Export
 
 - v1 must support CSV or export-based import from Loop.
 - Import must provide preview, validation, and error reporting.
 - Imported checklist items become tasks in the destination project.
+- The Import/Export panel must also provide CSV, XLSX, and JSON exports of the current filtered workspace view plus a Loop-oriented export shape.
+- Export must be available to all authenticated users for the data they can see.
 
 ### FR-11 Audit History
 
@@ -248,6 +291,7 @@ Rollup details shown in the UI should include:
 - Compact row density with minimal visual chrome.
 - Secondary actions should be visually quiet until hover or focus.
 - Common edits should happen inline or in lightweight drawers/modals.
+- Theme mode should be switchable between light and dark in Settings and persist per browser.
 
 ### Visualization Requirements
 
@@ -272,9 +316,13 @@ Rollup details shown in the UI should include:
 1. Every task belongs to exactly one project.
 2. Projects support only one task level in v1.
 3. Archived projects and tasks are hidden from default views but recoverable.
-4. A blocked task should require a blocked reason.
-5. Manual project status overrides require a reason and audit entry.
+4. Task notes are available regardless of status, and blocked tasks do not require a dedicated blocked-reason field.
+5. Manual project status overrides remain auditable and do not require notes.
 6. Imported records should preserve source metadata for traceability.
+7. Panel toggle state should persist locally per browser and be clearable without removing unrelated site data.
+8. Exports should only include data visible to the authenticated user at export time.
+9. Theme mode, Auto Collapse, Bulk Actions visibility, and Full Width preferences should persist locally per browser and not affect saved views.
+10. Tracker Link is optional project metadata and should open externally rather than embedding another tracker inside Tavi.
 
 ## 11. v1 Scope
 
@@ -287,7 +335,10 @@ Rollup details shown in the UI should include:
 - Inline editing
 - Filtering, sorting, regrouping, saved views
 - Derived project status with manual override
+- Project tracker links
 - CSV/export-based Loop import
+- CSV, XLSX, JSON, and Loop-oriented exports of the current filtered workspace
+- Settings panel with local account management, theme mode, Auto Collapse, Bulk Actions visibility, and Full Width in local-auth mode
 - Audit history
 
 ### Nice to Have if Time Allows
@@ -312,9 +363,11 @@ To reduce ambiguity before implementation, the following supporting docs are rec
 2. `docs/api-contract.md` for concrete request/response shapes and error models.
 3. `docs/data-dictionary.md` for field definitions, enums, and validation rules.
 4. `docs/import-mapping.md` for the Loop export format, column mapping, and migration rules.
-5. `docs/ops-runbook.md` for deployment, rollback, and operational procedures.
-6. `adr/` entries for major architectural decisions that may evolve during implementation.
-7. `docs/branding.md` for canonical naming, stylized display usage, and first-use product copy.
+5. `docs/export-formats.md` for CSV, XLSX, JSON, and Loop export shapes.
+6. `docs/local-auth-admin.md` for local account lifecycle rules and role-based settings behavior.
+7. `docs/ops-runbook.md` for deployment, rollback, and operational procedures.
+8. `adr/` entries for major architectural decisions that may evolve during implementation.
+9. `docs/branding.md` for canonical naming, stylized display usage, and first-use product copy.
 
 ## 13. Reference Alignment
 

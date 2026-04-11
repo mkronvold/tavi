@@ -28,22 +28,22 @@ This architecture assumes the approved full TypeScript stack decision.
 
 ## 3. Recommended Stack
 
-| Layer | Recommendation | Notes |
-|---|---|---|
-| Package management | `pnpm` workspaces | Fast installs and good monorepo support |
-| Build orchestration | `turbo` | Optional but useful for caching and task coordination |
-| Web app | React + TypeScript + Vite | Good fit for a dense internal SPA |
-| Data fetching | TanStack Query | Caching, invalidation, and optimistic updates |
-| Table/view layer | TanStack Table + row virtualization | Supports grouped, dense, expandable views |
-| UI primitives | Radix UI + Tailwind CSS | Good accessibility with compact custom styling |
-| Local UI state | Zustand | Lightweight state for expansion, density, and transient UI state |
-| API | NestJS with Fastify adapter | Structured backend with strong TypeScript ergonomics |
-| Validation | Zod shared schemas | Reusable request/response and domain validation |
-| ORM | Prisma | Type-safe data access and migration workflow |
-| Background jobs | `pg-boss` | Postgres-backed job queue, avoids another runtime dependency |
-| Database | PostgreSQL 16+ | Reliable relational model for projects/tasks/imports |
-| Testing | Vitest, React Testing Library, Playwright | Unit, integration, and end-to-end coverage |
-| Observability | OpenTelemetry + structured logs + Prometheus metrics | Good baseline for Kubernetes operations |
+| Layer               | Recommendation                                                               | Notes                                                            |
+| ------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Package management  | `pnpm` workspaces                                                            | Fast installs and good monorepo support                          |
+| Build orchestration | `turbo`                                                                      | Optional but useful for caching and task coordination            |
+| Web app             | React + TypeScript + Vite                                                    | Good fit for a dense internal SPA                                |
+| Data fetching       | TanStack Query                                                               | Caching, invalidation, and optimistic updates                    |
+| Table/view layer    | TanStack Table + row virtualization                                          | Supports grouped, dense, expandable views                        |
+| UI primitives       | Radix UI + Tailwind CSS                                                      | Good accessibility with compact custom styling                   |
+| Local UI state      | Zustand                                                                      | Lightweight state for expansion, density, and transient UI state |
+| API                 | NestJS with Fastify adapter                                                  | Structured backend with strong TypeScript ergonomics             |
+| Validation          | Zod shared schemas                                                           | Reusable request/response and domain validation                  |
+| ORM                 | Prisma                                                                       | Type-safe data access and migration workflow                     |
+| Background jobs     | `pg-boss`                                                                    | Postgres-backed job queue, avoids another runtime dependency     |
+| Database            | PostgreSQL 16+                                                               | Reliable relational model for projects/tasks/imports             |
+| Testing             | Vitest, React Testing Library, Playwright                                    | Unit, integration, and end-to-end coverage                       |
+| Observability       | Structured logs + Prometheus metrics, with OpenTelemetry tracing added later | Good operational baseline without overbuilding the first release |
 
 ## 4. Repository Layout
 
@@ -69,8 +69,9 @@ infra/
 
 - React SPA
 - Dense grouped workspace
-- Import flow UI
+- Import and export UI
 - Saved views UI
+- Settings and local account management UI
 - Role-aware navigation
 
 ### apps/api
@@ -107,6 +108,8 @@ Browser
 - Serves the React application
 - Reads session state from the API
 - Stores filter/group/sort state in the URL and saved views
+- Stores panel toggle state, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and per-project Add Task expansion in browser-local Tavi storage
+- Reads deployment-specific browser entry URLs such as the temporary header home link from a small runtime config file so Docker and Kubernetes can override them without rebuilding the app
 
 ### API
 
@@ -127,7 +130,6 @@ Recommended primary tables:
 - `users`
 - `role_assignments`
 - `projects`
-- `project_status_overrides`
 - `tasks`
 - `labels`
 - `project_labels`
@@ -144,12 +146,13 @@ Important columns:
 - `id`
 - `title`
 - `summary`
+- `tracker_link`
 - `owner_user_id`
 - `due_date`
 - `priority`
 - `derived_status`
 - `display_status`
-- `status_override_reason`
+- `notes`
 - `task_total_count`
 - `task_todo_count`
 - `task_in_progress_count`
@@ -170,11 +173,10 @@ Important columns:
 - `id`
 - `project_id`
 - `title`
-- `description`
+- `notes`
 - `assignee_user_id`
 - `status`
 - `priority`
-- `blocked_reason`
 - `due_date`
 - `sort_order`
 - `source_system`
@@ -184,17 +186,22 @@ Important columns:
 - `updated_at`
 - `completed_at`
 
+Migration note:
+
+- Existing task descriptions and blocked reasons should be preserved by merging them into `tasks.notes`.
+- Existing project override reasons should seed `projects.notes`.
+
 ### saved_views
 
 Store:
 
 - Name
-- Owner or team scope
-- Filters
+- Owner scope for Milestone 4A
+- Search text
 - Grouping mode
-- Sort configuration
-- Visible columns
-- Density preference
+- Project-status filter
+- Expanded/collapsed defaults for groups and projects
+- Future display settings in `filters_json` as the product grows
 
 ### imports / import_rows
 
@@ -245,6 +252,15 @@ Representative endpoints:
 - `DELETE /api/projects/:projectId/status-override`
 - `GET /api/views`
 - `POST /api/views`
+- `GET /api/auth/local-login-hint`
+- `GET /api/auth/accounts`
+- `GET /api/auth/accounts/export`
+- `POST /api/auth/accounts`
+- `POST /api/auth/accounts/import`
+- `POST /api/auth/accounts/reset-defaults`
+- `PATCH /api/auth/accounts/:userId`
+- `POST /api/auth/accounts/:userId/password`
+- `DELETE /api/auth/accounts/:userId`
 - `POST /api/imports/loop`
 - `GET /api/imports/:importId`
 
@@ -264,8 +280,10 @@ OpenAPI generation is recommended so the API contract remains explicit.
 
 - Server state comes from TanStack Query.
 - URL state stores filters, grouping, sorting, and focused context.
-- Local state stores expanded rows, transient editing state, and UI density.
+- Local state stores expanded rows, transient editing state, panel toggles, and per-project Add Task visibility.
+- Browser-local Tavi storage persists panel toggles, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and other local-only UI preferences.
 - Saved views persist reusable workspace configurations.
+- Saved views intentionally do not persist local panel toggles or other browser-only preferences.
 
 ### UI Composition
 
@@ -276,7 +294,10 @@ Recommended modules:
 - Project detail drawer
 - Task inline editor
 - Filter and grouping controls
-- Import wizard
+- View panel
+- Import/Export panel
+- Settings panel
+- Local accounts panel
 - Audit/history panel
 
 ### Rendering Strategy
@@ -305,6 +326,7 @@ Recommended service boundaries:
 - `TaskService` for task CRUD, ordering, and status updates
 - `ViewService` for saved views
 - `ImportService` for upload, preview, staging, and commit
+- `LocalAccountService` for local account CRUD, role changes, and password management
 - `AuditService` for immutable change history
 
 Use request validation at the edge and keep business rules in service-layer code rather than controllers.
@@ -321,6 +343,10 @@ Use request validation at the edge and keep business rules in service-layer code
 
 - Enable a local auth mode only outside production.
 - Allow preconfigured local roles for testing admin/editor/viewer behavior.
+- Allow admins to create, edit, remove, and set passwords for local accounts.
+- Allow admins to export local accounts as JSON, import JSON account changes by email, and reset the seeded `@tavi.local` accounts back to known credentials without deleting unrelated local accounts.
+- Allow non-admins to change only their own local password.
+- Expose an unauthenticated login-hint endpoint so the login screen advertises the seeded local users only while those accounts still exist with their default password.
 - Guard the local auth mode behind environment configuration so it cannot be enabled accidentally in production.
 
 ### Security Controls
@@ -350,6 +376,16 @@ Implementation notes:
 - Batch writes to avoid long transactions.
 - Fail individual rows clearly without hiding errors behind a generic import failure.
 
+### Export architecture
+
+- Support on-demand exports of the current filtered workspace view as CSV, XLSX, and JSON.
+- Support a Loop-oriented export that flattens projects and tasks into a row-based interchange shape.
+- Export scope must be limited to the current user's visible data and active filter state.
+- In the current implementation, exports are generated in the web app from the already-loaded filtered workspace data rather than through dedicated API endpoints.
+- Local-account bulk import/export/reset remains API-backed because the server owns password rules, seeded-account reset behavior, and login-hint visibility.
+- If export volume or access rules outgrow the workspace payload, dedicated export endpoints can be added later without changing the panel UX.
+- Clear local-storage actions should remove only Tavi-owned browser keys, not unrelated site data.
+
 ## 13. Local Development
 
 Recommended local stack via Docker Compose:
@@ -362,6 +398,7 @@ Recommended local stack via Docker Compose:
 Local development requirements:
 
 - Fast container rebuilds with bind mounts
+- Committed Prisma migrations applied automatically on local stack startup
 - Seed data for realistic grouped views
 - Simple local auth mode
 - One-command startup for the full stack
@@ -377,14 +414,18 @@ Recommended production topology:
 - `worker` Deployment
 - Ingress for web and API routing
 - Managed PostgreSQL outside the cluster when possible
+- Raw Kubernetes manifests checked into `infra/k8s/`
 
 Recommended Kubernetes practices:
 
 - Readiness and liveness probes on every runtime
 - Horizontal autoscaling for `web` and `api`
 - Rolling deployments
+- Run committed Prisma migrations before API pods become ready
 - Pod disruption budgets for API and worker where appropriate
 - Config via ConfigMaps and secrets via Secrets or external secret sync
+
+Use raw manifests as the repo standard for the initial implementation. Do not introduce Helm or Kustomize unless the deployment complexity later proves that they are needed.
 
 Use separate images for `web`, `api`, and `worker` so they can scale independently.
 
@@ -392,14 +433,16 @@ Use separate images for `web`, `api`, and `worker` so they can scale independent
 
 Minimum operational baseline:
 
-- Structured JSON logs with request and correlation IDs
-- Metrics for request latency, error rates, job throughput, and import failures
-- Distributed traces across web request paths and background jobs
-- Health endpoints for container orchestration
+- Structured JSON logs from the API and worker with request IDs, correlation IDs, and import/job identifiers
+- Prometheus metrics at `/api/metrics` for API latency, status codes, and process health
+- Worker readiness at `/health` and Prometheus metrics at `/metrics` for job throughput, duration, and import row failures
+- Kubernetes scrape annotations and health probes wired to those endpoints
+
+Distributed tracing can layer on later once the logging and metrics baseline is proven useful in production.
 
 Operational requirements:
 
-- Automated database migrations in deployment workflows
+- Automated database migrations in deployment workflows using `prisma migrate deploy`
 - Backups for PostgreSQL
 - Clear rollback path for app releases and schema changes
 

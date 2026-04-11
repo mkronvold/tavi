@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(
+  CDPATH= builtin cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+  command pwd -P
+)"
+repo_root="$(
+  CDPATH= builtin cd -- "${script_dir}/.."
+  command pwd -P
+)"
+compose_file="${repo_root}/infra/docker/compose.yaml"
+
+if [[ ! -f "${compose_file}" ]]; then
+  printf 'Compose file not found: %s\n' "${compose_file}" >&2
+  exit 1
+fi
+
+exec docker compose -f "${compose_file}" down "$@"

@@ -1,0 +1,226 @@
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import type { AuditEntityType, LocalLoginHintResponse } from '@tavi/schemas';
+import { Prisma, Role } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import type { FastifyReply } from 'fastify';
+import type { AuthenticatedRequest, SessionUser } from './auth.types';
+import {
+  DEFAULT_LOCAL_USER_EMAILS,
+  DEFAULT_LOCAL_USERS,
+} from './default-local-users';
+import { PrismaService } from './prisma.service';
+
+const SESSION_COOKIE = 'tavi_session';
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+const LOCAL_AUTH_MODE = 'local';
+type AuditWriteClient = PrismaService | Prisma.TransactionClient;
+
+@Injectable()
+export class AuthService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async login(email: string, password: string): Promise<SessionUser> {
+    this.requireLocalAuthMode();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { roleAssignment: true },
+    });
+
+    if (!user?.roleAssignment) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordMatches = await this.verifyPassword(
+      password,
+      user.passwordHash,
+    );
+
+    if (!passwordMatches) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    await this.recordAudit(user.id, 'auth', user.id, 'login', {
+      role: user.roleAssignment.role,
+    });
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.roleAssignment.role,
+    };
+  }
+
+  setSessionCookie(reply: FastifyReply, user: SessionUser) {
+    const payload = Buffer.from(JSON.stringify(user), 'utf8').toString(
+      'base64url',
+    );
+
+    reply.setCookie(SESSION_COOKIE, payload, {
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      signed: true,
+      maxAge: SESSION_MAX_AGE_SECONDS,
+    });
+  }
+
+  clearSessionCookie(reply: FastifyReply) {
+    reply.clearCookie(SESSION_COOKIE, {
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      signed: true,
+    });
+  }
+
+  async getSessionUser(
+    request: AuthenticatedRequest,
+  ): Promise<SessionUser | null> {
+    const cookie = request.cookies[SESSION_COOKIE];
+
+    if (!cookie) {
+      return null;
+    }
+
+    const unsigned = request.unsignCookie(cookie);
+
+    if (!unsigned.valid || !unsigned.value) {
+      return null;
+    }
+
+    try {
+      const payload = JSON.parse(
+        Buffer.from(unsigned.value, 'base64url').toString('utf8'),
+      ) as SessionUser;
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.id },
+        include: { roleAssignment: true },
+      });
+
+      if (!user?.roleAssignment) {
+        return null;
+      }
+
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.roleAssignment.role,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  requireEditAccess(user: SessionUser) {
+    if (user.role === Role.viewer) {
+      throw new ForbiddenException('Viewers cannot modify workspace data');
+    }
+  }
+
+  requireAdminAccess(
+    user: SessionUser,
+    message = 'Only admins can perform this action',
+  ) {
+    if (user.role !== Role.admin) {
+      throw new ForbiddenException(message);
+    }
+  }
+
+  requireLocalAuthMode() {
+    if (!this.isLocalAuthModeEnabled()) {
+      throw new ForbiddenException('Local authentication is disabled');
+    }
+  }
+
+  async getLocalLoginHintStatus(): Promise<LocalLoginHintResponse> {
+    if (!this.isLocalAuthModeEnabled()) {
+      return { visible: false };
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        email: {
+          in: DEFAULT_LOCAL_USER_EMAILS,
+        },
+      },
+      select: {
+        email: true,
+        passwordHash: true,
+        roleAssignment: {
+          select: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (users.length !== DEFAULT_LOCAL_USERS.length) {
+      return { visible: false };
+    }
+
+    const usersByEmail = new Map(users.map((user) => [user.email, user]));
+
+    for (const defaultUser of DEFAULT_LOCAL_USERS) {
+      const user = usersByEmail.get(defaultUser.email);
+
+      if (!user?.roleAssignment) {
+        return { visible: false };
+      }
+
+      const passwordMatches = await this.verifyPassword(
+        defaultUser.password,
+        user.passwordHash,
+      );
+
+      if (!passwordMatches) {
+        return { visible: false };
+      }
+    }
+
+    return { visible: true };
+  }
+
+  async hashPassword(password: string) {
+    this.requireLocalAuthMode();
+    return bcrypt.hash(password, 10);
+  }
+
+  async verifyPassword(password: string, passwordHash: string) {
+    return bcrypt.compare(password, passwordHash);
+  }
+
+  async recordAudit(
+    actorUserId: string,
+    entityType: AuditEntityType,
+    entityId: string,
+    action: string,
+    metadata?: Record<string, unknown>,
+    prismaClient: AuditWriteClient = this.prisma,
+  ) {
+    await prismaClient.auditEvent.create({
+      data: {
+        actorUserId,
+        entityType,
+        entityId,
+        action,
+        ...(metadata
+          ? {
+              metadata: metadata as Prisma.InputJsonValue,
+            }
+          : {}),
+      },
+    });
+  }
+
+  private isLocalAuthModeEnabled() {
+    return (process.env.AUTH_MODE ?? LOCAL_AUTH_MODE) === LOCAL_AUTH_MODE;
+  }
+}
