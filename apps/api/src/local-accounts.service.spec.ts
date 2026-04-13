@@ -98,14 +98,22 @@ describe('LocalAccountsService', () => {
     const updateUserMock: jest.MockedFunction<
       (args: UpdateUserCall) => Promise<unknown>
     > = jest.fn();
+    const updateManyProjectMock = jest.fn();
+    const updateManyTaskMock = jest.fn();
     const deleteUserMock = jest.fn();
     const createAuditEventTxMock = jest.fn(() => Promise.resolve());
     const tx = {
       auditEvent: {
         create: createAuditEventTxMock,
       },
+      project: {
+        updateMany: updateManyProjectMock,
+      },
       roleAssignment: {
         count: countRoleAssignmentsMock,
+      },
+      task: {
+        updateMany: updateManyTaskMock,
       },
       user: {
         create: createUserMock,
@@ -142,6 +150,8 @@ describe('LocalAccountsService', () => {
         findUniqueUserMock,
         transactionMock,
         tx,
+        updateManyProjectMock,
+        updateManyTaskMock,
         updateUserMock,
       },
       service: new LocalAccountsService(prisma, authService),
@@ -205,7 +215,15 @@ describe('LocalAccountsService', () => {
       },
     ]);
     expect(mocks.findManyUsersMock).toHaveBeenCalledWith({
-      include: { roleAssignment: true },
+      include: {
+        roleAssignment: true,
+        _count: {
+          select: {
+            assignedTasks: true,
+            ownedProjects: true,
+          },
+        },
+      },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
     });
   });
@@ -310,7 +328,7 @@ describe('LocalAccountsService', () => {
     [
       'deleting accounts',
       (service: LocalAccountsService) =>
-        service.deleteAccount('user-2', editorActor),
+        service.deleteAccount('user-2', {}, editorActor),
     ],
   ])('blocks non-admins from %s', async (_label, action) => {
     const { mocks, service } = createService();
@@ -931,13 +949,192 @@ describe('LocalAccountsService', () => {
       ),
     );
 
-    const result = await service.deleteAccount('user-3', adminActor);
+    const result = await service.deleteAccount('user-3', {}, adminActor);
 
     expect(result).toEqual({ id: 'user-3' });
     expect(mocks.deleteUserMock).toHaveBeenCalledWith({
       where: { id: 'user-3' },
     });
+    expect(mocks.updateManyTaskMock).not.toHaveBeenCalled();
     expect(mocks.createAuditEventTxMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reassigns assigned tasks before deleting an account', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findUniqueUserMock
+      .mockResolvedValueOnce(
+        Object.assign(
+          createUserFixture({
+            id: 'user-4',
+            email: 'busy.user@tavi.local',
+            name: 'Busy User',
+            roleAssignment: {
+              role: Role.viewer,
+            },
+          }),
+          {
+            _count: {
+              assignedTasks: 2,
+              ownedProjects: 0,
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        createUserFixture({
+          id: 'user-9',
+          email: 'new.assignee@tavi.local',
+          name: 'New Assignee',
+          roleAssignment: {
+            role: Role.editor,
+          },
+        }),
+      );
+
+    const result = await service.deleteAccount(
+      'user-4',
+      { nextTaskAssigneeUserId: 'user-9' },
+      adminActor,
+    );
+
+    expect(result).toEqual({ id: 'user-4' });
+    expect(mocks.updateManyProjectMock).not.toHaveBeenCalled();
+    expect(mocks.updateManyTaskMock).toHaveBeenCalledWith({
+      where: { assigneeUserId: 'user-4' },
+      data: { assigneeUserId: 'user-9' },
+    });
+    expect(mocks.deleteUserMock).toHaveBeenCalledWith({
+      where: { id: 'user-4' },
+    });
+  });
+
+  it('reassigns owned projects before deleting an account', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findUniqueUserMock
+      .mockResolvedValueOnce(
+        Object.assign(
+          createUserFixture({
+            id: 'user-4',
+            email: 'owner.user@tavi.local',
+            name: 'Owner User',
+            roleAssignment: {
+              role: Role.viewer,
+            },
+          }),
+          {
+            _count: {
+              assignedTasks: 0,
+              ownedProjects: 2,
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        createUserFixture({
+          id: 'user-9',
+          email: 'new.owner@tavi.local',
+          name: 'New Owner',
+          roleAssignment: {
+            role: Role.editor,
+          },
+        }),
+      );
+
+    const result = await service.deleteAccount(
+      'user-4',
+      { nextProjectOwnerUserId: 'user-9' },
+      adminActor,
+    );
+
+    expect(result).toEqual({ id: 'user-4' });
+    expect(mocks.updateManyProjectMock).toHaveBeenCalledWith({
+      where: { ownerUserId: 'user-4' },
+      data: { ownerUserId: 'user-9' },
+    });
+    expect(mocks.updateManyTaskMock).not.toHaveBeenCalled();
+    expect(mocks.deleteUserMock).toHaveBeenCalledWith({
+      where: { id: 'user-4' },
+    });
+  });
+
+  it('clears owned projects before deleting an account', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findUniqueUserMock.mockResolvedValue(
+      Object.assign(
+        createUserFixture({
+          id: 'user-4',
+          email: 'owner.user@tavi.local',
+          name: 'Owner User',
+          roleAssignment: {
+            role: Role.viewer,
+          },
+        }),
+        {
+          _count: {
+            assignedTasks: 0,
+            ownedProjects: 2,
+          },
+        },
+      ),
+    );
+
+    const result = await service.deleteAccount(
+      'user-4',
+      { nextProjectOwnerUserId: null },
+      adminActor,
+    );
+
+    expect(result).toEqual({ id: 'user-4' });
+    expect(mocks.updateManyProjectMock).toHaveBeenCalledWith({
+      where: { ownerUserId: 'user-4' },
+      data: { ownerUserId: null },
+    });
+    expect(mocks.updateManyTaskMock).not.toHaveBeenCalled();
+    expect(mocks.deleteUserMock).toHaveBeenCalledWith({
+      where: { id: 'user-4' },
+    });
+  });
+
+  it('clears assigned tasks before deleting an account', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findUniqueUserMock.mockResolvedValue(
+      Object.assign(
+        createUserFixture({
+          id: 'user-4',
+          email: 'busy.user@tavi.local',
+          name: 'Busy User',
+          roleAssignment: {
+            role: Role.viewer,
+          },
+        }),
+        {
+          _count: {
+            assignedTasks: 2,
+            ownedProjects: 0,
+          },
+        },
+      ),
+    );
+
+    const result = await service.deleteAccount(
+      'user-4',
+      { nextTaskAssigneeUserId: null },
+      adminActor,
+    );
+
+    expect(result).toEqual({ id: 'user-4' });
+    expect(mocks.updateManyProjectMock).not.toHaveBeenCalled();
+    expect(mocks.updateManyTaskMock).toHaveBeenCalledWith({
+      where: { assigneeUserId: 'user-4' },
+      data: { assigneeUserId: null },
+    });
+    expect(mocks.deleteUserMock).toHaveBeenCalledWith({
+      where: { id: 'user-4' },
+    });
   });
 
   it('blocks deleting accounts with related data', async () => {
@@ -963,7 +1160,7 @@ describe('LocalAccountsService', () => {
     );
 
     await expect(
-      service.deleteAccount('user-4', adminActor),
+      service.deleteAccount('user-4', {}, adminActor),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(mocks.deleteUserMock).not.toHaveBeenCalled();
   });

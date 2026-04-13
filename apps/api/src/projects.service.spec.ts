@@ -7,10 +7,17 @@ describe('ProjectsService', () => {
   type CreateProjectCall = {
     data: Record<string, unknown>;
   };
+  type CreateTaskCall = {
+    data: Record<string, unknown>;
+  };
 
   type UpdateProjectCall = {
     data: Record<string, unknown>;
     where: { id: string };
+  };
+  type UpdateManyTasksCall = {
+    data: Record<string, unknown>;
+    where: Record<string, unknown>;
   };
 
   const actor: SessionUser = {
@@ -23,7 +30,6 @@ describe('ProjectsService', () => {
   const existingProject = {
     id: 'project-1',
     title: 'Roadmap refresh',
-    summary: 'Validate overrides',
     notes: null,
     trackerLink: null,
     ownerUserId: 'user-1',
@@ -32,6 +38,7 @@ describe('ProjectsService', () => {
     derivedStatus: 'in_progress',
     displayStatus: 'in_progress',
     manualStatus: null,
+    taskTotalCount: 0,
     archivedAt: null,
   };
 
@@ -39,10 +46,34 @@ describe('ProjectsService', () => {
     const createProjectMock: jest.MockedFunction<
       (args: CreateProjectCall) => Promise<unknown>
     > = jest.fn();
+    const createTaskMock: jest.MockedFunction<
+      (args: CreateTaskCall) => Promise<unknown>
+    > = jest.fn();
+    const findFirstProjectMock = jest.fn();
+    const findFirstTaskMock = jest.fn();
     const findUniqueMock = jest.fn();
     const updateProjectMock: jest.MockedFunction<
       (args: UpdateProjectCall) => Promise<unknown>
     > = jest.fn();
+    const updateManyTasksMock: jest.MockedFunction<
+      (args: UpdateManyTasksCall) => Promise<{ count: number }>
+    > = jest.fn();
+    const tx = {
+      project: {
+        create: createProjectMock,
+        findFirst: findFirstProjectMock,
+        findUnique: findUniqueMock,
+        update: updateProjectMock,
+      },
+      task: {
+        create: createTaskMock,
+        findFirst: findFirstTaskMock,
+        updateMany: updateManyTasksMock,
+      },
+    };
+    const transactionMock = jest.fn(
+      (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    );
     const requireEditAccessMock = jest.fn();
     const recordAuditCalls: Array<Parameters<AuthService['recordAudit']>> = [];
     const recordAuditMock = jest.fn(
@@ -52,10 +83,17 @@ describe('ProjectsService', () => {
       },
     );
     const prisma = {
+      $transaction: transactionMock,
       project: {
         create: createProjectMock,
+        findFirst: findFirstProjectMock,
         findUnique: findUniqueMock,
         update: updateProjectMock,
+      },
+      task: {
+        create: createTaskMock,
+        findFirst: findFirstTaskMock,
+        updateMany: updateManyTasksMock,
       },
     } as unknown as PrismaService;
     const authService = {
@@ -66,14 +104,46 @@ describe('ProjectsService', () => {
     return {
       mocks: {
         createProjectMock,
+        createTaskMock,
+        findFirstProjectMock,
+        findFirstTaskMock,
         findUniqueMock,
         recordAuditCalls,
         recordAuditMock,
         requireEditAccessMock,
+        transactionMock,
+        tx,
         updateProjectMock,
+        updateManyTasksMock,
       },
       service: new ProjectsService(prisma, authService),
     };
+  };
+
+  const expectRecordAuditCall = (
+    actual: Parameters<AuthService['recordAudit']>,
+    {
+      action,
+      entityId,
+      entityType,
+      metadata,
+      tx,
+    }: {
+      action: string;
+      entityId: string;
+      entityType: 'project' | 'task';
+      metadata: unknown;
+      tx?: unknown;
+    },
+  ) => {
+    expect(actual).toEqual([
+      actor,
+      entityType,
+      entityId,
+      action,
+      metadata,
+      ...(tx === undefined ? [] : [tx]),
+    ]);
   };
 
   it('creates projects with normalized tracker links and audit metadata', async () => {
@@ -87,7 +157,6 @@ describe('ProjectsService', () => {
     const result = await service.createProject(
       {
         title: 'Roadmap refresh',
-        summary: 'Validate overrides',
         trackerLink: '  https://tracker.example.com/projects/roadmap-refresh  ',
         ownerUserId: 'user-1',
         priority: 'medium',
@@ -99,7 +168,6 @@ describe('ProjectsService', () => {
     expect(mocks.createProjectMock).toHaveBeenCalledWith({
       data: {
         title: 'Roadmap refresh',
-        summary: 'Validate overrides',
         notes: null,
         trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
         ownerUserId: 'user-1',
@@ -109,23 +177,264 @@ describe('ProjectsService', () => {
         displayStatus: 'not_started',
       },
     });
-    expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'create',
-      {
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'create',
+      metadata: expect.objectContaining({
         title: 'Roadmap refresh',
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
         trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
-      },
-    ]);
+        changedFields: ['title', 'ownerUserId', 'priority', 'trackerLink'],
+        changes: [
+          { field: 'title', from: null, to: 'Roadmap refresh' },
+          { field: 'ownerUserId', from: null, to: 'user-1' },
+          { field: 'priority', from: null, to: 'medium' },
+          {
+            field: 'trackerLink',
+            from: null,
+            to: 'https://tracker.example.com/projects/roadmap-refresh',
+          },
+        ],
+      }),
+    });
     expect(result).toMatchObject({
       id: 'project-1',
       trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
     });
+  });
+
+  it('converts taskless projects into tasks inside an auto-created Unassigned project', async () => {
+    const { mocks, service } = createService();
+    const archivedAt = new Date('2026-02-03T10:00:00.000Z');
+
+    mocks.findUniqueMock.mockResolvedValue({
+      ...existingProject,
+      notes: 'Awaiting dependency',
+      trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+      displayStatus: 'blocked',
+      manualStatus: 'blocked',
+      taskTotalCount: 0,
+    });
+    mocks.findFirstProjectMock.mockResolvedValue(null);
+    mocks.createProjectMock.mockResolvedValue({
+      id: 'project-unassigned',
+      title: 'Unassigned',
+      notes: null,
+      trackerLink: null,
+      ownerUserId: 'user-1',
+      dueDate: null,
+      priority: 'medium',
+      archivedAt: null,
+    });
+    mocks.findFirstTaskMock.mockResolvedValue({
+      sortOrder: 2,
+    });
+    mocks.createTaskMock.mockResolvedValue({
+      id: 'task-3',
+      projectId: 'project-unassigned',
+      title: 'Roadmap refresh',
+      notes: 'Awaiting dependency',
+      assigneeUserId: 'user-1',
+      dueDate: null,
+      priority: 'medium',
+      status: 'blocked',
+    });
+    mocks.findUniqueMock
+      .mockResolvedValueOnce({
+        ...existingProject,
+        notes: 'Awaiting dependency',
+        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        displayStatus: 'blocked',
+        manualStatus: 'blocked',
+        taskTotalCount: 0,
+      })
+      .mockResolvedValueOnce({
+        id: 'project-unassigned',
+        title: 'Unassigned',
+        notes: null,
+        trackerLink: null,
+        ownerUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        derivedStatus: 'not_started',
+        displayStatus: 'not_started',
+        manualStatus: null,
+        tasks: [
+          {
+            dueDate: null,
+            status: 'blocked',
+            archivedAt: null,
+          },
+        ],
+      });
+    mocks.updateProjectMock
+      .mockResolvedValueOnce({
+        ...existingProject,
+        notes: 'Awaiting dependency',
+        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        displayStatus: 'blocked',
+        manualStatus: 'blocked',
+        taskTotalCount: 0,
+        archivedAt,
+      })
+      .mockResolvedValueOnce({
+        id: 'project-unassigned',
+        title: 'Unassigned',
+        notes: null,
+        trackerLink: null,
+        ownerUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        derivedStatus: 'blocked',
+        displayStatus: 'blocked',
+        manualStatus: null,
+      });
+
+    const result = await service.convertProjectToTask('project-1', {}, actor);
+
+    expect(mocks.requireEditAccessMock).toHaveBeenCalledWith(actor);
+    expect(mocks.transactionMock).toHaveBeenCalledTimes(1);
+    expect(mocks.findFirstProjectMock).toHaveBeenCalledWith({
+      where: {
+        archivedAt: null,
+        id: { not: 'project-1' },
+        title: {
+          equals: 'Unassigned',
+          mode: 'insensitive',
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(mocks.createProjectMock).toHaveBeenCalledWith({
+      data: {
+        title: 'Unassigned',
+        notes: null,
+        trackerLink: null,
+        ownerUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        derivedStatus: 'not_started',
+        displayStatus: 'not_started',
+      },
+    });
+    expect(mocks.findFirstTaskMock).toHaveBeenCalledWith({
+      where: { projectId: 'project-unassigned' },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    expect(mocks.createTaskMock).toHaveBeenCalledWith({
+      data: {
+        projectId: 'project-unassigned',
+        title: 'Roadmap refresh',
+        notes: 'Awaiting dependency',
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        status: 'blocked',
+        sortOrder: 3,
+        completedAt: null,
+      },
+    });
+
+    const projectUpdateCall = mocks.updateProjectMock.mock.calls[0]?.[0];
+
+    expect(projectUpdateCall).toMatchObject({
+      where: { id: 'project-1' },
+      data: {
+        title: 'Roadmap refresh',
+        notes: 'Awaiting dependency',
+        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        ownerUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        manualStatus: 'blocked',
+        displayStatus: 'blocked',
+      },
+    });
+    expect(projectUpdateCall?.data['archivedAt']).toBeInstanceOf(Date);
+    expect(mocks.recordAuditMock).toHaveBeenCalledTimes(3);
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-unassigned',
+      action: 'create',
+      metadata: expect.objectContaining({
+        title: 'Unassigned',
+        ownerUserId: 'user-1',
+        priority: 'medium',
+        dueDate: null,
+        trackerLink: null,
+        changedFields: ['title', 'ownerUserId', 'priority'],
+        changes: [
+          { field: 'title', from: null, to: 'Unassigned' },
+          { field: 'ownerUserId', from: null, to: 'user-1' },
+          { field: 'priority', from: null, to: 'medium' },
+        ],
+      }),
+      tx: mocks.tx,
+    });
+    expectRecordAuditCall(mocks.recordAuditCalls[1], {
+      entityType: 'task',
+      entityId: 'task-3',
+      action: 'convert_from_project',
+      metadata: {
+        title: 'Roadmap refresh',
+        projectId: 'project-unassigned',
+        assigneeUserId: 'user-1',
+        priority: 'medium',
+        status: 'blocked',
+        dueDate: null,
+        sourceProjectId: 'project-1',
+      },
+      tx: mocks.tx,
+    });
+    expectRecordAuditCall(mocks.recordAuditCalls[2], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'convert_to_task',
+      metadata: expect.objectContaining({
+        title: 'Roadmap refresh',
+        ownerUserId: 'user-1',
+        priority: 'medium',
+        dueDate: null,
+        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        status: 'blocked',
+        changedFields: ['archivedAt'],
+        archivedAt: archivedAt.toISOString(),
+        destinationProjectId: 'project-unassigned',
+        taskId: 'task-3',
+        changes: [
+          {
+            field: 'archivedAt',
+            from: null,
+            to: archivedAt.toISOString(),
+          },
+        ],
+      }),
+      tx: mocks.tx,
+    });
+    expect(result).toEqual({
+      projectId: 'project-unassigned',
+      taskId: 'task-3',
+    });
+  });
+
+  it('refuses to convert projects that still have active tasks', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findUniqueMock.mockResolvedValue({
+      ...existingProject,
+      taskTotalCount: 2,
+    });
+
+    await expect(
+      service.convertProjectToTask('project-1', {}, actor),
+    ).rejects.toThrow(
+      'Only projects without active tasks can be converted to a task',
+    );
+    expect(mocks.transactionMock).not.toHaveBeenCalled();
   });
 
   it('updates project notes without requiring a manual status change', async () => {
@@ -155,21 +464,26 @@ describe('ProjectsService', () => {
       },
     });
     expect(mocks.recordAuditMock).toHaveBeenCalledTimes(1);
-    expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'update',
-      {
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'update',
+      metadata: expect.objectContaining({
         title: 'Roadmap refresh',
-        summary: 'Validate overrides',
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
         trackerLink: null,
         changedFields: ['notes'],
-      },
-    ]);
+        changes: [
+          {
+            field: 'notes',
+            from: null,
+            to: 'Keep team aligned',
+          },
+        ],
+      }),
+    });
     expect(result).toMatchObject({
       id: 'project-1',
       notes: 'Keep team aligned',
@@ -204,21 +518,26 @@ describe('ProjectsService', () => {
         trackerLink: null,
       },
     });
-    expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'update',
-      {
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'update',
+      metadata: expect.objectContaining({
         title: 'Roadmap refresh',
-        summary: 'Validate overrides',
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
         trackerLink: null,
         changedFields: ['trackerLink'],
-      },
-    ]);
+        changes: [
+          {
+            field: 'trackerLink',
+            from: 'https://tracker.example.com/projects/roadmap-refresh',
+            to: null,
+          },
+        ],
+      }),
+    });
     expect(result).toMatchObject({
       id: 'project-1',
       trackerLink: null,
@@ -255,18 +574,24 @@ describe('ProjectsService', () => {
       },
     });
     expect(mocks.recordAuditMock).toHaveBeenCalledTimes(1);
-    expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'status_override_set',
-      {
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'status_override_set',
+      metadata: expect.objectContaining({
         manualStatus: 'blocked',
         previousManualStatus: null,
         previousNotes: null,
         derivedStatus: 'in_progress',
-      },
-    ]);
+        changes: [
+          {
+            field: 'manualStatus',
+            from: null,
+            to: 'blocked',
+          },
+        ],
+      }),
+    });
     expect(result).toMatchObject({
       id: 'project-1',
       displayStatus: 'blocked',
@@ -300,34 +625,55 @@ describe('ProjectsService', () => {
     );
 
     expect(mocks.recordAuditMock).toHaveBeenCalledTimes(2);
-    expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'update',
-      {
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'update',
+      metadata: expect.objectContaining({
         title: 'Roadmap refresh v2',
-        summary: 'Validate overrides',
         ownerUserId: 'user-1',
         priority: 'high',
         dueDate: null,
         trackerLink: null,
         changedFields: ['title', 'notes', 'priority'],
-      },
-    ]);
-    expect(mocks.recordAuditCalls[1]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'status_override_set',
-      {
+        changes: [
+          {
+            field: 'title',
+            from: 'Roadmap refresh',
+            to: 'Roadmap refresh v2',
+          },
+          {
+            field: 'notes',
+            from: null,
+            to: 'Awaiting dependency',
+          },
+          {
+            field: 'priority',
+            from: 'medium',
+            to: 'high',
+          },
+        ],
+      }),
+    });
+    expectRecordAuditCall(mocks.recordAuditCalls[1], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'status_override_set',
+      metadata: expect.objectContaining({
         manualStatus: 'blocked',
         notes: 'Awaiting dependency',
         previousManualStatus: null,
         previousNotes: null,
         derivedStatus: 'in_progress',
-      },
-    ]);
+        changes: [
+          {
+            field: 'manualStatus',
+            from: null,
+            to: 'blocked',
+          },
+        ],
+      }),
+    });
   });
 
   it('clears manual status overrides back to the derived status while preserving notes', async () => {
@@ -364,23 +710,90 @@ describe('ProjectsService', () => {
         notes: 'Awaiting dependency',
       },
     });
-    expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
-      'project',
-      'project-1',
-      'status_override_clear',
-      {
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'status_override_clear',
+      metadata: expect.objectContaining({
         previousManualStatus: 'blocked',
         previousNotes: 'Awaiting dependency',
         derivedStatus: 'in_progress',
         notes: 'Awaiting dependency',
-      },
-    ]);
+        changes: [
+          {
+            field: 'manualStatus',
+            from: 'blocked',
+            to: null,
+          },
+        ],
+      }),
+    });
     expect(result).toMatchObject({
       id: 'project-1',
       displayStatus: 'in_progress',
       manualStatus: null,
       notes: 'Awaiting dependency',
+    });
+  });
+
+  it('archives a project and its active tasks while recording project audit history', async () => {
+    const { mocks, service } = createService();
+    const archivedAt = new Date('2026-02-03T09:00:00.000Z');
+
+    mocks.findUniqueMock.mockResolvedValue(existingProject);
+    mocks.updateProjectMock.mockResolvedValue({
+      ...existingProject,
+      archivedAt,
+    });
+    mocks.updateManyTasksMock.mockResolvedValue({ count: 2 });
+
+    const result = await service.deleteProject('project-1', actor);
+
+    expect(mocks.requireEditAccessMock).toHaveBeenCalledWith(actor);
+    expect(mocks.transactionMock).toHaveBeenCalledTimes(1);
+
+    const projectUpdateCall = mocks.updateProjectMock.mock.calls[0]?.[0];
+    const taskUpdateManyCall = mocks.updateManyTasksMock.mock.calls[0]?.[0];
+
+    expect(projectUpdateCall).toMatchObject({
+      where: { id: 'project-1' },
+    });
+    expect(projectUpdateCall?.data['archivedAt']).toBeInstanceOf(Date);
+    expect(taskUpdateManyCall).toMatchObject({
+      where: {
+        projectId: 'project-1',
+        archivedAt: null,
+      },
+    });
+    expect(taskUpdateManyCall?.data['archivedAt']).toBe(
+      projectUpdateCall?.data['archivedAt'],
+    );
+    expectRecordAuditCall(mocks.recordAuditCalls[0], {
+      entityType: 'project',
+      entityId: 'project-1',
+      action: 'delete',
+      metadata: expect.objectContaining({
+        title: 'Roadmap refresh',
+        ownerUserId: 'user-1',
+        priority: 'medium',
+        dueDate: null,
+        trackerLink: null,
+        changedFields: ['archivedAt'],
+        archivedAt: archivedAt.toISOString(),
+        archivedTaskCount: 2,
+        changes: [
+          {
+            field: 'archivedAt',
+            from: null,
+            to: archivedAt.toISOString(),
+          },
+        ],
+      }),
+      tx: mocks.tx,
+    });
+    expect(result).toEqual({
+      id: 'project-1',
+      archivedTaskCount: 2,
     });
   });
 });

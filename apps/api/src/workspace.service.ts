@@ -1,12 +1,18 @@
 import { Injectable } from '@nestjs/common';
+import type { ResetWorkspaceExamplesInput } from '@tavi/schemas';
 import type { SessionUser } from './auth.types';
+import { AuthService } from './auth.service';
 import { PrismaService } from './prisma.service';
+import { ProjectsService } from './projects.service';
 import { SavedViewsService } from './saved-views.service';
+import { buildWorkspaceResetExamples } from './workspace-reset-examples';
 
 @Injectable()
 export class WorkspaceService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly authService: AuthService,
+    private readonly projectsService: ProjectsService,
     private readonly savedViewsService: SavedViewsService,
   ) {}
 
@@ -48,11 +54,10 @@ export class WorkspaceService {
       projects: projects.map((project) => ({
         id: project.id,
         title: project.title,
-        summary: project.summary,
         notes: project.notes,
         trackerLink: project.trackerLink,
         ownerUserId: project.ownerUserId,
-        ownerName: project.owner.name,
+        ownerName: project.owner?.name ?? null,
         dueDate: project.dueDate,
         priority: project.priority,
         derivedStatus: project.derivedStatus,
@@ -71,7 +76,7 @@ export class WorkspaceService {
           title: task.title,
           notes: task.notes,
           assigneeUserId: task.assigneeUserId,
-          assigneeName: task.assignee.name,
+          assigneeName: task.assignee?.name ?? null,
           dueDate: task.dueDate,
           priority: task.priority,
           status: task.status,
@@ -81,5 +86,101 @@ export class WorkspaceService {
       })),
       savedViews,
     };
+  }
+
+  async resetWorkspaceExamples(
+    input: ResetWorkspaceExamplesInput,
+    actor: SessionUser,
+  ) {
+    this.authService.requireAdminAccess(actor);
+    await this.authService.reauthenticateCurrentUser(actor.id, input.password);
+
+    const users = await this.prisma.user.findMany({
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+      select: {
+        id: true,
+        email: true,
+        name: true,
+      },
+    });
+
+    const participants =
+      users.length > 0
+        ? users
+        : [
+            {
+              id: actor.id,
+              email: actor.email,
+              name: actor.name,
+            },
+          ];
+    const exampleProjects = buildWorkspaceResetExamples(participants);
+
+    return this.prisma.$transaction(async (tx) => {
+      const [deletedProjectCount, deletedTaskCount] = await Promise.all([
+        tx.project.count(),
+        tx.task.count(),
+      ]);
+
+      await tx.project.deleteMany({});
+
+      let createdTaskCount = 0;
+
+      for (const projectSeed of exampleProjects) {
+        const project = await tx.project.create({
+          data: {
+            title: projectSeed.title,
+            notes: projectSeed.notes,
+            trackerLink: projectSeed.trackerLink,
+            ownerUserId: projectSeed.ownerUserId,
+            dueDate: projectSeed.dueDate,
+            priority: projectSeed.priority,
+            manualStatus: projectSeed.manualStatus,
+            derivedStatus: 'not_started',
+            displayStatus: projectSeed.manualStatus ?? 'not_started',
+          },
+        });
+
+        for (const [index, taskSeed] of projectSeed.tasks.entries()) {
+          await tx.task.create({
+            data: {
+              projectId: project.id,
+              title: taskSeed.title,
+              notes: taskSeed.notes,
+              assigneeUserId: taskSeed.assigneeUserId,
+              dueDate: taskSeed.dueDate,
+              priority: taskSeed.priority,
+              status: taskSeed.status,
+              sortOrder: index + 1,
+              completedAt: taskSeed.status === 'done' ? new Date() : null,
+            },
+          });
+        }
+
+        createdTaskCount += projectSeed.tasks.length;
+        await this.projectsService.recalculateProject(project.id, tx);
+      }
+
+      await this.authService.recordAudit(
+        actor,
+        'auth',
+        actor.id,
+        'workspace_reset_examples',
+        {
+          createdProjectCount: exampleProjects.length,
+          createdTaskCount,
+          deletedProjectCount,
+          deletedTaskCount,
+        },
+        tx,
+      );
+
+      return {
+        createdProjectCount: exampleProjects.length,
+        createdTaskCount,
+        deletedProjectCount,
+        deletedTaskCount,
+      };
+    });
   }
 }

@@ -107,7 +107,7 @@ Browser
 
 - Serves the React application
 - Reads session state from the API
-- Stores filter/group/sort state in the URL and saved views
+- Stores reusable workspace state in saved views and browser-local Tavi storage
 - Stores panel toggle state, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and per-project Add Task expansion in browser-local Tavi storage
 - Reads deployment-specific browser entry URLs such as the temporary header home link from a small runtime config file so Docker and Kubernetes can override them without rebuilding the app
 
@@ -116,7 +116,7 @@ Browser
 - Exposes authenticated JSON endpoints
 - Enforces RBAC
 - Persists projects, tasks, views, imports, and audit events
-- Computes derived project summaries on write
+- Computes derived project rollups on write
 
 ### Worker
 
@@ -145,14 +145,13 @@ Important columns:
 
 - `id`
 - `title`
-- `summary`
+- `notes`
 - `tracker_link`
 - `owner_user_id`
 - `due_date`
 - `priority`
 - `derived_status`
 - `display_status`
-- `notes`
 - `task_total_count`
 - `task_todo_count`
 - `task_in_progress_count`
@@ -199,7 +198,8 @@ Store:
 - Owner scope for Milestone 4A
 - Search text
 - Grouping mode
-- Project-status filter
+- Task-status filters
+- Task-assignee filters
 - Expanded/collapsed defaults for groups and projects
 - Future display settings in `filters_json` as the product grows
 
@@ -220,7 +220,7 @@ Recommended approach:
 
 1. Task writes occur in a transaction.
 2. The API updates task state.
-3. The API recomputes summary counters for the affected project.
+3. The API recomputes rollup counters for the affected project.
 4. The API derives the new project status unless a manual override exists.
 5. The API records an audit event.
 
@@ -270,7 +270,7 @@ Query behavior should support:
 - Sorting
 - Grouping hints
 - Pagination or cursoring for large result sets
-- Inclusion of project rollup summaries with task children
+- Inclusion of project rollup data with task children
 
 OpenAPI generation is recommended so the API contract remains explicit.
 
@@ -279,9 +279,8 @@ OpenAPI generation is recommended so the API contract remains explicit.
 ### State Model
 
 - Server state comes from TanStack Query.
-- URL state stores filters, grouping, sorting, and focused context.
-- Local state stores expanded rows, transient editing state, panel toggles, and per-project Add Task visibility.
-- Browser-local Tavi storage persists panel toggles, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and other local-only UI preferences.
+- Local state stores expanded rows, transient editing state, and active inline editors.
+- Browser-local Tavi storage persists grouping, task filters, panel toggles, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and other local-only UI preferences.
 - Saved views persist reusable workspace configurations.
 - Saved views intentionally do not persist local panel toggles or other browser-only preferences.
 
@@ -291,7 +290,7 @@ Recommended modules:
 
 - Workspace shell
 - Grouped project/task table
-- Project detail drawer
+- Project inline row editor
 - Task inline editor
 - Filter and grouping controls
 - View panel
@@ -312,6 +311,7 @@ Recommended modules:
 Recommended API modules:
 
 - `auth`
+- `workspace`
 - `users`
 - `projects`
 - `tasks`
@@ -322,6 +322,7 @@ Recommended API modules:
 
 Recommended service boundaries:
 
+- `WorkspaceService` for the aggregated workspace payload and admin reset/example seeding
 - `ProjectService` for project CRUD and rollup orchestration
 - `TaskService` for task CRUD, ordering, and status updates
 - `ViewService` for saved views
@@ -345,6 +346,7 @@ Use request validation at the edge and keep business rules in service-layer code
 - Allow preconfigured local roles for testing admin/editor/viewer behavior.
 - Allow admins to create, edit, remove, and set passwords for local accounts.
 - Allow admins to export local accounts as JSON, import JSON account changes by email, and reset the seeded `@tavi.local` accounts back to known credentials without deleting unrelated local accounts.
+- Require current-password confirmation for destructive admin reset actions such as reseeding example workspace data from the Import/Export panel.
 - Allow non-admins to change only their own local password.
 - Expose an unauthenticated login-hint endpoint so the login screen advertises the seeded local users only while those accounts still exist with their default password.
 - Guard the local auth mode behind environment configuration so it cannot be enabled accidentally in production.
@@ -364,10 +366,12 @@ Recommended import flow:
 
 1. User uploads a CSV or export file.
 2. API validates basic structure and creates an import job.
-3. Worker parses rows into `import_rows`.
-4. User reviews a preview and mapping summary.
-5. Worker commits valid rows to projects/tasks in batches.
-6. Import result captures created, updated, skipped, and failed rows.
+3. Worker parses rows into `import_rows`, expanding newline-delimited checklist cells into separate staged task rows and keeping blank checklist rows as project-only stages.
+4. User reviews a preview and mapping summary, including missing import users and per-row project/task overlaps.
+5. Admin can create missing local viewer accounts from preview when name and email are available, including extra project-owner contacts from multi-owner cells.
+6. Admin can choose update, add, or ignore per overlapping row before commit, with project-level choices propagating across checklist-split rows for the same staged project.
+7. Worker commits valid rows to projects/tasks in batches once blocking missing users are cleared. Project-only rows commit only the project mutation.
+8. Import result captures created, updated, skipped, and failed rows.
 
 Implementation notes:
 
@@ -375,11 +379,14 @@ Implementation notes:
 - Make imports idempotent where possible.
 - Batch writes to avoid long transactions.
 - Fail individual rows clearly without hiding errors behind a generic import failure.
+- Re-stage import rows when mapping changes so checklist splitting stays aligned with the chosen task-title column.
+- If a row has no mapped task-title value, ignore task-side fields for that row and treat it as a project-only import.
 
 ### Export architecture
 
 - Support on-demand exports of the current filtered workspace view as CSV, XLSX, and JSON.
 - Support a Loop-oriented export that flattens projects and tasks into a row-based interchange shape.
+- Support an admin-only reset endpoint that deletes current project/task data and reseeds a compact example workspace after current-password confirmation.
 - Export scope must be limited to the current user's visible data and active filter state.
 - In the current implementation, exports are generated in the web app from the already-loaded filtered workspace data rather than through dedicated API endpoints.
 - Local-account bulk import/export/reset remains API-backed because the server owns password rules, seeded-account reset behavior, and login-hint visibility.
@@ -481,8 +488,8 @@ Suggested tooling:
 
 After this document, the next most valuable technical docs are:
 
-1. `docs/api-contract.md`
-2. `docs/data-dictionary.md`
-3. `docs/import-mapping.md`
-4. `docs/ops-runbook.md`
+1. `docs/API-CONTRACT.md`
+2. `docs/DATA-DICTIONARY.md`
+3. `docs/IMPORT-MAPPING.md`
+4. `docs/OPS-RUNBOOK.md`
 5. `adr/` decision records for stack, auth, rollup persistence, and deployment model

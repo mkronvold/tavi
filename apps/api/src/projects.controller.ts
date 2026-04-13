@@ -1,13 +1,18 @@
 import {
   Body,
   Controller,
+  Delete,
   Param,
   Patch,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { createProjectSchema, updateProjectSchema } from '@tavi/schemas';
+import {
+  convertProjectToTaskSchema,
+  createProjectSchema,
+  updateProjectSchema,
+} from '@tavi/schemas';
 import type { AuthenticatedRequest } from './auth.types';
 import { ProjectsService } from './projects.service';
 import { SessionGuard } from './session.guard';
@@ -32,5 +37,27 @@ export class ProjectsController {
   ) {
     const input = parseInput(updateProjectSchema, body);
     return this.projectsService.updateProject(projectId, input, request.user!);
+  }
+
+  @Post(':projectId/convert-to-task')
+  convertProjectToTask(
+    @Param('projectId') projectId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(convertProjectToTaskSchema, body);
+    return this.projectsService.convertProjectToTask(
+      projectId,
+      input,
+      request.user!,
+    );
+  }
+
+  @Delete(':projectId')
+  deleteProject(
+    @Param('projectId') projectId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.projectsService.deleteProject(projectId, request.user!);
   }
 }

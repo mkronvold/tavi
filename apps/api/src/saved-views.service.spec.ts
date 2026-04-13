@@ -64,6 +64,8 @@ describe('SavedViewsService', () => {
         search: 'Roadmap',
         statusFilter: 'blocked',
         filtersJson: {
+          sortBy: ['progress', 'progress', 'title'],
+          assigneeUserIds: ['user-2', 'user-2'],
           collapsedGroupKeys: ['done', 'done', 'blocked'],
           expandedProjectIds: ['project-1', 'project-1'],
         },
@@ -81,8 +83,11 @@ describe('SavedViewsService', () => {
     expect(result).toEqual([
       expect.objectContaining({
         id: 'view-1',
+        sortBy: ['progress', 'title'],
+        assigneeUserIds: ['user-2'],
         collapsedGroupKeys: ['done', 'blocked'],
         expandedProjectIds: ['project-1'],
+        statusFilters: ['blocked'],
       }),
     ]);
   });
@@ -98,6 +103,9 @@ describe('SavedViewsService', () => {
       search: '',
       statusFilter: null,
       filtersJson: {
+        sortBy: [],
+        assigneeUserIds: [],
+        statusFilters: [],
         collapsedGroupKeys: ['done'],
         expandedProjectIds: [],
       },
@@ -110,8 +118,11 @@ describe('SavedViewsService', () => {
       name: 'Blocked review',
       groupBy: 'status',
       search: 'Roadmap',
-      statusFilter: 'blocked',
+      statusFilter: null,
       filtersJson: {
+        sortBy: ['progress', 'title'],
+        assigneeUserIds: [],
+        statusFilters: ['blocked'],
         collapsedGroupKeys: ['done', 'blocked'],
         expandedProjectIds: ['project-1'],
       },
@@ -124,7 +135,9 @@ describe('SavedViewsService', () => {
       {
         groupBy: 'status',
         search: 'Roadmap',
-        statusFilter: 'blocked',
+        sortBy: ['progress', 'title', 'progress'],
+        statusFilters: ['blocked'],
+        assigneeUserIds: [],
         collapsedGroupKeys: ['done', 'done', 'blocked'],
         expandedProjectIds: ['project-1', 'project-1'],
       },
@@ -136,15 +149,18 @@ describe('SavedViewsService', () => {
       data: {
         groupBy: 'status',
         search: 'Roadmap',
-        statusFilter: 'blocked',
+        statusFilter: null,
         filtersJson: {
+          sortBy: ['progress', 'title'],
+          assigneeUserIds: [],
+          statusFilters: ['blocked'],
           collapsedGroupKeys: ['done', 'blocked'],
           expandedProjectIds: ['project-1'],
         },
       },
     });
     expect(mocks.recordAuditCalls[0]).toEqual([
-      actor.id,
+      actor,
       'saved_view',
       'view-1',
       'update',
@@ -152,19 +168,32 @@ describe('SavedViewsService', () => {
         name: 'Blocked review',
         groupBy: 'status',
         search: 'Roadmap',
-        statusFilter: 'blocked',
+        sortBy: ['progress', 'title'],
+        statusFilters: ['blocked'],
+        assigneeCount: 0,
         collapsedGroupCount: 2,
         expandedProjectCount: 1,
-        changedFields: ['groupBy', 'search', 'statusFilter', 'layout'],
+        changedFields: [
+          'groupBy',
+          'search',
+          'sortBy',
+          'statusFilters',
+          'layout',
+        ],
         previousGroupBy: 'owner',
         previousSearch: '',
-        previousStatusFilter: null,
+        previousSortBy: [],
+        previousStatusFilters: [],
+        previousAssigneeCount: 0,
       },
     ]);
     expect(result).toEqual(
       expect.objectContaining({
+        sortBy: ['progress', 'title'],
+        assigneeUserIds: [],
         collapsedGroupKeys: ['done', 'blocked'],
         expandedProjectIds: ['project-1'],
+        statusFilters: ['blocked'],
       }),
     );
   });
@@ -180,6 +209,9 @@ describe('SavedViewsService', () => {
       search: 'Roadmap',
       statusFilter: 'blocked',
       filtersJson: {
+        sortBy: ['progress'],
+        assigneeUserIds: [],
+        statusFilters: ['blocked'],
         collapsedGroupKeys: ['done'],
         expandedProjectIds: [],
       },
@@ -192,8 +224,11 @@ describe('SavedViewsService', () => {
       name: 'Blocked review',
       groupBy: 'status',
       search: 'Roadmap',
-      statusFilter: 'blocked',
+      statusFilter: null,
       filtersJson: {
+        sortBy: ['progress'],
+        assigneeUserIds: [],
+        statusFilters: ['blocked'],
         collapsedGroupKeys: ['done'],
         expandedProjectIds: ['project-1'],
       },
@@ -206,7 +241,9 @@ describe('SavedViewsService', () => {
       {
         groupBy: 'status',
         search: 'Roadmap',
-        statusFilter: 'blocked',
+        sortBy: ['progress'],
+        statusFilters: ['blocked'],
+        assigneeUserIds: [],
         collapsedGroupKeys: ['done'],
         expandedProjectIds: ['project-1', 'project-1'],
       },
@@ -231,7 +268,9 @@ describe('SavedViewsService', () => {
         {
           groupBy: 'status',
           search: '',
-          statusFilter: null,
+          sortBy: [],
+          statusFilters: [],
+          assigneeUserIds: [],
           collapsedGroupKeys: [],
           expandedProjectIds: [],
         },

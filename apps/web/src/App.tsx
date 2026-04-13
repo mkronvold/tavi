@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appName, appRepositoryUrl, appVersion } from "@tavi/config";
 import type {
@@ -12,21 +12,31 @@ import {
   ApiError,
   bulkDeleteTasks,
   bulkUpdateTasks,
+  convertProjectToTask,
+  convertTaskToProject,
   createProject,
   createSavedView,
   createTask,
+  deleteProject,
   deleteSavedView,
+  deleteTask,
   getAuditHistory,
+  getAuditLogRetention,
   getLocalLoginHint,
   getWorkspace,
+  listAuditChanges,
+  listAuditLogins,
   login,
   logout,
+  purgeAuditLogs,
   renameSavedView,
+  setAuditLogRetention,
   updateProject,
   updateSavedView,
   updateTask,
 } from "./api";
 import { ExportPanel } from "./ExportPanel";
+import { downloadCsvFile } from "./export-utils";
 import { ImportPanel } from "./ImportPanel";
 import { LocalAccountsPanel } from "./LocalAccountsPanel";
 import { getAppHomeUrl } from "./runtime-config";
@@ -38,10 +48,12 @@ import {
 } from "./storage";
 import type {
   AuditHistoryEvent,
+  AuditLogRetentionWindow,
   CreateProjectPayload,
   CreateTaskPayload,
   GroupBy,
   LoginPayload,
+  ProjectSortField,
   SavedView,
   WorkspaceUser,
   UpdateProjectPayload,
@@ -52,17 +64,39 @@ import type {
 } from "./types";
 
 const GROUP_LABELS: Record<GroupBy, string> = {
-  none: "All projects",
+  none: "Projects",
   owner: "Owner",
   priority: "Priority",
   status: "Status",
+  progress: "Progress",
 };
+
+const PROJECT_SORT_OPTIONS: Array<{
+  label: string;
+  value: ProjectSortField;
+}> = [
+  { label: "Title", value: "title" },
+  { label: "Progress", value: "progress" },
+  { label: "Priority", value: "priority" },
+  { label: "Due Date", value: "dueDate" },
+];
+
+const TASK_STATUS_FILTER_OPTIONS: Array<{
+  label: string;
+  value: TaskStatus;
+}> = [
+  { label: "Todo", value: "todo" },
+  { label: "In progress", value: "in_progress" },
+  { label: "Blocked", value: "blocked" },
+  { label: "Done", value: "done" },
+  { label: "Canceled", value: "canceled" },
+];
 
 const EMPTY_PROJECT_FORM: CreateProjectPayload = {
   title: "",
-  summary: "",
+  notes: "",
   trackerLink: "",
-  ownerUserId: "",
+  ownerUserId: null,
   dueDate: "",
   priority: "medium",
 };
@@ -73,6 +107,12 @@ const EMPTY_LOGIN_FORM: LoginPayload = {
 };
 
 const BRAND_MARK = "ᴛᴀᴠi";
+const EDITOR_SCROLL_TOP_MARGIN = 132;
+const EDITOR_SCROLL_BOTTOM_MARGIN = 24;
+const EDITOR_INPUT_SELECTOR =
+  'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
+const ROW_EDIT_INTERACTIVE_SELECTOR =
+  "button, a, input, select, textarea, label";
 
 type WorkspacePanelState = {
   importExport: boolean;
@@ -82,6 +122,22 @@ type WorkspacePanelState = {
 };
 
 type WorkspaceTheme = "dark" | "light";
+
+type WorkspaceFilterState = {
+  assigneeUserIds: string[];
+  groupBy: GroupBy;
+  sortBy: ProjectSortField[];
+  statusFilters: TaskStatus[];
+};
+
+type WorkspaceCollapsedGroups = Partial<Record<GroupBy, Record<string, boolean>>>;
+
+type NoteEditorType = "project" | "task";
+
+type NoteEditorHeights = {
+  project: number | null;
+  task: number | null;
+};
 
 type WorkspacePreferences = {
   autoCollapse: boolean;
@@ -105,6 +161,38 @@ type AuditTarget = {
   subtitle: string;
   title: string;
 };
+
+type AdminAuditReportType = "changes" | "logins";
+
+const AUDIT_CHANGE_ACTION_OPTIONS = [
+  { label: "All actions", value: "" },
+  { label: "Create", value: "create" },
+  { label: "Update", value: "update" },
+  { label: "Delete", value: "delete" },
+  { label: "Bulk update", value: "bulk_update" },
+  { label: "Bulk delete", value: "bulk_delete" },
+  { label: "Converted to project", value: "convert_to_project" },
+  { label: "Converted from project", value: "convert_from_project" },
+  { label: "Converted to task", value: "convert_to_task" },
+  { label: "Status override set", value: "status_override_set" },
+  { label: "Status override clear", value: "status_override_clear" },
+  { label: "Import create", value: "import_create" },
+  { label: "Import update", value: "import_update" },
+] as const;
+
+const AUDIT_LOG_RETENTION_OPTIONS: Array<{
+  label: string;
+  value: AuditLogRetentionWindow;
+}> = [
+  { label: "1 day", value: "one_day" },
+  { label: "1 week", value: "one_week" },
+  { label: "1 month", value: "one_month" },
+  { label: "3 months", value: "three_months" },
+  { label: "6 months", value: "six_months" },
+  { label: "1 year", value: "one_year" },
+];
+
+const DEFAULT_AUDIT_LOG_RETENTION_WINDOW: AuditLogRetentionWindow = "one_month";
 
 const createEmptyBulkTaskDraft = (): BulkTaskDraft => ({
   assigneeUserId: "",
@@ -131,6 +219,14 @@ const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
 const PANEL_STORAGE_KEY = "workspace.panels";
 const ADD_TASK_PANEL_STORAGE_KEY = "workspace.projectAddTask";
 const PREFERENCES_STORAGE_KEY = "workspace.preferences";
+const FILTER_STORAGE_KEY = "workspace.filters";
+const COLLAPSED_GROUPS_STORAGE_KEY = "workspace.collapsedGroups";
+const NOTE_EDITOR_HEIGHTS_STORAGE_KEY = "workspace.noteEditorHeights";
+const UNASSIGNED_PROJECT_TITLE = "Unassigned";
+const CONVERT_TASK_TO_PROJECT_VALUE = "__convert-task-to-project__";
+const NO_TASK_ASSIGNEE_LABEL = "None";
+const NO_PROJECT_OWNER_LABEL = "None";
+const NO_PROJECT_OWNER_GROUP = "No owner";
 
 function App() {
   const queryClient = useQueryClient();
@@ -153,8 +249,7 @@ function App() {
         DEFAULT_WORKSPACE_PREFERENCES.autoCollapse &&
       workspacePreferences.bulkActions ===
         DEFAULT_WORKSPACE_PREFERENCES.bulkActions &&
-      workspacePreferences.fullWidth ===
-        DEFAULT_WORKSPACE_PREFERENCES.fullWidth
+      workspacePreferences.fullWidth === DEFAULT_WORKSPACE_PREFERENCES.fullWidth
     ) {
       removeTaviStorage(PREFERENCES_STORAGE_KEY);
       return;
@@ -273,7 +368,9 @@ function App() {
           {showLocalLoginHint ? (
             <div className="login-hint">
               <strong>Local dev users</strong>
-              <span>admin@tavi.local, editor@tavi.local, viewer@tavi.local</span>
+              <span>
+                admin@tavi.local, editor@tavi.local, viewer@tavi.local
+              </span>
               <span>Password: password123</span>
             </div>
           ) : null}
@@ -359,14 +456,55 @@ function WorkspaceScreen({
       readTaviStorage<Partial<WorkspacePanelState>>(PANEL_STORAGE_KEY, {}),
     ),
   );
-  const [groupBy, setGroupBy] = useState<GroupBy>("owner");
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "all">(
-    "all",
+  const [workspaceFilters, setWorkspaceFilters] =
+    useState<WorkspaceFilterState>(() =>
+      normalizeWorkspaceFilterState(
+        readTaviStorage<Partial<WorkspaceFilterState>>(FILTER_STORAGE_KEY, {}),
+      ),
+    );
+  const [collapsedGroupsByGroup, setCollapsedGroupsByGroup] =
+    useState<WorkspaceCollapsedGroups>(() =>
+      normalizeCollapsedGroupsByGroup(
+        readTaviStorage<WorkspaceCollapsedGroups>(
+          COLLAPSED_GROUPS_STORAGE_KEY,
+          {},
+        ),
+      ),
+    );
+  const [noteEditorHeights, setNoteEditorHeights] = useState<NoteEditorHeights>(
+    () =>
+      normalizeNoteEditorHeights(
+        readTaviStorage<Partial<NoteEditorHeights>>(
+          NOTE_EDITOR_HEIGHTS_STORAGE_KEY,
+          {},
+        ),
+      ),
   );
-  const [collapsedGroups, setCollapsedGroups] = useState<
-    Record<string, boolean>
-  >({});
+  const {
+    assigneeUserIds: assigneeFilterUserIds,
+    groupBy,
+    sortBy,
+    statusFilters,
+  } = workspaceFilters;
+  const collapsedGroups = collapsedGroupsByGroup[groupBy] ?? {};
+  const noteEditorResizeStartHeights = useRef<NoteEditorHeights>({
+    project: null,
+    task: null,
+  });
+  const projectEditFormRef = useRef<HTMLFormElement | null>(null);
+  const taskEditRowRef = useRef<HTMLTableRowElement | null>(null);
+  const validAssigneeUserIds = useMemo(
+    () => new Set(data.users.map((user) => user.id)),
+    [data.users],
+  );
+  const effectiveAssigneeFilterUserIds = useMemo(
+    () =>
+      assigneeFilterUserIds.filter((userId) =>
+        validAssigneeUserIds.has(userId),
+      ),
+    [assigneeFilterUserIds, validAssigneeUserIds],
+  );
+  const [search, setSearch] = useState("");
   const [expandedProjects, setExpandedProjects] = useState<
     Record<string, boolean>
   >({});
@@ -377,16 +515,16 @@ function WorkspaceScreen({
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [projectDraft, setProjectDraft] = useState<UpdateProjectPayload>({
     title: "",
-    summary: "",
-    notes: null,
+    notes: "",
     trackerLink: "",
-    ownerUserId: "",
+    ownerUserId: null,
     dueDate: "",
     priority: "medium",
     manualStatus: null,
   });
   const [projectEditError, setProjectEditError] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [taskEditError, setTaskEditError] = useState<string | null>(null);
   const [taskDraft, setTaskDraft] = useState<UpdateTaskPayload>({
     title: "",
     notes: "",
@@ -430,6 +568,182 @@ function WorkspaceScreen({
       queryClient.invalidateQueries({ queryKey: ["workspace"] }),
       queryClient.invalidateQueries({ queryKey: ["audit"] }),
     ]);
+  const setGroupBy = (nextGroupBy: GroupBy) => {
+    setWorkspaceFilters((current) =>
+      current.groupBy === nextGroupBy
+        ? current
+        : {
+            ...current,
+            groupBy: nextGroupBy,
+          },
+    );
+  };
+  const setSortBy = (nextSortBy: ProjectSortField[]) => {
+    setWorkspaceFilters((current) =>
+      sameStringArray(current.sortBy, nextSortBy)
+        ? current
+        : {
+            ...current,
+            sortBy: nextSortBy,
+          },
+    );
+  };
+  const setStatusFilters = (nextStatusFilters: TaskStatus[]) => {
+    setWorkspaceFilters((current) =>
+      sameStringArray(current.statusFilters, nextStatusFilters)
+        ? current
+        : {
+            ...current,
+            statusFilters: nextStatusFilters,
+          },
+    );
+  };
+  const setAssigneeFilterUserIds = (nextAssigneeUserIds: string[]) => {
+    setWorkspaceFilters((current) =>
+      sameStringArray(current.assigneeUserIds, nextAssigneeUserIds)
+        ? current
+        : {
+            ...current,
+            assigneeUserIds: nextAssigneeUserIds,
+          },
+        );
+  };
+  const setCollapsedGroupsForGroupBy = (
+    targetGroupBy: GroupBy,
+    nextValue:
+      | Record<string, boolean>
+      | ((current: Record<string, boolean>) => Record<string, boolean>),
+  ) => {
+    setCollapsedGroupsByGroup((current) => {
+      const currentSelection = current[targetGroupBy] ?? {};
+      const nextSelection = normalizeBooleanSelection(
+        typeof nextValue === "function"
+          ? nextValue(currentSelection)
+          : nextValue,
+      );
+
+      if (sameBooleanSelection(currentSelection, nextSelection)) {
+        return current;
+      }
+
+      if (Object.keys(nextSelection).length === 0) {
+        if (!(targetGroupBy in current)) {
+          return current;
+        }
+
+        const remainingSelections = { ...current };
+
+        delete remainingSelections[targetGroupBy];
+        return remainingSelections;
+      }
+
+      return {
+        ...current,
+        [targetGroupBy]: nextSelection,
+      };
+    });
+  };
+  const setCollapsedGroups = (
+    nextValue:
+      | Record<string, boolean>
+      | ((current: Record<string, boolean>) => Record<string, boolean>),
+  ) => {
+    setCollapsedGroupsForGroupBy(groupBy, nextValue);
+  };
+  const rememberNoteEditorHeight = (
+    editorType: NoteEditorType,
+    textarea: HTMLTextAreaElement,
+  ) => {
+    noteEditorResizeStartHeights.current[editorType] =
+      readTextareaHeight(textarea);
+  };
+  const persistNoteEditorHeight = (
+    editorType: NoteEditorType,
+    textarea: HTMLTextAreaElement,
+  ) => {
+    const startHeight = noteEditorResizeStartHeights.current[editorType];
+    const nextHeight = readTextareaHeight(textarea);
+
+    noteEditorResizeStartHeights.current[editorType] = null;
+
+    if (
+      startHeight === null ||
+      nextHeight === null ||
+      startHeight === nextHeight
+    ) {
+      return;
+    }
+
+    setNoteEditorHeights((current) =>
+      current[editorType] === nextHeight
+        ? current
+        : {
+            ...current,
+            [editorType]: nextHeight,
+          },
+    );
+  };
+
+  useEffect(() => {
+    if (
+      groupBy === "owner" &&
+      sortBy.length === 0 &&
+      statusFilters.length === 0 &&
+      effectiveAssigneeFilterUserIds.length === 0
+    ) {
+      removeTaviStorage(FILTER_STORAGE_KEY);
+      return;
+    }
+
+    writeTaviStorage(FILTER_STORAGE_KEY, {
+      ...workspaceFilters,
+      assigneeUserIds: effectiveAssigneeFilterUserIds,
+    });
+  }, [
+    effectiveAssigneeFilterUserIds,
+    groupBy,
+    sortBy,
+    statusFilters,
+    workspaceFilters,
+  ]);
+
+  useEffect(() => {
+    const activeCollapsedGroups = activeCollapsedGroupsByGroup(
+      collapsedGroupsByGroup,
+    );
+
+    if (Object.keys(activeCollapsedGroups).length === 0) {
+      removeTaviStorage(COLLAPSED_GROUPS_STORAGE_KEY);
+      return;
+    }
+
+    writeTaviStorage(COLLAPSED_GROUPS_STORAGE_KEY, activeCollapsedGroups);
+  }, [collapsedGroupsByGroup]);
+
+  useEffect(() => {
+    if (noteEditorHeights.project === null && noteEditorHeights.task === null) {
+      removeTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY);
+      return;
+    }
+
+    writeTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY, noteEditorHeights);
+  }, [noteEditorHeights]);
+
+  useEffect(() => {
+    if (!editingProjectId) {
+      return;
+    }
+
+    revealEditor(projectEditFormRef.current);
+  }, [editingProjectId]);
+
+  useEffect(() => {
+    if (!editingTaskId) {
+      return;
+    }
+
+    revealEditor(taskEditRowRef.current);
+  }, [editingTaskId]);
 
   useEffect(() => {
     const activePanels = activeBooleanSelection(panelState);
@@ -490,6 +804,46 @@ function WorkspaceScreen({
       setBulkTaskError(null);
     }
   };
+  const clearSelectedTask = (taskId: string) => {
+    const hadSelectedTask = Boolean(selectedTasks[taskId]);
+
+    setSelectedTasks((current) => {
+      if (!(taskId in current)) {
+        return current;
+      }
+
+      const nextSelectedTasks = { ...current };
+
+      delete nextSelectedTasks[taskId];
+      return nextSelectedTasks;
+    });
+
+    if (hadSelectedTask) {
+      setBulkTaskError(null);
+    }
+  };
+  const clearProjectPanels = (projectId: string) => {
+    setExpandedProjects((current) => {
+      if (!(projectId in current)) {
+        return current;
+      }
+
+      const nextExpandedProjects = { ...current };
+
+      delete nextExpandedProjects[projectId];
+      return nextExpandedProjects;
+    });
+    setAddTaskPanels((current) => {
+      if (!(projectId in current)) {
+        return current;
+      }
+
+      const nextAddTaskPanels = { ...current };
+
+      delete nextAddTaskPanels[projectId];
+      return nextAddTaskPanels;
+    });
+  };
 
   const setProjectExpanded = (projectId: string, nextValue: boolean) => {
     if (!nextValue) {
@@ -527,10 +881,28 @@ function WorkspaceScreen({
     });
   };
 
+  const openProjectEditor = (project: WorkspaceProject) => {
+    setTaskEditError(null);
+    setEditingTaskId(null);
+    setProjectExpanded(project.id, true);
+    setProjectEditError(null);
+    setEditingProjectId(project.id);
+    setProjectDraft({
+      title: project.title,
+      notes: project.notes ?? "",
+      trackerLink: project.trackerLink ?? "",
+      ownerUserId: project.ownerUserId,
+      dueDate: toDateInput(project.dueDate),
+      priority: project.priority,
+      manualStatus: project.manualStatus,
+    });
+  };
+
   const openTaskEditor = (projectId: string, selectedTask: WorkspaceTask) => {
     const enterEditMode = () => {
       setEditingTaskId(selectedTask.id);
       setTaskDraft({
+        projectId: selectedTask.projectId,
         title: selectedTask.title,
         notes: selectedTask.notes ?? "",
         assigneeUserId: selectedTask.assigneeUserId,
@@ -541,6 +913,9 @@ function WorkspaceScreen({
     };
 
     setProjectExpanded(projectId, true);
+    setProjectEditError(null);
+    setEditingProjectId(null);
+    setTaskEditError(null);
 
     if (typeof globalThis.requestAnimationFrame === "function") {
       globalThis.requestAnimationFrame(enterEditMode);
@@ -580,6 +955,91 @@ function WorkspaceScreen({
       );
     },
   });
+  const convertProjectToTaskMutation = useMutation({
+    mutationFn: async ({
+      payload,
+      project,
+    }: {
+      payload: UpdateProjectPayload;
+      project: WorkspaceProject;
+    }) => {
+      const result = await convertProjectToTask(project.id, payload);
+
+      return {
+        ...result,
+        title: payload.title ?? project.title,
+      };
+    },
+    onSuccess: async (result, variables) => {
+      setProjectEditError(null);
+      setEditingProjectId(null);
+      clearProjectPanels(variables.project.id);
+
+      if (
+        auditTarget?.entityType === "project" &&
+        auditTarget.entityId === variables.project.id
+      ) {
+        setAuditTarget(null);
+      }
+
+      setProjectExpanded(result.projectId, true);
+      setWorkspaceNotice(
+        `Converted project "${result.title}" into a task in ${UNASSIGNED_PROJECT_TITLE}.`,
+      );
+      await invalidateWorkspaceAndAudit();
+    },
+    onError: (error) => {
+      setProjectEditError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to convert project into a task",
+      );
+    },
+  });
+  const deleteProjectMutation = useMutation({
+    mutationFn: ({ projectId }: { projectId: string; title: string }) =>
+      deleteProject(projectId),
+    onSuccess: async (result, variables) => {
+      const deletedProject = data.projects.find(
+        (project) => project.id === variables.projectId,
+      );
+      const deletedTaskIds = new Set(
+        deletedProject?.tasks.map((task) => task.id) ?? [],
+      );
+
+      clearSelectedTasksForProjects([variables.projectId]);
+      clearProjectPanels(variables.projectId);
+      setProjectEditError(null);
+      setEditingProjectId(null);
+
+      if (editingTaskId && deletedTaskIds.has(editingTaskId)) {
+        setEditingTaskId(null);
+      }
+
+      if (
+        auditTarget &&
+        ((auditTarget.entityType === "project" &&
+          auditTarget.entityId === variables.projectId) ||
+          (auditTarget.entityType === "task" &&
+            deletedTaskIds.has(auditTarget.entityId)))
+      ) {
+        setAuditTarget(null);
+      }
+
+      setWorkspaceNotice(
+        result.archivedTaskCount === 0
+          ? `Deleted project "${variables.title}" from the workspace.`
+          : `Deleted project "${variables.title}" and ${result.archivedTaskCount.toString()} task${result.archivedTaskCount === 1 ? "" : "s"} from the workspace.`,
+      );
+      await invalidateWorkspaceAndAudit();
+    },
+    onError: (error) => {
+      setWorkspaceNotice(null);
+      setProjectEditError(
+        error instanceof ApiError ? error.message : "Unable to delete project",
+      );
+    },
+  });
 
   const createTaskMutation = useMutation({
     mutationFn: ({
@@ -611,9 +1071,83 @@ function WorkspaceScreen({
       taskId: string;
       payload: UpdateTaskPayload;
     }) => updateTask(taskId, payload),
-    onSuccess: async () => {
+    onSuccess: async (_, variables) => {
+      setTaskEditError(null);
       setEditingTaskId(null);
+      if (variables.payload.projectId) {
+        setProjectExpanded(variables.payload.projectId, true);
+      }
       await invalidateWorkspaceAndAudit();
+    },
+    onError: (error) => {
+      setTaskEditError(
+        error instanceof ApiError ? error.message : "Unable to save task",
+      );
+    },
+  });
+  const convertTaskToProjectMutation = useMutation({
+    mutationFn: async ({
+      payload,
+      task,
+    }: {
+      payload: Omit<UpdateTaskPayload, "projectId">;
+      task: WorkspaceTask;
+    }) => {
+      const result = await convertTaskToProject(task.id, payload);
+
+      return {
+        ...result,
+        title: payload.title ?? task.title,
+      };
+    },
+    onSuccess: async (result, variables) => {
+      setTaskEditError(null);
+      setEditingTaskId(null);
+      clearSelectedTask(variables.task.id);
+
+      if (
+        auditTarget?.entityType === "task" &&
+        auditTarget.entityId === variables.task.id
+      ) {
+        setAuditTarget(null);
+      }
+
+      setProjectExpanded(result.projectId, true);
+      setWorkspaceNotice(`Converted task "${result.title}" into a project.`);
+      await invalidateWorkspaceAndAudit();
+    },
+    onError: (error) => {
+      setWorkspaceNotice(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to convert task into a project",
+      );
+    },
+  });
+  const deleteTaskMutation = useMutation({
+    mutationFn: ({ taskId }: { taskId: string; title: string }) =>
+      deleteTask(taskId),
+    onSuccess: async (_, variables) => {
+      setTaskEditError(null);
+      setEditingTaskId(null);
+      clearSelectedTask(variables.taskId);
+
+      if (
+        auditTarget?.entityType === "task" &&
+        auditTarget.entityId === variables.taskId
+      ) {
+        setAuditTarget(null);
+      }
+
+      setWorkspaceNotice(
+        `Deleted task "${variables.title}" from the workspace.`,
+      );
+      await invalidateWorkspaceAndAudit();
+    },
+    onError: (error) => {
+      setWorkspaceNotice(
+        error instanceof ApiError ? error.message : "Unable to delete task",
+      );
     },
   });
 
@@ -727,12 +1261,22 @@ function WorkspaceScreen({
   });
 
   const filteredProjects = useMemo(
-    () => filterProjects(data.projects, search, statusFilter),
-    [data.projects, search, statusFilter],
+    () =>
+      filterProjects({
+        assigneeUserIds: effectiveAssigneeFilterUserIds,
+        projects: data.projects,
+        search,
+        statusFilters,
+      }),
+    [data.projects, effectiveAssigneeFilterUserIds, search, statusFilters],
   );
   const groupedProjects = useMemo(
-    () => groupProjects(filteredProjects, groupBy),
-    [filteredProjects, groupBy],
+    () => groupProjects(filteredProjects, groupBy, sortBy),
+    [filteredProjects, groupBy, sortBy],
+  );
+  const orderedProjects = useMemo(
+    () => groupedProjects.flatMap((group) => group.projects),
+    [groupedProjects],
   );
   const selectedSavedView = useMemo(
     () =>
@@ -742,8 +1286,8 @@ function WorkspaceScreen({
     [data.savedViews, selectedSavedViewId],
   );
   const allTasks = useMemo(
-    () => data.projects.flatMap((project) => project.tasks),
-    [data.projects],
+    () => filteredProjects.flatMap((project) => project.tasks),
+    [filteredProjects],
   );
   const selectedTaskItems = useMemo(
     () => allTasks.filter((task) => selectedTasks[task.id]),
@@ -765,6 +1309,10 @@ function WorkspaceScreen({
       >,
     [data.users],
   );
+  const assigneeFilterOptions = useMemo(
+    () => data.users.map((user) => ({ label: user.name, value: user.id })),
+    [data.users],
+  );
   const hasBulkChanges =
     bulkTaskDraft.assigneeUserId !== "" ||
     bulkTaskDraft.dueDateMode !== "keep" ||
@@ -772,6 +1320,8 @@ function WorkspaceScreen({
     bulkTaskDraft.status !== "";
   const bulkTaskActionPending =
     bulkUpdateTaskMutation.isPending || bulkDeleteTaskMutation.isPending;
+  const stickyBulkActionsVisible =
+    canSelectTasks && selectedTaskItems.length > 0;
   const auditHistoryQuery = useQuery({
     queryKey: [
       "audit",
@@ -791,8 +1341,13 @@ function WorkspaceScreen({
   const applySavedView = (savedView: SavedView) => {
     setGroupBy(savedView.groupBy);
     setSearch(savedView.search);
-    setStatusFilter(savedView.statusFilter ?? "all");
-    setCollapsedGroups(toSelectionMap(savedView.collapsedGroupKeys));
+    setSortBy(savedView.sortBy);
+    setStatusFilters(savedView.statusFilters);
+    setAssigneeFilterUserIds(savedView.assigneeUserIds);
+    setCollapsedGroupsForGroupBy(
+      savedView.groupBy,
+      toSelectionMap(savedView.collapsedGroupKeys),
+    );
     setExpandedProjects(toSelectionMap(savedView.expandedProjectIds));
     setSelectedSavedViewId(savedView.id);
     setSavedViewName(savedView.name);
@@ -847,6 +1402,13 @@ function WorkspaceScreen({
   const handleClearLocalStorage = () => {
     const clearedKeyCount = clearTaviStorage();
 
+    setWorkspaceFilters({
+      assigneeUserIds: [],
+      groupBy: "owner",
+      sortBy: [],
+      statusFilters: [],
+    });
+    setCollapsedGroupsByGroup({});
     setPanelState({ ...DEFAULT_WORKSPACE_PANEL_STATE });
     setAddTaskPanels({});
     onResetPreferences();
@@ -916,18 +1478,18 @@ function WorkspaceScreen({
       <section className="workspace-controls">
         <div className="workspace-controls-row">
           <div className="workspace-filter-row">
-            <label className="workspace-filter search-filter">
-              Search
+            <div className="workspace-filter search-filter">
               <input
+                aria-label="Search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search projects and tasks"
               />
-            </label>
+            </div>
 
-            <label className="workspace-filter">
-              Group by
+            <div className="workspace-filter">
               <select
+                aria-label="Group by"
                 value={groupBy}
                 onChange={(event) => setGroupBy(event.target.value as GroupBy)}
               >
@@ -937,23 +1499,30 @@ function WorkspaceScreen({
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
 
-            <label className="workspace-filter">
-              Project status
-              <select
-                value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(event.target.value as ProjectStatus | "all")
-                }
-              >
-                <option value="all">All</option>
-                <option value="not_started">Not started</option>
-                <option value="in_progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
-            </label>
+            <MultiSelectFilter
+              label="Status"
+              options={TASK_STATUS_FILTER_OPTIONS}
+              selectedValues={statusFilters}
+              onChange={(nextValues) =>
+                setStatusFilters(nextValues.filter(isTaskStatus))
+              }
+            />
+
+            <MultiSelectFilter
+              label="Assignee"
+              options={assigneeFilterOptions}
+              selectedValues={effectiveAssigneeFilterUserIds}
+              onChange={setAssigneeFilterUserIds}
+            />
+
+            <MultiSortFilter
+              label="Sort by"
+              options={PROJECT_SORT_OPTIONS}
+              selectedValues={sortBy}
+              onChange={setSortBy}
+            />
           </div>
 
           <div className="workspace-panel-toggles">
@@ -1011,8 +1580,7 @@ function WorkspaceScreen({
                 <div>
                   <strong>Views</strong>
                   <span>
-                    Save search, grouping, project status filtering, and
-                    expansion defaults.
+                    Save search, grouping, task filters, and expansion defaults.
                   </span>
                 </div>
               </header>
@@ -1090,9 +1658,11 @@ function WorkspaceScreen({
                     createSavedViewMutation.mutate({
                       name: savedViewName.trim(),
                       ...buildSavedViewPayload({
+                        assigneeUserIds: effectiveAssigneeFilterUserIds,
                         groupBy,
                         search,
-                        statusFilter,
+                        sortBy,
+                        statusFilters,
                         collapsedGroups,
                         expandedProjects,
                       }),
@@ -1115,9 +1685,11 @@ function WorkspaceScreen({
                     updateSavedViewMutation.mutate({
                       viewId: selectedSavedView.id,
                       payload: buildSavedViewPayload({
+                        assigneeUserIds: effectiveAssigneeFilterUserIds,
                         groupBy,
                         search,
-                        statusFilter,
+                        sortBy,
+                        statusFilters,
                         collapsedGroups,
                         expandedProjects,
                       }),
@@ -1175,6 +1747,7 @@ function WorkspaceScreen({
               {data.currentUser.role === "admin" ? (
                 <ImportPanel
                   isAdmin={data.currentUser.role === "admin"}
+                  onNotice={setWorkspaceNotice}
                   queryClient={queryClient}
                 />
               ) : (
@@ -1195,11 +1768,13 @@ function WorkspaceScreen({
               )}
 
               <ExportPanel
+                assigneeUserIds={effectiveAssigneeFilterUserIds}
                 groupBy={groupBy}
                 onNotice={setWorkspaceNotice}
-                projects={filteredProjects}
+                projects={orderedProjects}
                 search={search}
-                statusFilter={statusFilter}
+                sortBy={sortBy}
+                statusFilters={statusFilters}
               />
             </>
           ) : null}
@@ -1217,7 +1792,9 @@ function WorkspaceScreen({
                 className="inline-form project-create-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  createProjectMutation.mutate(projectForm);
+                  createProjectMutation.mutate(
+                    normalizeCreateProjectPayload(projectForm),
+                  );
                 }}
               >
                 <input
@@ -1230,15 +1807,17 @@ function WorkspaceScreen({
                   }
                   placeholder="New project title"
                 />
-                <input
-                  value={projectForm.summary}
+                <textarea
+                  value={projectForm.notes ?? ""}
                   onChange={(event) =>
                     setProjectForm((current) => ({
                       ...current,
-                      summary: event.target.value,
+                      notes: event.target.value,
                     }))
                   }
-                  placeholder="Summary"
+                  className="resizable-notes"
+                  placeholder="Notes"
+                  rows={2}
                 />
                 <input
                   type="url"
@@ -1253,14 +1832,15 @@ function WorkspaceScreen({
                   placeholder="Tracker link"
                 />
                 <select
-                  value={projectForm.ownerUserId}
+                  value={projectForm.ownerUserId ?? ""}
                   onChange={(event) =>
                     setProjectForm((current) => ({
                       ...current,
-                      ownerUserId: event.target.value,
+                      ownerUserId: event.target.value || null,
                     }))
                   }
                 >
+                  <option value="">{NO_PROJECT_OWNER_LABEL}</option>
                   {data.users.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.name}
@@ -1323,13 +1903,14 @@ function WorkspaceScreen({
                 })
               }
               theme={theme}
+              users={data.users}
             />
           ) : null}
         </div>
       </section>
 
-      {canSelectTasks && selectedTaskItems.length > 0 ? (
-        <section className="bulk-action-card">
+      {stickyBulkActionsVisible ? (
+        <section className="bulk-action-card bulk-action-card--sticky">
           <div className="bulk-action-header">
             <div>
               <strong>
@@ -1540,18 +2121,35 @@ function WorkspaceScreen({
 
                 return (
                   <article className="project-card" key={project.id}>
-                    <div className="project-row">
+                    <div
+                      className="project-row"
+                      onClick={(event) => {
+                        if (
+                          canEditWorkspace &&
+                          shouldOpenEditorFromModifierClick(event)
+                        ) {
+                          openProjectEditor(project);
+                          return;
+                        }
+
+                        if (shouldToggleProjectFromRowClick(event)) {
+                          setProjectExpanded(project.id, !expanded);
+                        }
+                      }}
+                    >
                       <button
                         type="button"
                         className="group-toggle"
-                        onClick={() => setProjectExpanded(project.id, !expanded)}
+                        onClick={() =>
+                          setProjectExpanded(project.id, !expanded)
+                        }
                       >
                         {expanded ? "-" : "+"}
                       </button>
 
                       <div className="project-main">
                         <strong>{project.title}</strong>
-                        <span>{project.summary ?? "No summary"}</span>
+                        <span>{project.notes?.trim() || "No notes"}</span>
                       </div>
 
                       <div className="project-status">
@@ -1568,29 +2166,25 @@ function WorkspaceScreen({
                               {formatStatusLabel(project.derivedStatus)}
                             </span>
                           </>
-                        ) : (
-                          <span className="status-note">
-                            Derived from task rollup
-                          </span>
-                        )}
-                        {project.notes ? (
-                          <span className="status-note">
-                            Notes: {project.notes}
-                          </span>
                         ) : null}
                       </div>
 
                       <div className="project-meta">
-                        <span>{project.ownerName}</span>
-                        <span>{project.priority}</span>
-                        <span>{formatDate(project.dueDate)}</span>
                         <span>
-                          {formatTaskCompletion(
+                          {formatProjectOwnerLabel(project.ownerName)}
+                        </span>
+                        <span
+                          className={`priority-pill priority-${project.priority}`}
+                        >
+                          {formatPriorityLabel(project.priority)}
+                        </span>
+                        <span className="project-progress">
+                          {formatTaskCompletionPercent(
                             project.taskDoneCount,
                             project.taskTotalCount,
-                          )}{" "}
-                          done
+                          )}
                         </span>
+                        <span>{formatDate(project.dueDate)}</span>
                         {project.trackerLink ? (
                           <a
                             className="project-tracker-link"
@@ -1648,7 +2242,9 @@ function WorkspaceScreen({
                               emptyMessage: "No project changes recorded yet.",
                               entityId: project.id,
                               entityType: "project",
-                              subtitle: project.ownerName,
+                              subtitle: formatProjectOwnerLabel(
+                                project.ownerName,
+                              ),
                               title: `Project history · ${project.title}`,
                             })
                           }
@@ -1660,21 +2256,7 @@ function WorkspaceScreen({
                           <button
                             type="button"
                             className="ghost-button compact-button"
-                            onClick={() => {
-                              setProjectExpanded(project.id, true);
-                              setProjectEditError(null);
-                              setEditingProjectId(project.id);
-                              setProjectDraft({
-                                title: project.title,
-                                summary: project.summary ?? "",
-                                notes: project.notes ?? "",
-                                trackerLink: project.trackerLink ?? "",
-                                ownerUserId: project.ownerUserId,
-                                dueDate: toDateInput(project.dueDate),
-                                priority: project.priority,
-                                manualStatus: project.manualStatus,
-                              });
-                            }}
+                            onClick={() => openProjectEditor(project)}
                           >
                             Edit
                           </button>
@@ -1684,138 +2266,187 @@ function WorkspaceScreen({
 
                     {canEditWorkspace && editingProjectId === project.id ? (
                       <form
-                        className="inline-form nested-form"
+                        ref={projectEditFormRef}
+                        className="inline-form project-row project-row--edit"
                         onSubmit={(event) => {
                           event.preventDefault();
-                          const trimmedNotes = projectDraft.notes?.trim() ?? "";
-                          const trimmedTrackerLink =
-                            projectDraft.trackerLink?.trim() ?? "";
 
                           updateProjectMutation.mutate({
                             projectId: project.id,
-                            payload: {
-                              ...projectDraft,
-                              manualStatus:
-                                projectDraft.manualStatus === undefined
-                                  ? null
-                                  : projectDraft.manualStatus,
-                              notes: trimmedNotes ? trimmedNotes : null,
-                              trackerLink: trimmedTrackerLink
-                                ? trimmedTrackerLink
-                                : null,
-                            },
+                            payload: normalizeProjectDraftPayload(projectDraft),
                           });
                         }}
                       >
-                        <input
-                          value={projectDraft.title ?? ""}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              title: event.target.value,
-                            }))
-                          }
-                        />
-                        <input
-                          value={projectDraft.summary ?? ""}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              summary: event.target.value,
-                            }))
-                          }
-                        />
-                        <select
-                          value={
-                            projectDraft.ownerUserId ?? data.currentUser.id
-                          }
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              ownerUserId: event.target.value,
-                            }))
-                          }
-                        >
-                          {data.users.map((user) => (
-                            <option key={user.id} value={user.id}>
-                              {user.name}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={projectDraft.priority ?? "medium"}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              priority: event.target.value as Priority,
-                            }))
-                          }
-                        >
-                          <option value="low">Low</option>
-                          <option value="medium">Medium</option>
-                          <option value="high">High</option>
-                        </select>
-                        <input
-                          type="date"
-                          value={projectDraft.dueDate ?? ""}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              dueDate: event.target.value,
-                            }))
-                          }
-                        />
-                        <select
-                          value={projectDraft.manualStatus ?? ""}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              manualStatus: event.target.value
-                                ? (event.target.value as ProjectStatus)
-                                : null,
-                            }))
-                          }
-                        >
-                          <option value="">Derived from tasks</option>
-                          <option value="not_started">Not started</option>
-                          <option value="in_progress">In progress</option>
-                          <option value="blocked">Blocked</option>
-                          <option value="done">Done</option>
-                        </select>
-                        <input
-                          value={projectDraft.notes ?? ""}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              notes: event.target.value,
-                            }))
-                          }
-                          placeholder="Project notes"
-                        />
-                        <input
-                          type="url"
-                          autoComplete="url"
-                          value={projectDraft.trackerLink ?? ""}
-                          onChange={(event) =>
-                            setProjectDraft((current) => ({
-                              ...current,
-                              trackerLink: event.target.value,
-                            }))
-                          }
-                          placeholder="Tracker link"
-                        />
-                        <button type="submit">Save</button>
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={() => {
-                            setProjectEditError(null);
-                            setEditingProjectId(null);
-                          }}
-                        >
-                          Cancel
-                        </button>
+                        <span className="project-row-edit-spacer" />
+                        <div className="project-main">
+                          <input
+                            value={projectDraft.title ?? ""}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                title: event.target.value,
+                              }))
+                            }
+                            placeholder="Project title"
+                          />
+                          <textarea
+                            value={projectDraft.notes ?? ""}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                notes: event.target.value,
+                              }))
+                            }
+                            className="resizable-notes"
+                            onPointerDown={(event) =>
+                              rememberNoteEditorHeight(
+                                "project",
+                                event.currentTarget,
+                              )
+                            }
+                            onPointerUp={(event) =>
+                              persistNoteEditorHeight(
+                                "project",
+                                event.currentTarget,
+                              )
+                            }
+                            placeholder="Project notes"
+                            rows={2}
+                            style={toTextareaStyle(noteEditorHeights.project)}
+                          />
+                        </div>
+                        <div className="project-status project-status--edit">
+                          <select
+                            value={projectDraft.manualStatus ?? ""}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                manualStatus: event.target.value
+                                  ? (event.target.value as ProjectStatus)
+                                  : null,
+                              }))
+                            }
+                          >
+                            <option value="">Derived from tasks</option>
+                            <option value="not_started">Not started</option>
+                            <option value="in_progress">In progress</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="done">Done</option>
+                          </select>
+                        </div>
+                        <div className="project-meta project-meta--edit">
+                          <select
+                            value={projectDraft.ownerUserId ?? ""}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                ownerUserId: event.target.value || null,
+                              }))
+                            }
+                          >
+                            <option value="">{NO_PROJECT_OWNER_LABEL}</option>
+                            {data.users.map((user) => (
+                              <option key={user.id} value={user.id}>
+                                {user.name}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={projectDraft.priority ?? "medium"}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                priority: event.target.value as Priority,
+                              }))
+                            }
+                          >
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                          </select>
+                          <input
+                            type="date"
+                            value={projectDraft.dueDate ?? ""}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                dueDate: event.target.value,
+                              }))
+                            }
+                          />
+                          <input
+                            type="url"
+                            autoComplete="url"
+                            value={projectDraft.trackerLink ?? ""}
+                            onChange={(event) =>
+                              setProjectDraft((current) => ({
+                                ...current,
+                                trackerLink: event.target.value,
+                              }))
+                            }
+                            placeholder="Tracker link"
+                          />
+                        </div>
+                        <div className="project-row-actions">
+                          <button type="submit">Save</button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            disabled={
+                              !canConvertProjectToTask(project, projectDraft) ||
+                              convertProjectToTaskMutation.isPending
+                            }
+                            onClick={() =>
+                              convertProjectToTaskMutation.mutate({
+                                project,
+                                payload:
+                                  normalizeProjectDraftPayload(projectDraft),
+                              })
+                            }
+                          >
+                            {convertProjectToTaskMutation.isPending
+                              ? "Converting..."
+                              : "Convert to Task"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => {
+                              if (
+                                !window.confirm(
+                                  `Delete project "${project.title}" and remove its ${project.taskTotalCount.toString()} task${project.taskTotalCount === 1 ? "" : "s"} from the workspace?`,
+                                )
+                              ) {
+                                return;
+                              }
+
+                              deleteProjectMutation.mutate({
+                                projectId: project.id,
+                                title: project.title,
+                              });
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            onClick={() => {
+                              setProjectEditError(null);
+                              setEditingProjectId(null);
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </form>
+                    ) : null}
+                    {canEditWorkspace &&
+                    editingProjectId === project.id &&
+                    projectConvertToTaskNote(project, projectDraft) ? (
+                      <p className="status-note nested-note">
+                        {projectConvertToTaskNote(project, projectDraft)}
+                      </p>
                     ) : null}
                     {canEditWorkspace &&
                     editingProjectId === project.id &&
@@ -2017,19 +2648,53 @@ function WorkspaceScreen({
                                 canEditTask={canEditWorkspace}
                                 canSelectTasks={canSelectTasks}
                                 data={data}
+                                editRowRef={taskEditRowRef}
                                 editingTaskId={editingTaskId}
                                 isSelected={selectedTasks[task.id] ?? false}
                                 key={task.id}
                                 onEdit={(selectedTask) =>
                                   openTaskEditor(project.id, selectedTask)
                                 }
-                                onSave={(payload) =>
+                                onSave={(payload) => {
+                                  const normalizedPayload =
+                                    normalizeTaskDraftPayload(payload);
+
+                                  setTaskEditError(null);
+
+                                  if (
+                                    normalizedPayload.projectId ===
+                                    CONVERT_TASK_TO_PROJECT_VALUE
+                                  ) {
+                                    convertTaskToProjectMutation.mutate({
+                                      payload: {
+                                        assigneeUserId:
+                                          normalizedPayload.assigneeUserId,
+                                        dueDate: normalizedPayload.dueDate,
+                                        notes: normalizedPayload.notes,
+                                        priority: normalizedPayload.priority,
+                                        status: normalizedPayload.status,
+                                        title: normalizedPayload.title,
+                                      },
+                                      task,
+                                    });
+                                    return;
+                                  }
+
                                   updateTaskMutation.mutate({
                                     taskId: task.id,
-                                    payload,
+                                    payload: normalizedPayload,
+                                  });
+                                }}
+                                onDelete={() =>
+                                  deleteTaskMutation.mutate({
+                                    taskId: task.id,
+                                    title: task.title,
                                   })
                                 }
-                                onCancel={() => setEditingTaskId(null)}
+                                onCancel={() => {
+                                  setTaskEditError(null);
+                                  setEditingTaskId(null);
+                                }}
                                 onToggleSelected={(checked) => {
                                   setSelectedTasks((current) => ({
                                     ...current,
@@ -2049,6 +2714,14 @@ function WorkspaceScreen({
                                 }
                                 task={task}
                                 taskDraft={taskDraft}
+                                taskEditError={taskEditError}
+                                taskNoteEditorHeight={noteEditorHeights.task}
+                                onTaskNotesPointerDown={(textarea) =>
+                                  rememberNoteEditorHeight("task", textarea)
+                                }
+                                onTaskNotesPointerUp={(textarea) =>
+                                  persistNoteEditorHeight("task", textarea)
+                                }
                                 setTaskDraft={setTaskDraft}
                               />
                             ))}
@@ -2071,15 +2744,21 @@ type TaskRowProps = {
   canEditTask: boolean;
   canSelectTasks: boolean;
   data: WorkspaceResponse;
+  editRowRef?: React.Ref<HTMLTableRowElement>;
   editingTaskId: string | null;
   isSelected: boolean;
   onEdit: (task: WorkspaceTask) => void;
   onSave: (payload: UpdateTaskPayload) => void;
+  onDelete: () => void;
   onCancel: () => void;
+  onTaskNotesPointerDown: (textarea: HTMLTextAreaElement) => void;
+  onTaskNotesPointerUp: (textarea: HTMLTextAreaElement) => void;
   onToggleSelected: (checked: boolean) => void;
   onViewHistory: () => void;
   task: WorkspaceTask;
   taskDraft: UpdateTaskPayload;
+  taskEditError: string | null;
+  taskNoteEditorHeight: number | null;
   setTaskDraft: React.Dispatch<React.SetStateAction<UpdateTaskPayload>>;
 };
 
@@ -2087,25 +2766,37 @@ function TaskRow({
   canEditTask,
   canSelectTasks,
   data,
+  editRowRef,
   editingTaskId,
   isSelected,
   onEdit,
   onSave,
+  onDelete,
   onCancel,
+  onTaskNotesPointerDown,
+  onTaskNotesPointerUp,
   onToggleSelected,
   onViewHistory,
   task,
   taskDraft,
+  taskEditError,
+  taskNoteEditorHeight,
   setTaskDraft,
 }: TaskRowProps) {
   if (editingTaskId === task.id) {
     const taskEditFormId = `task-edit-${task.id}`;
+    const selectedProjectId = taskDraft.projectId ?? task.projectId;
+    const isConvertingToProject =
+      selectedProjectId === CONVERT_TASK_TO_PROJECT_VALUE;
 
     return (
-      <tr className="editing-row">
+      <tr className="editing-row" ref={editRowRef}>
         {canSelectTasks ? <td className="task-select-cell" /> : null}
         <td>
           <div className="task-create-field">
+            {taskEditError ? (
+              <p className="error-banner task-edit-error">{taskEditError}</p>
+            ) : null}
             <input
               form={taskEditFormId}
               value={taskDraft.title ?? ""}
@@ -2116,7 +2807,7 @@ function TaskRow({
                 }))
               }
             />
-            <input
+            <textarea
               form={taskEditFormId}
               value={taskDraft.notes ?? ""}
               onChange={(event) =>
@@ -2125,21 +2816,50 @@ function TaskRow({
                   notes: event.target.value,
                 }))
               }
+              className="resizable-notes"
+              onPointerDown={(event) =>
+                onTaskNotesPointerDown(event.currentTarget)
+              }
+              onPointerUp={(event) => onTaskNotesPointerUp(event.currentTarget)}
               placeholder="Task notes"
+              rows={2}
+              style={toTextareaStyle(taskNoteEditorHeight)}
             />
+            <select
+              aria-label="Project"
+              form={taskEditFormId}
+              value={selectedProjectId}
+              onChange={(event) =>
+                setTaskDraft((current) => ({
+                  ...current,
+                  projectId: event.target.value,
+                }))
+              }
+            >
+              {data.projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.title}
+                </option>
+              ))}
+              <option value={CONVERT_TASK_TO_PROJECT_VALUE}>
+                Convert to Project
+              </option>
+            </select>
           </div>
         </td>
         <td>
           <select
+            aria-label="Assignee"
             form={taskEditFormId}
-            value={taskDraft.assigneeUserId ?? data.currentUser.id}
+            value={taskDraft.assigneeUserId ?? ""}
             onChange={(event) =>
               setTaskDraft((current) => ({
                 ...current,
-                assigneeUserId: event.target.value,
+                assigneeUserId: event.target.value || null,
               }))
             }
           >
+            <option value="">{NO_TASK_ASSIGNEE_LABEL}</option>
             {data.users.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
@@ -2208,7 +2928,24 @@ function TaskRow({
             form={taskEditFormId}
             className="compact-button mini-button"
           >
-            Save
+            {isConvertingToProject ? "Convert" : "Save"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact-button mini-button"
+            onClick={() => {
+              if (
+                !window.confirm(
+                  `Delete task "${task.title}" from the workspace?`,
+                )
+              ) {
+                return;
+              }
+
+              onDelete();
+            }}
+          >
+            Delete
           </button>
           <button
             type="button"
@@ -2224,7 +2961,16 @@ function TaskRow({
   }
 
   return (
-    <tr>
+    <tr
+      onClick={(event) => {
+        if (
+          canEditTask &&
+          shouldOpenEditorFromModifierClick(event)
+        ) {
+          onEdit(task);
+        }
+      }}
+    >
       {canSelectTasks ? (
         <td className="task-select-cell">
           <input
@@ -2239,7 +2985,7 @@ function TaskRow({
         <strong>{task.title}</strong>
         <div className="task-subtext">{task.notes ?? "No notes"}</div>
       </td>
-      <td>{task.assigneeName}</td>
+      <td>{task.assigneeName ?? NO_TASK_ASSIGNEE_LABEL}</td>
       <td>
         <span className={`status-pill status-${task.status}`}>
           {task.status}
@@ -2283,6 +3029,7 @@ type SettingsPanelProps = {
   onThemeChange: (theme: WorkspaceTheme) => void;
   onViewAuthHistory: () => void;
   theme: WorkspaceTheme;
+  users: WorkspaceUser[];
 };
 
 function SettingsPanel({
@@ -2299,8 +3046,11 @@ function SettingsPanel({
   onThemeChange,
   onViewAuthHistory,
   theme,
+  users,
 }: SettingsPanelProps) {
   const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
+  const [adminAuditPanel, setAdminAuditPanel] =
+    useState<AdminAuditReportType | null>(null);
 
   return (
     <section className="workspace-panel-card">
@@ -2315,6 +3065,131 @@ function SettingsPanel({
       </header>
 
       <div className="settings-grid">
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={() =>
+            onThemeChange(theme === "dark" ? "light" : "dark")
+          }
+        >
+          <div className="settings-item-header">
+            <strong>Theme</strong>
+            <span>{theme === "dark" ? "Dark mode" : "Light mode"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Keep the workspace compact and readable without leaving the browser.
+          </p>
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Dark mode</span>
+            <input
+              aria-label="Dark mode"
+              checked={theme === "dark"}
+              className="settings-switch-input"
+              onChange={(event) =>
+                onThemeChange(event.target.checked ? "dark" : "light")
+              }
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={() => onAutoCollapseChange(!autoCollapse)}
+        >
+          <div className="settings-item-header">
+            <strong>Auto Collapse</strong>
+            <span>{autoCollapse ? "On" : "Off"}</span>
+          </div>
+          <p className="toolbar-hint">
+            When enabled, opening one project collapses the rest.
+          </p>
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Auto Collapse</span>
+            <input
+              aria-label="Auto Collapse"
+              checked={autoCollapse}
+              className="settings-switch-input"
+              onChange={(event) => onAutoCollapseChange(event.target.checked)}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={() => onBulkActionsChange(!bulkActions)}
+        >
+          <div className="settings-item-header">
+            <strong>Bulk Actions</strong>
+            <span>{bulkActions ? "On" : "Off"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Show task selection checkboxes and the multi-task action bar.
+          </p>
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Bulk Actions</span>
+            <input
+              aria-label="Bulk Actions"
+              checked={bulkActions}
+              className="settings-switch-input"
+              onChange={(event) => onBulkActionsChange(event.target.checked)}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={() => onFullWidthChange(!fullWidth)}
+        >
+          <div className="settings-item-header">
+            <strong>Full Width</strong>
+            <span>{fullWidth ? "On" : "Off"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Let the workspace span the full browser width when needed.
+          </p>
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Full Width</span>
+            <input
+              aria-label="Full Width"
+              checked={fullWidth}
+              className="settings-switch-input"
+              onChange={(event) => onFullWidthChange(event.target.checked)}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+
+        <div className="settings-item">
+          <span className="settings-label">Version</span>
+          <strong>{`${appName} v${appVersion}`}</strong>
+          <a
+            className="settings-link"
+            href={appRepositoryUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            github
+          </a>
+        </div>
+
         <div className="settings-item">
           <div className="settings-item-header">
             <strong>Local Accounts</strong>
@@ -2331,101 +3206,17 @@ function SettingsPanel({
               className="ghost-button compact-button"
               onClick={() => setLocalAccountsOpen((current) => !current)}
             >
-              {localAccountsOpen ? "Hide local accounts" : "Open local accounts"}
+              {localAccountsOpen
+                ? "Hide local accounts"
+                : "Open local accounts"}
             </button>
           </div>
         </div>
 
         <div className="settings-item">
           <div className="settings-item-header">
-            <strong>Theme</strong>
-            <span>{theme === "dark" ? "Dark mode" : "Light mode"}</span>
-          </div>
-          <p className="toolbar-hint">
-            Keep the workspace compact and readable without leaving the browser.
-          </p>
-          <label className="settings-switch">
-            <span className="settings-switch-label">Dark mode</span>
-            <input
-              aria-label="Dark mode"
-              checked={theme === "dark"}
-              className="settings-switch-input"
-              onChange={(event) =>
-                onThemeChange(event.target.checked ? "dark" : "light")
-              }
-              role="switch"
-              type="checkbox"
-            />
-          </label>
-        </div>
-
-        <div className="settings-item">
-          <div className="settings-item-header">
-            <strong>Auto Collapse</strong>
-            <span>{autoCollapse ? "On" : "Off"}</span>
-          </div>
-          <p className="toolbar-hint">
-            When enabled, opening one project collapses the rest.
-          </p>
-          <label className="settings-switch">
-            <span className="settings-switch-label">Auto Collapse</span>
-            <input
-              aria-label="Auto Collapse"
-              checked={autoCollapse}
-              className="settings-switch-input"
-              onChange={(event) => onAutoCollapseChange(event.target.checked)}
-              role="switch"
-              type="checkbox"
-            />
-          </label>
-        </div>
-
-        <div className="settings-item">
-          <div className="settings-item-header">
-            <strong>Bulk Actions</strong>
-            <span>{bulkActions ? "On" : "Off"}</span>
-          </div>
-          <p className="toolbar-hint">
-            Show task selection checkboxes and the multi-task action bar.
-          </p>
-          <label className="settings-switch">
-            <span className="settings-switch-label">Bulk Actions</span>
-            <input
-              aria-label="Bulk Actions"
-              checked={bulkActions}
-              className="settings-switch-input"
-              onChange={(event) => onBulkActionsChange(event.target.checked)}
-              role="switch"
-              type="checkbox"
-            />
-          </label>
-        </div>
-
-        <div className="settings-item">
-          <div className="settings-item-header">
-            <strong>Full Width</strong>
-            <span>{fullWidth ? "On" : "Off"}</span>
-          </div>
-          <p className="toolbar-hint">
-            Let the workspace span the full browser width when needed.
-          </p>
-          <label className="settings-switch">
-            <span className="settings-switch-label">Full Width</span>
-            <input
-              aria-label="Full Width"
-              checked={fullWidth}
-              className="settings-switch-input"
-              onChange={(event) => onFullWidthChange(event.target.checked)}
-              role="switch"
-              type="checkbox"
-            />
-          </label>
-        </div>
-
-        <div className="settings-item">
-          <div className="settings-item-header">
             <strong>My Auth History</strong>
-            <span>{currentUser.email}</span>
+            <span>{currentUser.name}</span>
           </div>
           <p className="toolbar-hint">
             Review sign-in events for this browser session identity.
@@ -2440,6 +3231,50 @@ function SettingsPanel({
             </button>
           </div>
         </div>
+
+        {isAdmin ? (
+          <div className="settings-item">
+            <div className="settings-item-header">
+              <strong>Audit logins</strong>
+              <span>All users</span>
+            </div>
+            <p className="toolbar-hint">
+              Review sign-in and sign-out history for every account with search,
+              date filters, and export.
+            </p>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                onClick={() => setAdminAuditPanel("logins")}
+              >
+                Open audit logins
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {isAdmin ? (
+          <div className="settings-item">
+            <div className="settings-item-header">
+              <strong>Audit changes</strong>
+              <span>Projects and tasks</span>
+            </div>
+            <p className="toolbar-hint">
+              Review project and task changes across the workspace with search,
+              filters, and export.
+            </p>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                onClick={() => setAdminAuditPanel("changes")}
+              >
+                Open audit changes
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="settings-item">
           <div className="settings-item-header">
@@ -2461,27 +3296,390 @@ function SettingsPanel({
             </button>
           </div>
         </div>
-
-        <div className="settings-item">
-          <span className="settings-label">Version</span>
-          <strong>{`${appName} v${appVersion}`}</strong>
-          <a
-            className="settings-link"
-            href={appRepositoryUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            github
-          </a>
-        </div>
       </div>
 
       {localAccountsOpen ? (
         <LocalAccountsPanel
           currentUser={currentUser}
           isAdmin={isAdmin}
+          onClose={() => setLocalAccountsOpen(false)}
           onNotice={onNotice}
         />
+      ) : null}
+
+      {isAdmin && adminAuditPanel ? (
+        <AdminAuditReportPanel
+          currentUser={currentUser}
+          onClose={() => setAdminAuditPanel(null)}
+          type={adminAuditPanel}
+          users={users}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+type AdminAuditReportPanelProps = {
+  currentUser: WorkspaceUser;
+  onClose: () => void;
+  type: AdminAuditReportType;
+  users: WorkspaceUser[];
+};
+
+function AdminAuditReportPanel({
+  currentUser,
+  onClose,
+  type,
+  users,
+}: AdminAuditReportPanelProps) {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [actorUserId, setActorUserId] = useState("");
+  const [action, setAction] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [retentionWindowOverride, setRetentionWindowOverride] =
+    useState<AuditLogRetentionWindow | null>(
+      null,
+    );
+  const [retentionMessage, setRetentionMessage] = useState<string | null>(null);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
+
+  const userLookup = useMemo(
+    () =>
+      Object.fromEntries(users.map((user) => [user.id, user])) as Record<
+        string,
+        WorkspaceUser
+      >,
+    [users],
+  );
+
+  const retentionQuery = useQuery({
+    queryKey: ["audit-retention"],
+    queryFn: getAuditLogRetention,
+  });
+  const retentionWindow =
+    retentionWindowOverride ??
+    retentionQuery.data?.olderThan ??
+    DEFAULT_AUDIT_LOG_RETENTION_WINDOW;
+
+  const reportQuery = useQuery({
+    queryKey: [
+      "audit-report",
+      type,
+      search,
+      actorUserId,
+      action,
+      fromDate,
+      toDate,
+    ],
+    queryFn: async () => {
+      const filters = {
+        actorUserId: actorUserId || undefined,
+        fromDate: fromDate || undefined,
+        limit: 250,
+        search,
+        toDate: toDate || undefined,
+      };
+
+      if (type === "changes") {
+        return listAuditChanges({
+          ...filters,
+          action: action || undefined,
+        });
+      }
+
+      return listAuditLogins(filters);
+    },
+  });
+
+  const purgeAuditLogsMutation = useMutation({
+    mutationFn: (olderThan: AuditLogRetentionWindow) =>
+      purgeAuditLogs({ olderThan }),
+    onSuccess: async (result, olderThan) => {
+      setRetentionError(null);
+      setRetentionMessage(
+        `Purged ${result.deletedCount.toString()} audit event${result.deletedCount === 1 ? "" : "s"} older than ${formatAuditLogRetentionWindowLabel(olderThan)}.`,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["audit-report"] });
+    },
+    onError: (error) => {
+      setRetentionMessage(null);
+      setRetentionError(
+        error instanceof ApiError ? error.message : "Unable to purge audit logs",
+      );
+    },
+  });
+
+  const setAuditLogRetentionMutation = useMutation({
+    mutationFn: (olderThan: AuditLogRetentionWindow) =>
+      setAuditLogRetention({ olderThan }),
+    onSuccess: (_policy, olderThan) => {
+      setRetentionWindowOverride(olderThan);
+      setRetentionError(null);
+      setRetentionMessage(
+        `Automatic log aging is now set to ${formatAuditLogRetentionWindowLabel(olderThan)}.`,
+      );
+      queryClient.setQueryData(["audit-retention"], { olderThan });
+    },
+    onError: (error) => {
+      setRetentionMessage(null);
+      setRetentionError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update automatic log aging",
+      );
+    },
+  });
+
+  const events = reportQuery.data ?? [];
+  const title = type === "changes" ? "Audit changes" : "Audit logins";
+  const subtitle =
+    type === "changes"
+      ? "Admin-only project and task change history"
+      : "Admin-only sign-in and sign-out history";
+  const automaticRetentionStatus = retentionQuery.data?.olderThan
+    ? `Automatic log aging: ${formatAuditLogRetentionWindowLabel(retentionQuery.data.olderThan)}.`
+    : retentionQuery.isSuccess
+      ? "Automatic log aging is not set."
+      : null;
+
+  const handlePurgeAuditLogs = () => {
+    const retentionLabel = formatAuditLogRetentionWindowLabel(retentionWindow);
+
+    if (!window.confirm(`Purge audit logs older than ${retentionLabel}?`)) {
+      return;
+    }
+
+    setRetentionError(null);
+    setRetentionMessage(null);
+    purgeAuditLogsMutation.mutate(retentionWindow);
+  };
+
+  return (
+    <section className="audit-card audit-card--report">
+      <div className="panel-header">
+        <div>
+          <strong>{title}</strong>
+          <p className="toolbar-hint">{subtitle}</p>
+        </div>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            disabled={events.length === 0 || reportQuery.isLoading}
+            onClick={() =>
+              exportAuditReportCsv({
+                currentUser,
+                events,
+                type,
+                users: userLookup,
+              })
+            }
+          >
+            Export CSV
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="audit-retention-row">
+        <label className="workspace-filter">
+          Log aging
+          <select
+            aria-label="Log aging"
+            value={retentionWindow}
+            onChange={(event) => {
+              if (isAuditLogRetentionWindow(event.target.value)) {
+                setRetentionWindowOverride(event.target.value);
+              }
+              setRetentionError(null);
+              setRetentionMessage(null);
+            }}
+          >
+            {AUDIT_LOG_RETENTION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            disabled={purgeAuditLogsMutation.isPending}
+            onClick={handlePurgeAuditLogs}
+          >
+            {purgeAuditLogsMutation.isPending ? "Purging..." : "Purge logs"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            disabled={setAuditLogRetentionMutation.isPending}
+            onClick={() => {
+              setRetentionError(null);
+              setRetentionMessage(null);
+              setAuditLogRetentionMutation.mutate(retentionWindow);
+            }}
+          >
+            {setAuditLogRetentionMutation.isPending
+              ? "Saving..."
+              : "Set automatic aging"}
+          </button>
+        </div>
+      </div>
+      {retentionQuery.isLoading ? (
+        <p className="toolbar-hint audit-retention-status">
+          Loading automatic log aging...
+        </p>
+      ) : null}
+      {retentionQuery.isError ? (
+        <p className="error-banner">
+          {retentionQuery.error instanceof Error
+            ? retentionQuery.error.message
+            : "Unable to load automatic log aging."}
+        </p>
+      ) : null}
+      {automaticRetentionStatus ? (
+        <p className="toolbar-hint audit-retention-status">
+          {automaticRetentionStatus}
+        </p>
+      ) : null}
+      {retentionMessage ? (
+        <p className="toolbar-hint audit-retention-status">{retentionMessage}</p>
+      ) : null}
+      {retentionError ? <p className="error-banner">{retentionError}</p> : null}
+
+      <div className="audit-filter-grid">
+        <label className="workspace-filter search-filter">
+          Search
+          <input
+            type="search"
+            placeholder="Search audit history"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        <label className="workspace-filter">
+          User
+          <select
+            value={actorUserId}
+            onChange={(event) => setActorUserId(event.target.value)}
+          >
+            <option value="">All users</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {type === "changes" ? (
+          <label className="workspace-filter">
+            Action
+            <select
+              value={action}
+              onChange={(event) => setAction(event.target.value)}
+            >
+              {AUDIT_CHANGE_ACTION_OPTIONS.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="workspace-filter">
+          From
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(event) => setFromDate(event.target.value)}
+          />
+        </label>
+        <label className="workspace-filter">
+          To
+          <input
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+          />
+        </label>
+      </div>
+
+      {reportQuery.isLoading ? <p>Loading audit history...</p> : null}
+      {reportQuery.isError ? (
+        <p className="error-banner">
+          {reportQuery.error instanceof Error
+            ? reportQuery.error.message
+            : "Unable to load audit history."}
+        </p>
+      ) : null}
+      {!reportQuery.isLoading && !reportQuery.isError && events.length === 0 ? (
+        <p className="toolbar-hint">No matching audit events.</p>
+      ) : null}
+
+      {!reportQuery.isLoading && !reportQuery.isError && events.length > 0 ? (
+        <ul className="audit-list">
+          {events.map((event) => {
+            const auditChanges = readAuditChanges(event.metadata);
+            const eventSummary = summarizeAuditMetadata(
+              event.metadata,
+              userLookup,
+              currentUser,
+            );
+            const entityLabel = formatAuditEntityTitle(event);
+
+            return (
+              <li key={event.id} className="audit-event">
+                <div className="audit-event-header">
+                  <strong>{formatAuditActionLabel(event.action)}</strong>
+                  <span>{formatDateTime(event.createdAt)}</span>
+                </div>
+                <div className="audit-event-meta">
+                  <span>{entityLabel}</span>
+                  <span>{formatActorSummary(event.actor)}</span>
+                </div>
+                {auditChanges.length > 0 ? (
+                  <ul className="audit-change-list">
+                    {auditChanges.map((change) => (
+                      <li key={`${event.id}-${change.field}`}>
+                        <strong>{formatAuditFieldLabel(change.field)}</strong>
+                        <span>
+                          {formatAuditChangeValue(
+                            change.field,
+                            change.from,
+                            userLookup,
+                            currentUser,
+                          )}
+                          {" -> "}
+                          {formatAuditChangeValue(
+                            change.field,
+                            change.to,
+                            userLookup,
+                            currentUser,
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {eventSummary.length > 0 ? (
+                  <div className="audit-event-meta">
+                    <span>{eventSummary.join(" · ")}</span>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
     </section>
   );
@@ -2539,6 +3737,7 @@ function AuditHistoryPanel({
       {!isLoading && !isError && events.length > 0 ? (
         <ul className="audit-list">
           {events.map((event) => {
+            const auditChanges = readAuditChanges(event.metadata);
             const metadataSummary = summarizeAuditMetadata(
               event.metadata,
               users,
@@ -2556,6 +3755,30 @@ function AuditHistoryPanel({
                   <span>{event.actor.role}</span>
                   <span>{event.actor.email}</span>
                 </div>
+                {auditChanges.length > 0 ? (
+                  <ul className="audit-change-list">
+                    {auditChanges.map((change) => (
+                      <li key={`${event.id}-${change.field}`}>
+                        <strong>{formatAuditFieldLabel(change.field)}</strong>
+                        <span>
+                          {formatAuditChangeValue(
+                            change.field,
+                            change.from,
+                            users,
+                            currentUser,
+                          )}
+                          {" -> "}
+                          {formatAuditChangeValue(
+                            change.field,
+                            change.to,
+                            users,
+                            currentUser,
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 {metadataSummary.length > 0 ? (
                   <div className="audit-event-meta">
                     {metadataSummary.map((item) => (
@@ -2623,11 +3846,12 @@ function normalizeWorkspacePreferences(
   };
 }
 
-function formatTaskCompletion(doneCount: number, totalCount: number) {
-  const completionPercentage =
-    totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100);
+function formatTaskCompletionPercent(doneCount: number, totalCount: number) {
+  if (totalCount === 0) {
+    return "0%";
+  }
 
-  return `${doneCount}/${totalCount} ${completionPercentage}%`;
+  return `${Math.round((doneCount / totalCount) * 100).toString()}%`;
 }
 
 function summarizeAuditMetadata(
@@ -2645,7 +3869,10 @@ function summarizeAuditMetadata(
   const changedFields = readMetadataStringArray(metadata.changedFields);
   const status = readMetadataString(metadata.status);
   const manualStatus = readMetadataString(metadata.manualStatus);
-  const assigneeUserId = readMetadataString(metadata.assigneeUserId);
+  const assigneeUserId =
+    "assigneeUserId" in metadata
+      ? readMetadataNullableString(metadata.assigneeUserId)
+      : null;
   const priority = readMetadataString(metadata.priority);
   const dueDate = metadata.dueDate;
   const notes =
@@ -2655,9 +3882,18 @@ function summarizeAuditMetadata(
   const selectionSize = readMetadataNumber(metadata.selectionSize);
   const groupBy = readMetadataString(metadata.groupBy);
   const search = readMetadataString(metadata.search);
-  const statusFilter = readMetadataString(metadata.statusFilter);
+  const sortBy = readMetadataStringArray(metadata.sortBy).filter(
+    isProjectSortField,
+  );
+  const statusFilters = readMetadataStringArray(metadata.statusFilters).filter(
+    isTaskStatus,
+  );
+  const assigneeUserIds = readMetadataStringArray(metadata.assigneeUserIds);
   const role = readMetadataString(metadata.role);
-  const ownerUserId = readMetadataString(metadata.ownerUserId);
+  const ownerUserId =
+    "ownerUserId" in metadata
+      ? readMetadataNullableString(metadata.ownerUserId)
+      : null;
 
   if (title) {
     summary.push(title);
@@ -2681,15 +3917,19 @@ function summarizeAuditMetadata(
     );
   }
 
-  if (assigneeUserId) {
+  if (assigneeUserId !== null) {
     summary.push(
-      `Assignee ${formatUserReference(assigneeUserId, users, currentUser)}`,
+      assigneeUserId
+        ? `Assignee ${formatUserReference(assigneeUserId, users, currentUser)}`
+        : `Assignee ${NO_TASK_ASSIGNEE_LABEL}`,
     );
   }
 
-  if (ownerUserId) {
+  if (ownerUserId !== null) {
     summary.push(
-      `Owner ${formatUserReference(ownerUserId, users, currentUser)}`,
+      ownerUserId
+        ? `Owner ${formatUserReference(ownerUserId, users, currentUser)}`
+        : `Owner ${NO_PROJECT_OWNER_LABEL}`,
     );
   }
 
@@ -2722,8 +3962,24 @@ function summarizeAuditMetadata(
     summary.push(`Search "${search}"`);
   }
 
-  if (statusFilter) {
-    summary.push(`Filter ${formatStatusLabel(statusFilter as ProjectStatus)}`);
+  if (sortBy.length > 0) {
+    summary.push(
+      `Sort ${sortBy.map((field) => formatProjectSortFieldLabel(field)).join(", ")}`,
+    );
+  }
+
+  if (statusFilters.length > 0) {
+    summary.push(
+      `Status ${statusFilters.map((statusValue) => formatStatusLabel(statusValue)).join(", ")}`,
+    );
+  }
+
+  if (assigneeUserIds.length > 0) {
+    summary.push(
+      `Assignee ${assigneeUserIds
+        .map((userId) => formatUserReference(userId, users, currentUser))
+        .join(", ")}`,
+    );
   }
 
   if (role) {
@@ -2731,6 +3987,175 @@ function summarizeAuditMetadata(
   }
 
   return summary.slice(0, 6);
+}
+
+type AuditChange = {
+  field: string;
+  from: unknown;
+  to: unknown;
+};
+
+function readAuditChanges(
+  metadata: Record<string, unknown> | null,
+): AuditChange[] {
+  if (!metadata || !Array.isArray(metadata.changes)) {
+    return [];
+  }
+
+  return metadata.changes.flatMap((entry) => {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      "field" in entry &&
+      typeof entry.field === "string"
+    ) {
+      return [
+        {
+          field: entry.field,
+          from: "from" in entry ? entry.from : null,
+          to: "to" in entry ? entry.to : null,
+        },
+      ];
+    }
+
+    return [];
+  });
+}
+
+function formatAuditFieldLabel(value: string) {
+  return formatAuditField(value);
+}
+
+function formatAuditChangeValue(
+  field: string,
+  value: unknown,
+  users: Record<string, WorkspaceUser>,
+  currentUser: WorkspaceUser,
+) {
+  if (value === null || value === undefined || value === "") {
+    if (field === "assigneeUserId") {
+      return NO_TASK_ASSIGNEE_LABEL;
+    }
+
+    if (field === "ownerUserId") {
+      return NO_PROJECT_OWNER_LABEL;
+    }
+
+    return "None";
+  }
+
+  if (field === "assigneeUserId" || field === "ownerUserId") {
+    return typeof value === "string"
+      ? formatUserReference(value, users, currentUser)
+      : "None";
+  }
+
+  if (field === "status" || field === "manualStatus") {
+    return typeof value === "string"
+      ? formatStatusLabel(value as ProjectStatus | TaskStatus)
+      : "None";
+  }
+
+  if (field === "priority") {
+    return typeof value === "string"
+      ? formatPriorityLabel(value as Priority)
+      : "None";
+  }
+
+  if (field === "dueDate") {
+    return typeof value === "string" ? formatDate(value) : "None";
+  }
+
+  if (field === "completedAt" || field === "archivedAt") {
+    return typeof value === "string" ? formatDateTime(value) : "None";
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  if (typeof value === "number") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    if (field === "sortBy") {
+      const sortLabels = value
+        .filter((entry): entry is string => typeof entry === "string")
+        .filter(isProjectSortField)
+        .map((entry) => formatProjectSortFieldLabel(entry));
+
+      return sortLabels.length > 0 ? sortLabels.join(", ") : "None";
+    }
+
+    return value.join(", ");
+  }
+
+  return String(value);
+}
+
+function formatActorSummary(actor: AuditHistoryEvent["actor"]) {
+  return `${actor.name} · ${actor.email}`;
+}
+
+function formatAuditEntityTitle(event: AuditHistoryEvent) {
+  const metadataTitle =
+    readMetadataString(event.metadata?.title) ??
+    readMetadataString(event.metadata?.name);
+  const entityLabel =
+    event.entityType === "project"
+      ? "Project"
+      : event.entityType === "task"
+        ? "Task"
+        : "Auth";
+
+  return metadataTitle
+    ? `${entityLabel}: ${metadataTitle}`
+    : `${entityLabel}: ${event.entityId}`;
+}
+
+function exportAuditReportCsv({
+  currentUser,
+  events,
+  type,
+  users,
+}: {
+  currentUser: WorkspaceUser;
+  events: AuditHistoryEvent[];
+  type: AdminAuditReportType;
+  users: Record<string, WorkspaceUser>;
+}) {
+  const rows = events.map((event) => ({
+    Action: formatAuditActionLabel(event.action),
+    Actor: event.actor.name,
+    "Actor Email": event.actor.email,
+    "Changed Values": readAuditChanges(event.metadata)
+      .map(
+        (change) =>
+          `${formatAuditFieldLabel(change.field)}: ${formatAuditChangeValue(
+            change.field,
+            change.from,
+            users,
+            currentUser,
+          )} -> ${formatAuditChangeValue(change.field, change.to, users, currentUser)}`,
+      )
+      .join(" | "),
+    "Date/Time": event.createdAt,
+    Entity: formatAuditEntityTitle(event),
+    Summary: summarizeAuditMetadata(event.metadata, users, currentUser).join(
+      " | ",
+    ),
+  }));
+
+  downloadCsvFile(type === "changes" ? "audit-changes" : "audit-logins", rows, [
+    "Date/Time",
+    "Action",
+    "Entity",
+    "Actor",
+    "Actor Email",
+    "Changed Values",
+    "Summary",
+  ]);
 }
 
 function readMetadataString(value: unknown) {
@@ -2757,12 +4182,35 @@ function formatAuditActionLabel(action: string) {
       return "bulk delete";
     case "bulk_update":
       return "bulk update";
+    case "convert_from_project":
+      return "converted from project";
+    case "convert_to_project":
+      return "converted to project";
+    case "convert_to_task":
+      return "converted to task";
     case "status_override_clear":
       return "cleared override";
     case "status_override_set":
       return "set override";
     default:
       return action.replace(/_/g, " ");
+  }
+}
+
+function formatAuditLogRetentionWindowLabel(value: AuditLogRetentionWindow) {
+  switch (value) {
+    case "one_day":
+      return "1 day";
+    case "one_week":
+      return "1 week";
+    case "one_month":
+      return "1 month";
+    case "three_months":
+      return "3 months";
+    case "six_months":
+      return "6 months";
+    case "one_year":
+      return "1 year";
   }
 }
 
@@ -2782,17 +4230,28 @@ function formatAuditField(value: string) {
       return "due date";
     case "groupBy":
       return "group by";
+    case "sortBy":
+      return "sort by";
     case "manualStatus":
       return "override";
     case "ownerUserId":
       return "owner";
     case "trackerLink":
       return "tracker link";
+    case "assigneeUserIds":
+      return "assignee filter";
     case "statusFilter":
+    case "statusFilters":
       return "status filter";
     default:
       return value.replace(/_/g, " ");
   }
+}
+
+function isAuditLogRetentionWindow(
+  value: string,
+): value is AuditLogRetentionWindow {
+  return AUDIT_LOG_RETENTION_OPTIONS.some((option) => option.value === value);
 }
 
 function formatUserReference(
@@ -2801,48 +4260,80 @@ function formatUserReference(
   currentUser: WorkspaceUser,
 ) {
   if (userId === currentUser.id) {
-    return "you";
+    return currentUser.name;
   }
 
   return users[userId]?.name ?? userId;
 }
 
-function filterProjects(
-  projects: WorkspaceProject[],
-  search: string,
-  statusFilter: ProjectStatus | "all",
-) {
+function filterProjects({
+  assigneeUserIds,
+  projects,
+  search,
+  statusFilters,
+}: {
+  assigneeUserIds: string[];
+  projects: WorkspaceProject[];
+  search: string;
+  statusFilters: TaskStatus[];
+}) {
   const normalizedSearch = search.trim().toLowerCase();
+  const hasTaskFilters = statusFilters.length > 0 || assigneeUserIds.length > 0;
 
-  return projects.filter((project) => {
-    const matchesStatus =
-      statusFilter === "all" || project.displayStatus === statusFilter;
+  return projects.flatMap((project) => {
+    const tasksAfterFilters = project.tasks.filter((task) => {
+      const matchesStatus =
+        statusFilters.length === 0 || statusFilters.includes(task.status);
+      const matchesAssignee =
+        assigneeUserIds.length === 0 ||
+        (task.assigneeUserId !== null &&
+          assigneeUserIds.includes(task.assigneeUserId));
 
-    if (!matchesStatus) {
-      return false;
+      return matchesStatus && matchesAssignee;
+    });
+
+    if (hasTaskFilters && tasksAfterFilters.length === 0) {
+      return [];
     }
+
+    const candidateTasks = hasTaskFilters ? tasksAfterFilters : project.tasks;
 
     if (!normalizedSearch) {
-      return true;
+      return [{ ...project, tasks: candidateTasks }];
     }
 
-    return (
+    const projectMatchesSearch =
       project.title.toLowerCase().includes(normalizedSearch) ||
-      (project.summary ?? "").toLowerCase().includes(normalizedSearch) ||
       (project.trackerLink ?? "").toLowerCase().includes(normalizedSearch) ||
-      (project.notes ?? "").toLowerCase().includes(normalizedSearch) ||
-      project.tasks.some(
-        (task) =>
-          task.title.toLowerCase().includes(normalizedSearch) ||
-          (task.notes ?? "").toLowerCase().includes(normalizedSearch),
-      )
+      (project.notes ?? "").toLowerCase().includes(normalizedSearch);
+    const matchingTasks = candidateTasks.filter(
+      (task) =>
+        task.title.toLowerCase().includes(normalizedSearch) ||
+        (task.notes ?? "").toLowerCase().includes(normalizedSearch),
     );
+
+    if (!projectMatchesSearch && matchingTasks.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        ...project,
+        tasks: projectMatchesSearch ? candidateTasks : matchingTasks,
+      },
+    ];
   });
 }
 
-function groupProjects(projects: WorkspaceProject[], groupBy: GroupBy) {
+function groupProjects(
+  projects: WorkspaceProject[],
+  groupBy: GroupBy,
+  sortBy: ProjectSortField[],
+) {
   if (groupBy === "none") {
-    return [{ key: GROUP_LABELS.none, projects }];
+    return [
+      { key: GROUP_LABELS.none, projects: sortProjects(projects, sortBy) },
+    ];
   }
 
   const groups = new Map<string, WorkspaceProject[]>();
@@ -2850,20 +4341,124 @@ function groupProjects(projects: WorkspaceProject[], groupBy: GroupBy) {
   for (const project of projects) {
     const key =
       groupBy === "owner"
-        ? project.ownerName
+        ? formatProjectOwnerGroupLabel(project.ownerName)
         : groupBy === "priority"
           ? project.priority
-          : formatStatusLabel(project.displayStatus);
+          : groupBy === "progress"
+            ? formatProjectProgress(project)
+            : formatStatusLabel(project.displayStatus);
 
     const existing = groups.get(key) ?? [];
     existing.push(project);
     groups.set(key, existing);
   }
 
-  return [...groups.entries()].map(([key, groupedProjects]) => ({
-    key,
-    projects: groupedProjects,
-  }));
+  const groupedEntries = [...groups.entries()].map(
+    ([key, groupedProjects]) => ({
+      key,
+      projects: sortProjects(groupedProjects, sortBy),
+    }),
+  );
+
+  if (groupBy !== "progress") {
+    return groupedEntries;
+  }
+
+  return groupedEntries.sort(
+    (left, right) =>
+      parseProgressGroup(right.key) - parseProgressGroup(left.key),
+  );
+}
+
+function sortProjects(
+  projects: WorkspaceProject[],
+  sortBy: ProjectSortField[],
+) {
+  if (sortBy.length === 0) {
+    return projects;
+  }
+
+  return projects
+    .map((project, index) => ({ index, project }))
+    .sort((left, right) => {
+      for (const sortField of sortBy) {
+        const result = compareProjectsByField(
+          left.project,
+          right.project,
+          sortField,
+        );
+
+        if (result !== 0) {
+          return result;
+        }
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ project }) => project);
+}
+
+function compareProjectsByField(
+  left: WorkspaceProject,
+  right: WorkspaceProject,
+  field: ProjectSortField,
+) {
+  switch (field) {
+    case "dueDate":
+      return compareNullableDateValues(left.dueDate, right.dueDate);
+    case "priority":
+      return prioritySortRank(left.priority) - prioritySortRank(right.priority);
+    case "progress":
+      return projectCompletionPercent(right) - projectCompletionPercent(left);
+    case "title":
+      return left.title.localeCompare(right.title, undefined, {
+        sensitivity: "base",
+      });
+  }
+}
+
+function compareNullableDateValues(left: string | null, right: string | null) {
+  if (!left && !right) {
+    return 0;
+  }
+
+  if (!left) {
+    return 1;
+  }
+
+  if (!right) {
+    return -1;
+  }
+
+  return left.localeCompare(right);
+}
+
+function prioritySortRank(value: Priority) {
+  switch (value) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+  }
+}
+
+function projectCompletionPercent(project: WorkspaceProject) {
+  if (project.taskTotalCount === 0) {
+    return 0;
+  }
+
+  return Math.round((project.taskDoneCount / project.taskTotalCount) * 100);
+}
+
+function formatProjectProgress(project: WorkspaceProject) {
+  return `${projectCompletionPercent(project).toString()}%`;
+}
+
+function parseProgressGroup(value: string) {
+  const match = /^(\d+)%$/.exec(value);
+  return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
 function defaultTaskPayload(currentUserId: string): CreateTaskPayload {
@@ -2878,23 +4473,119 @@ function defaultTaskPayload(currentUserId: string): CreateTaskPayload {
   };
 }
 
+function normalizeCreateProjectPayload(
+  project: CreateProjectPayload,
+): CreateProjectPayload {
+  const trimmedNotes = project.notes.trim();
+  const trimmedTrackerLink = project.trackerLink.trim();
+
+  return {
+    ...project,
+    notes: trimmedNotes,
+    ownerUserId: project.ownerUserId === "" ? null : project.ownerUserId,
+    trackerLink: trimmedTrackerLink,
+  };
+}
+
+function normalizeProjectDraftPayload(
+  projectDraft: UpdateProjectPayload,
+): UpdateProjectPayload {
+  const trimmedNotes = projectDraft.notes?.trim() ?? "";
+  const trimmedTrackerLink = projectDraft.trackerLink?.trim() ?? "";
+
+  return {
+    ...projectDraft,
+    manualStatus:
+      projectDraft.manualStatus === undefined
+        ? null
+        : projectDraft.manualStatus,
+    notes: trimmedNotes ? trimmedNotes : null,
+    ownerUserId:
+      projectDraft.ownerUserId === undefined
+        ? undefined
+        : projectDraft.ownerUserId === ""
+          ? null
+          : projectDraft.ownerUserId,
+    trackerLink: trimmedTrackerLink ? trimmedTrackerLink : null,
+  };
+}
+
+function normalizeTaskDraftPayload(
+  taskDraft: UpdateTaskPayload,
+): UpdateTaskPayload {
+  const trimmedNotes = taskDraft.notes?.trim() ?? "";
+
+  return {
+    ...taskDraft,
+    assigneeUserId:
+      taskDraft.assigneeUserId === undefined
+        ? undefined
+        : taskDraft.assigneeUserId === ""
+          ? null
+          : taskDraft.assigneeUserId,
+    notes: trimmedNotes ? trimmedNotes : null,
+  };
+}
+
+function formatProjectOwnerLabel(ownerName: string | null) {
+  return ownerName ?? NO_PROJECT_OWNER_LABEL;
+}
+
+function formatProjectOwnerGroupLabel(ownerName: string | null) {
+  return ownerName ?? NO_PROJECT_OWNER_GROUP;
+}
+
+function canConvertProjectToTask(
+  project: WorkspaceProject,
+  projectDraft: UpdateProjectPayload,
+) {
+  return projectConvertToTaskNote(project, projectDraft) === null;
+}
+
+function projectConvertToTaskNote(
+  project: WorkspaceProject,
+  projectDraft: UpdateProjectPayload,
+) {
+  const nextTitle = projectDraft.title ?? project.title;
+
+  if (!nextTitle.trim()) {
+    return "Add a title before converting this project into a task.";
+  }
+
+  if (project.taskTotalCount > 0) {
+    return `Move or delete this project's ${project.taskTotalCount.toString()} active task${project.taskTotalCount === 1 ? "" : "s"} before converting it into a task.`;
+  }
+
+  if (isUnassignedProjectTitle(nextTitle)) {
+    return `"${UNASSIGNED_PROJECT_TITLE}" stays reserved as the holding project for converted tasks.`;
+  }
+
+  return null;
+}
+
 function buildSavedViewPayload({
+  assigneeUserIds,
   groupBy,
   search,
-  statusFilter,
+  sortBy,
+  statusFilters,
   collapsedGroups,
   expandedProjects,
 }: {
+  assigneeUserIds: string[];
   groupBy: GroupBy;
   search: string;
-  statusFilter: ProjectStatus | "all";
+  sortBy: ProjectSortField[];
+  statusFilters: TaskStatus[];
   collapsedGroups: Record<string, boolean>;
   expandedProjects: Record<string, boolean>;
 }) {
   return {
+    assigneeUserIds,
     groupBy,
     search,
-    statusFilter: statusFilter === "all" ? null : statusFilter,
+    sortBy,
+    statusFilters,
     collapsedGroupKeys: activeSelectionKeys(collapsedGroups),
     expandedProjectIds: activeSelectionKeys(expandedProjects),
   };
@@ -2915,6 +4606,23 @@ function formatStatusLabel(value: ProjectStatus | TaskStatus) {
   return value.replace(/_/g, " ");
 }
 
+function formatPriorityLabel(value: Priority) {
+  return value[0].toUpperCase() + value.slice(1);
+}
+
+function formatProjectSortFieldLabel(value: ProjectSortField) {
+  switch (value) {
+    case "dueDate":
+      return "Due date";
+    case "progress":
+      return "Progress";
+    case "priority":
+      return "Priority";
+    case "title":
+      return "Title";
+  }
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "-";
@@ -2933,6 +4641,571 @@ function toDateInput(value: string | null) {
   }
 
   return value.slice(0, 10);
+}
+
+function isUnassignedProjectTitle(value: string) {
+  return value.trim().toLowerCase() === UNASSIGNED_PROJECT_TITLE.toLowerCase();
+}
+
+function normalizeWorkspaceFilterState(
+  value: Partial<WorkspaceFilterState>,
+): WorkspaceFilterState {
+  return {
+    assigneeUserIds: uniqueStringArray(value.assigneeUserIds ?? []),
+    groupBy: isGroupBy(value.groupBy) ? value.groupBy : "owner",
+    sortBy: normalizeProjectSortBy(value.sortBy ?? []),
+    statusFilters: uniqueStringArray(
+      (value.statusFilters ?? []).filter(isTaskStatus),
+    ),
+  };
+}
+
+function normalizeCollapsedGroupsByGroup(
+  value: WorkspaceCollapsedGroups | null | undefined,
+): WorkspaceCollapsedGroups {
+  return Object.fromEntries(
+    Object.entries(value ?? {}).flatMap(([targetGroupBy, selection]) => {
+      if (!isGroupBy(targetGroupBy)) {
+        return [];
+      }
+
+      const normalizedSelection =
+        selection && typeof selection === "object" && !Array.isArray(selection)
+          ? normalizeBooleanSelection(selection as Record<string, unknown>)
+          : {};
+
+      return Object.keys(normalizedSelection).length === 0
+        ? []
+        : [[targetGroupBy, normalizedSelection]];
+    }),
+  ) as WorkspaceCollapsedGroups;
+}
+
+function activeCollapsedGroupsByGroup(
+  value: WorkspaceCollapsedGroups,
+): WorkspaceCollapsedGroups {
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([targetGroupBy, selection]) => {
+      if (!isGroupBy(targetGroupBy)) {
+        return [];
+      }
+
+      const activeSelection = activeBooleanSelection(selection);
+
+      return Object.keys(activeSelection).length === 0
+        ? []
+        : [[targetGroupBy, activeSelection]];
+    }),
+  ) as WorkspaceCollapsedGroups;
+}
+
+function shouldHandleNonInteractiveRowClick(
+  event: React.MouseEvent<HTMLElement>,
+) {
+  if (event.defaultPrevented || event.button !== 0) {
+    return false;
+  }
+
+  if (
+    event.target instanceof Element &&
+    event.target.closest(ROW_EDIT_INTERACTIVE_SELECTOR)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function shouldOpenEditorFromModifierClick(
+  event: React.MouseEvent<HTMLElement>,
+) {
+  if (
+    !shouldHandleNonInteractiveRowClick(event) ||
+    !(event.ctrlKey || event.metaKey)
+  ) {
+    return false;
+  }
+
+  event.preventDefault();
+  return true;
+}
+
+function shouldToggleProjectFromRowClick(
+  event: React.MouseEvent<HTMLElement>,
+) {
+  return (
+    shouldHandleNonInteractiveRowClick(event) &&
+    !(event.ctrlKey || event.metaKey)
+  );
+}
+
+function revealEditor(element: HTMLElement | null) {
+  if (!element) {
+    return;
+  }
+
+  const viewportHeight = Math.max(
+    globalThis.innerHeight,
+    document.documentElement.clientHeight,
+  );
+  const bounds = element.getBoundingClientRect();
+  const aboveViewport = bounds.top < EDITOR_SCROLL_TOP_MARGIN;
+  const belowViewport =
+    bounds.bottom > viewportHeight - EDITOR_SCROLL_BOTTOM_MARGIN;
+
+  if (
+    (aboveViewport || belowViewport) &&
+    typeof element.scrollIntoView === "function"
+  ) {
+    element.scrollIntoView({
+      block: aboveViewport ? "start" : "end",
+      inline: "nearest",
+    });
+  }
+
+  const firstEditableField =
+    element.querySelector<HTMLElement>(EDITOR_INPUT_SELECTOR);
+
+  firstEditableField?.focus({ preventScroll: true });
+}
+
+function normalizeNoteEditorHeights(
+  value: Partial<NoteEditorHeights>,
+): NoteEditorHeights {
+  return {
+    project: normalizeNoteEditorHeight(value.project),
+    task: normalizeNoteEditorHeight(value.task),
+  };
+}
+
+function normalizeNoteEditorHeight(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : null;
+}
+
+function readTextareaHeight(textarea: HTMLTextAreaElement) {
+  return normalizeNoteEditorHeight(textarea.offsetHeight);
+}
+
+function toTextareaStyle(
+  height: number | null,
+): React.CSSProperties | undefined {
+  return height === null ? undefined : { height: `${height.toString()}px` };
+}
+
+function uniqueStringArray<Value extends string>(values: Value[]) {
+  return [...new Set(values)];
+}
+
+function normalizeProjectSortBy(values: ProjectSortField[]) {
+  return uniqueStringArray(values.filter(isProjectSortField));
+}
+
+function sameStringArray<Value extends string>(left: Value[], right: Value[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function sameBooleanSelection(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>,
+) {
+  return sameStringArray(activeSelectionKeys(left), activeSelectionKeys(right));
+}
+
+function isGroupBy(value: unknown): value is GroupBy {
+  return (
+    value === "none" ||
+    value === "owner" ||
+    value === "priority" ||
+    value === "progress" ||
+    value === "status"
+  );
+}
+
+function isProjectSortField(value: string): value is ProjectSortField {
+  return PROJECT_SORT_OPTIONS.some((option) => option.value === value);
+}
+
+function isTaskStatus(value: string): value is TaskStatus {
+  return TASK_STATUS_FILTER_OPTIONS.some((option) => option.value === value);
+}
+
+type WorkspaceMenuOption<Value extends string> = {
+  label: string;
+  value: Value;
+};
+
+type MultiSelectFilterProps = {
+  label: string;
+  onChange: (values: string[]) => void;
+  options: WorkspaceMenuOption<string>[];
+  selectedValues: string[];
+};
+
+function MultiSelectFilter({
+  label,
+  onChange,
+  options,
+  selectedValues,
+}: MultiSelectFilterProps) {
+  const [draftValues, setDraftValues] = useState<string[]>(selectedValues);
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selectedLabels = options
+    .filter((option) => selectedValues.includes(option.value))
+    .map((option) => option.label);
+  const summary =
+    selectedLabels.length === 0
+      ? `${label}: All`
+      : selectedLabels.length <= 2
+        ? `${label}: ${selectedLabels.join(", ")}`
+        : `${label}: ${selectedLabels.length.toString()} selected`;
+
+  const applyAndClose = () => {
+    onChange(
+      options
+        .filter((option) => draftValues.includes(option.value))
+        .map((option) => option.value),
+    );
+    setIsOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        onChange(
+          options
+            .filter((option) => draftValues.includes(option.value))
+            .map((option) => option.value),
+        );
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDraftValues(selectedValues);
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, draftValues, onChange, options, selectedValues]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="workspace-filter workspace-filter--multi workspace-filter--popup"
+    >
+      <button
+        type="button"
+        className={`workspace-filter-trigger${isOpen ? " is-open" : ""}`}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => {
+          if (isOpen) {
+            applyAndClose();
+            return;
+          }
+
+          setDraftValues(selectedValues);
+          setIsOpen(true);
+        }}
+      >
+        {summary}
+      </button>
+
+      {isOpen ? (
+        <div
+          className="workspace-multi-filter-menu"
+          role="dialog"
+          aria-label={label}
+        >
+          {options.map((option) => {
+            const checked = draftValues.includes(option.value);
+
+            return (
+              <label
+                key={option.value}
+                className="workspace-multi-filter-option"
+              >
+                <input
+                  checked={checked}
+                  onChange={() =>
+                    setDraftValues((current) =>
+                      checked
+                        ? current.filter((value) => value !== option.value)
+                        : [...current, option.value],
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>{option.label}</span>
+              </label>
+            );
+          })}
+
+          <div className="workspace-multi-filter-actions">
+            {draftValues.length > 0 ? (
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                onClick={() => setDraftValues([])}
+              >
+                Clear
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              className="workspace-filter-apply"
+              aria-label={`Apply ${label.toLowerCase()}`}
+              onClick={applyAndClose}
+              title={`Apply ${label.toLowerCase()}`}
+            >
+              ✓
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type MultiSortFilterProps = {
+  label: string;
+  onChange: (values: ProjectSortField[]) => void;
+  options: WorkspaceMenuOption<ProjectSortField>[];
+  selectedValues: ProjectSortField[];
+};
+
+function MultiSortFilter({
+  label,
+  onChange,
+  options,
+  selectedValues,
+}: MultiSortFilterProps) {
+  const [draftValues, setDraftValues] = useState<
+    Record<ProjectSortField, number | null>
+  >(() => toProjectSortDraft(selectedValues, options));
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selectedLabels = selectedValues
+    .map((value) => options.find((option) => option.value === value)?.label)
+    .filter((value): value is string => Boolean(value));
+  const summary =
+    selectedLabels.length === 0
+      ? `${label}: Default`
+      : selectedLabels.length <= 2
+        ? `${label}: ${selectedLabels
+            .map(
+              (selectedLabel, index) =>
+                `${(index + 1).toString()} ${selectedLabel}`,
+            )
+            .join(", ")}`
+        : `${label}: ${selectedLabels.length.toString()} fields`;
+
+  const applyAndClose = () => {
+    onChange(normalizeProjectSortDraft(draftValues, options));
+    setIsOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        onChange(normalizeProjectSortDraft(draftValues, options));
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDraftValues(toProjectSortDraft(selectedValues, options));
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [draftValues, isOpen, onChange, options, selectedValues]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="workspace-filter workspace-filter--multi workspace-filter--popup"
+    >
+      <button
+        type="button"
+        className={`workspace-filter-trigger${isOpen ? " is-open" : ""}`}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => {
+          if (isOpen) {
+            applyAndClose();
+            return;
+          }
+
+          setDraftValues(toProjectSortDraft(selectedValues, options));
+          setIsOpen(true);
+        }}
+      >
+        {summary}
+      </button>
+
+      {isOpen ? (
+        <div
+          className="workspace-multi-filter-menu"
+          role="dialog"
+          aria-label={label}
+        >
+          {options.map((option) => {
+            const selectedOrder = draftValues[option.value];
+
+            return (
+              <div key={option.value} className="workspace-multi-filter-option">
+                <button
+                  type="button"
+                  className={`sort-order-button${selectedOrder ? " is-active" : ""}`}
+                  aria-label={
+                    selectedOrder
+                      ? `${option.label} sort order ${selectedOrder.toString()}`
+                      : `${option.label} not included in the current sort`
+                  }
+                  onClick={() =>
+                    setDraftValues((current) => ({
+                      ...current,
+                      [option.value]: nextSortOrder(
+                        current[option.value] ?? null,
+                        options.length,
+                      ),
+                    }))
+                  }
+                >
+                  {selectedOrder ?? ""}
+                </button>
+                <span>{option.label}</span>
+              </div>
+            );
+          })}
+
+          <div className="workspace-multi-filter-actions">
+            {hasProjectSortDraft(draftValues) ? (
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                onClick={() =>
+                  setDraftValues(createEmptyProjectSortDraft(options))
+                }
+              >
+                Clear
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              className="workspace-filter-apply"
+              aria-label="Apply sort"
+              onClick={applyAndClose}
+              title="Apply sort"
+            >
+              ✓
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function createEmptyProjectSortDraft(
+  options: WorkspaceMenuOption<ProjectSortField>[],
+) {
+  return Object.fromEntries(
+    options.map((option) => [option.value, null]),
+  ) as Record<ProjectSortField, number | null>;
+}
+
+function toProjectSortDraft(
+  selectedValues: ProjectSortField[],
+  options: WorkspaceMenuOption<ProjectSortField>[],
+) {
+  const draft = createEmptyProjectSortDraft(options);
+
+  selectedValues.forEach((value, index) => {
+    if (value in draft) {
+      draft[value] = index + 1;
+    }
+  });
+
+  return draft;
+}
+
+function normalizeProjectSortDraft(
+  draft: Record<ProjectSortField, number | null>,
+  options: WorkspaceMenuOption<ProjectSortField>[],
+) {
+  return options
+    .map((option, index) => ({
+      index,
+      order: draft[option.value],
+      value: option.value,
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        index: number;
+        order: number;
+        value: ProjectSortField;
+      } => typeof entry.order === "number",
+    )
+    .sort((left, right) =>
+      left.order === right.order
+        ? left.index - right.index
+        : left.order - right.order,
+    )
+    .map((entry) => entry.value);
+}
+
+function nextSortOrder(current: number | null, maxOrder: number) {
+  if (current === null) {
+    return 1;
+  }
+
+  return current >= maxOrder ? null : current + 1;
+}
+
+function hasProjectSortDraft(draft: Record<ProjectSortField, number | null>) {
+  return Object.values(draft).some((value) => value !== null);
 }
 
 export default App;

@@ -1,0 +1,385 @@
+﻿Project track,Status,Primary Assignee,Priority,Due Date,Checklist,Planner/Excel Link,Notes
+Build DevPrime vSphere Cluster,⏸️ On hold,,Low,,"
+Size new vCluster
+Procure Hardware
+Provision Hardware
+Deploy vSphere/vks
+Deploy/Configure NSX
+Add new site to GC
+Migrate Prime workloads",,"
+will be called sv4p
+contains the -prod workloads for development work. (ci, e2proxy, watermill, devtools, artifactory)
+consider VCF9 and VSAN
+consider waiting until VCF"
+create policy exception example or template,✏️ To do,,Medium,,,,
+export supervisor logs to ES,⏸️ On hold,,Medium,,,,"
+use Argo to deploy fluentd-bit?
+need to contact Broadcom for supported method to do this."
+migrate to github - everything else,✏️ To do,,Medium,,"
+grype2open
+confluence documentation",,
+migrate to github - Gold Cluster,✏️ To do,,Medium,,"
+kpe-cluster
+kpe-core
+kpe-policy
+kpe-infra
+job pods
+kpe-workload",,
+migrate to github - KPE Apps,✏️ To do,,Medium,,"
+Argo
+Vault
+KIMS
+k8sgateway
+kpe-jumppod",,
+Deploy GC262,🛠️ In progress,Jeyson Remigivse <jeyson.remigivse@wisetechglobal.com>,High,,,kops-maintenance,"
+vks package download issues
+maxSurge not working right"
+GC261,✅ Done,Jeyson Remigivse <jeyson.remigivse@wisetechglobal.com>,High,"Sat, Dec 13, 2025","
+Create Initiative
+Communicate Initiative
+Update GC
+Create & test new Policies
+Update KPE Apps
+Create & Send Release Notes inc Policy
+Start Rollout GC",Planner - KPE,"KIMS, Argo, Vault, JobPods"
+Implement Tanzu and GC in staging VCF,🛠️ In progress,Jeyson Remigivse <jeyson.remigivse@wisetechglobal.com>,Medium,"Thu, Apr 30","
+discover and document differences from vsphere
+add staging VCF as new site - sv4v
+integrate with argo
+integrate kims, k8s-login",,
+Stackrox POC,🛠️ In progress,Jeyson Remigivse <jeyson.remigivse@wisetechglobal.com> King Cheung <king.cheung@wisetechglobal.com>,Low,,"
+poc in lab, add dev clusters
+document use cases
+Dashboard Reporting, exporting
+API compliance report
+Node vulnerability scanning
+App/image CVE scanning
+admission controller
+Deployment policies",,"
+replaces kyverno?
+replaces grype?
+replaces crowdstrike?
+replaces falco?
+Created role ""Normal Users"" with ""Read Only PermissionSet""."
+Argo Service POC,⏸️ On hold,Jeyson Remigivse <jeyson.remigivse@wisetechglobal.com> Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Low,,"
+POC in lab
+Rerun POC in vCenter 9
+dev 26.1ish
+prod 26.2ish",,POC failed to fit our use case.  Need features from vcenter 9.
+Supervisor Backup and Restore,✅ Done,Jeyson Remigivse <Soosai.Jeyson@e2open.com>,High,,"
+Investigate and test backup
+document backup and restore
+Verify all vcenters are being backed up with vks",,supervisor is backed up as part of vcenter.  already exists in all envs.  
+VKS upgrades,✅ Done,King Cheung <king.cheung@e2open.com> Rajesh Natarajan <Rajesh.Natarajan@e2open.com> Jeyson Remigivse <Soosai.Jeyson@e2open.com>,High,,"
+test and document 3.4.1 and 3.5.0
+nsx version and dependancies
+cluster.yaml changes
+infra package changes
+k8s version backward compatibility check
+what else is dependent on this?",,"
+create a timeline/roadmap to 3.5.0 including all relevant dependencies
+Confluence page with prerequisites and dependencies for each version of vks starting with 3.4.1"
+AVI LB POC,⏸️ On hold,King Cheung <king.cheung@wisetechglobal.com>,Low,,,,"
+preserve nsx config
+can save off VM if needed
+on hold until budget/traction happens"
+Implement VCF in lab,⏸️ On hold,King Cheung <king.cheung@wisetechglobal.com>,Medium,"Thu, Apr 23","
+Create hardware BOM
+Purchase
+Provision
+...",,David Wong <david.wong@wisetechglobal.com> Are we good to move forward with requesting new(ish) hardware for this?  VCF requires x50's or newer.  Brian does not have these available right now.
+VCF Lab POC in nested stack,⏸️ On hold,King Cheung <king.cheung@wisetechglobal.com>,Medium,"Thu, Apr 2","
+Acquire hardware
+Deploy/config VCF/SDDC
+Understand Domains - Org, region
+Test workload management
+Test Lifecycle management",,use old hardware to build a virtual VCF nested stack to better understand VCF provisioning
+GC263,✏️ To do,Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com>,High,"Sat, Jun 13","
+Create Initiative
+Initial email - plan and purpose
+Update GC packages
+Create & test new Policies
+Update KPE Apps in GC
+Create & Send Release Notes inc Policy
+Rollout Policy
+Rollout to Pilot (in7)
+Assist with dev-prod rollout",,
+Generate a list of sv4.art offenders,🛠️ In progress,Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com>,Medium,"Thu, Mar 26","
+categorize list
+triage list
+emails to offenders",kops-maintenance,
+change infra to use BSI images ,🛠️ In progress,Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com> Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,,,
+Clean up the NFS volumes which are used in version 25.4,✏️ To do,Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com> Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Low,,"
+sv4d
+sv4s
+fr8s
+fr8p
+",,
+LiteLLM,🛠️ In progress,Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com> Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,"Thu, Mar 19","
+discovery
+POC:
+llm.manager and llm.manager.profiles
+fork to bitbucket for POC only
+build images from dockerfiles
+push to dev Artifactory
+shove secrets into helm chart (fix later)
+Beyond POC:
+enable access to wtg images in Quaydc to dc connectivity - OR -
+push to dev Artifactory from Quay?
+rebuild images and push to artifactory
+gitsync profiles
+enable access to wtg github (svc acct)
+azure vault to hashi vault
+configure llm proxy values
+configure profiles (AI Keys)
+create gitops packaging and deployment
+create process to manage guardrails, cost control etc.
+PR e2open changes back to wtg repo",,"
+Dave E is refining his litellm repo and the changes seem to have no end.  Some cost control was added this week.  Maybe we should be deploying direct from his repo to lab?  We'll need a workflow for github for this.
+Deployment Topology - Artificial Intelligence Development - e2open Confluence Wiki
+WiseTechGlobal/llm.manager: LLM and AI gateway setup to manage cost, authentication and more
+Need to gather details: 
+
+AZURE_OPENAI_API_BASE_URL
+AZURE_OPENAI_API_INSTANCE_NAME
+AZURE_OPENAI_API_KEY
+VERTEX_AI_GATEWAY_1
+VERTEX_AI_GATEWAY_1_CREDENTIALS
+
+
+LITELLM_DB_URL
+LITELLM_DB_PASSWORD
+LITELLM_PROXY_MASTER_KEY
+LITELLM_TOKEN_CONVERSION_SECRET
+OTEL_LITELLM_RESOURCE_ATTRIBUTES 
+OTEL_LITELLM_TOKEN
+SMTP_PASSWORD"
+migrate apps off shared kpe regcred to individual team creds,🛠️ In progress,Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com> Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com>,Medium,,"
+pull list of offenders
+contact offenders
+track progress",,
+Create LLMproxy responsibilities and concerns,🛠️ In progress,Michael Kronvold <michael.kronvold@wisetechglobal.com>,Medium,,"
+put current doc in sharepoint/github",,How does KPE decide whether to take over ownership of an application?
+migrate to github - prep work,🛠️ In progress,Michael Kronvold <michael.kronvold@wisetechglobal.com>,High,,"
+find out when this needs to be done
+find out where everything goes
+get everyone onboarded to github
+complete the scope/lists",,"
+Approval required for creating a Personal Access Token."
+split upgrade tracker by year,✏️ To do,Michael Kronvold <michael.kronvold@wisetechglobal.com>,Low,,,,
+fix deployment/image updater for AppArgoCD,✅ Done,Rajesh Natarajan <Rajesh.Natarajan@e2open.com>,Medium,,,we can't use this feature  on the centralized argocd ,applications using the automatic image updater / deployment updater fail unless image updater is in the same cluster as the app.
+GC254,✅ Done,Rajesh Natarajan <Rajesh.Natarajan@e2open.com>,High,,"
+Create Initiative
+Communicate Initiative
+Update QC
+Update KPE Apps
+Create & Send Release Notes
+Rollout",Planner - KPE,
+Policy261,✅ Done,Rajesh Natarajan <Rajesh.Natarajan@e2open.com>,Medium,,"
+Rollout",KPE Daily Updates.loop,
+complete Argo CI pipeline & release bundles,🛠️ In progress,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,"
+Create CI Pipeline for images
+Create release bundle(s)
+Update images to meet trivy requirements
+update deployment to meet admission policy262
+Create Rollout Strategy",,"
+need to provide justification for each CVE
+
+not remote
+never been exploited
+etc"
+Gateway API,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,High,"Thu, Mar 19","
+test/poc/demo
+implementation doc (for us)
+migration doc (for them)
+engineering/design doc
+pilot in dev
+create GC packaging
+rollout dev
+rollout stg 3/28
+rollout prod 3/28
+add to 26.1
+add to 26.2",,"
+rollout: add gateway listeners to each cluster, no one is using in prod, can we roll out outside ci-window?
+
+centralized listenerops controls cert
+per namespace listenerif they control their own cert"
+implement F5 nginx-ingress,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,High,"Mon, Mar 2","
+evaluate changes from oss
+test/poc/demo
+implementation doc (for us)
+migration doc (for them)
+engineering/design doc
+pilot in dev
+create GC packaging
+add to 26.1
+add to 26.2
+rollout to non-p
+rollout to prod (26.1)",,"
+F5 has their own fork of nginx-ingress which is open source and free to use.  It has diverged from the OSS version we are using, so there may be differences that impact our use of it.
+prod rollout
+3/28"
+Implement Istio,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,"
+POC in lab 26.1
+Create design document - ARB
+Packaging & Release Bundle
+Create engineering doc - Ops
+Create implementation/migration doc - P&D
+release to dev
+add to 26.2 for prod release",,"
+maybe hotfix to prod earlier
+
+istio deploy as part of GC
+istio-gateway added to namespace by app teamshares the ingress controller LB IP
+service mesh option (envoy)dedicated LB IP per ??
+not planned for 26.1 or 26.2"
+Jobs Image updates & CI pipeline & release bundles,🛠️ In progress,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,"
+Create CI Pipeline for images
+Create release bundle(s)/ Promotion Process
+Update images to pass trivylist the jobs
+update deployment to meet policy261
+Create Rollout Strategy",,
+POC vault plugin for Argo,🛠️ In progress,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Low,,"
+install and test plugin in dev
+evaluate use cases
+create implementation doc",,https://argocd-vault-plugin.readthedocs.io/en/stable/
+Policy enforcement 261,🛠️ In progress,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,High,,"
+document all clean apps
+document all apps seeking temp exception
+document and validate perm exception requests
+re-enable emails to app teams",Policy Tracker.loop,
+Policy262,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,"
+Decide on policies for 26.2
+Create/send initial email
+add policies to repo",,"no new policies added for 262, 261 policies still pending."
+Separate Production and Dev ArgoCD,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,"
+Dev
+Prod",,Infra and Application deployment separated  to dev and prod
+Switch remaining KPE applications from SV4 to Repo,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,High,"Sat, Mar 28","
+k8sgateway
+argoCD",,
+upgrade falcon sensor,✅ Done,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,High,"Mon, Mar 16","
+Deploy to dev
+Deploy to stg
+Deploy to prod
+merge to 26.1 and 26.2",,prod 3/14
+vault lifecycle management,🛠️ In progress,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,Medium,,,,
+support cloudy k8s implementation,🛠️ In progress,Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com> Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com> Michael Kronvold <michael.kronvold@wisetechglobal.com>,Medium,,,,ongoing design sessions
+"add a ""break glass"" artifactory service account to vault",⏸️ On hold,Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com>,Low,,"
+request kpe_breakglass
+store in vault common area, not auto-sync'd
+create document on how to use it
+create automation to detect that it is in use and continuously warn us on teams, email etc.","
+created a ticket with devops/devtools E2DEVOPS-33160","
+need a universal regcred to store in vault in case of emergency.  
+kpe_breakglass"
+Create GC262,✅ Done,Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com>,High,"Sat, Mar 14","
+Create Initiative
+Communicate Initiative
+Update GC packages
+Create & test new Policies
+Update KPE Apps
+Create & Send Release Notes inc Policy
+Rollout Policy
+Rollout to Pilot (in7)
+from dev to prod, assist with rollout.",,"
+in7d-upgradedemo1-nonp to create SOP skeleton
+KPE apps released as part of GC
+
+headlamp
+cronjobs
+KPE Apps released on their own cycle
+
+vault
+kims
+jumppods"
+Create a tool to verify backups are succeeding,✏️ To do,Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com> Jeyson Remigivse <jeyson.remigivse@wisetechglobal.com>,Medium,"Thu, Mar 12","
+Veleropushing to Prometheus but not returning a queue to alert
+vCenter
+Vault","
+OPS-705515 - DEV- vcenter backup zabbix alerts tested along with Zabbix team (POC completed)
+OPS-717010 -STG
+OPS-717023 -CHG
+OPS-717061 - FR8 STG
+OPS-717080 -F8 PROD
+OPS-717090 DR- DENVER
+OPS-717116 SJCA - PROD
+
+Confluences page.
+vCenter & Supervisor Backup Monitoring Setup - Kubernetes - e2open Confluence Wiki
+","
+Velero 
+
+get script from kims
+add to ch3p-cops as a job
+vcenter
+
+create script
+run in job pod?
+Zabbix agent pull
+vault
+
+create script check netapp snapmirror i!> 24hrs
+create script to validate export !>24hrs"
+update pre-flight checks to include validating regcreds,🛠️ In progress,Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com> Mahabaleshwar Tandel <mahabaleshwar.tandel@wisetechglobal.com>,High,,"
+create shared documents for pre-flight checks.
+add steps to validate regcred for each app (using docker image pull)
+optional - automation?","
+Secret_tracker-20260316.xlsx","
+check regcreds for all apps several days before upgrades
+
+imagepull-credentials-validation.sh  is ready to validate the image pull credentials.
+
+yet to integrate with KIMs & cronjob is will be running every Saturday at 11pm."
+migrate GC from using sv4.art to repo.ops,🛠️ In progress,Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com> Rajesh Natarajan <rajesh.natarajan@wisetechglobal.com>,High,,"
+point argo to repo.ops
+kpe-infra using helm charts that point to sv4.art
+helm charts need to be adjusted and released to all sites",,"
+argo points to sv4.art, changing it to repo.ops will cause rolling restarts of all kpe-core
+repo.ops.e2open.com/artifactory/api/helm/dcops-helm-repo"
+implement Headlamp as kpe-app,🛠️ In progress,Tulasiram Morusu <tulasiram.morusu@wisetechglobal.com> Wing Ho <wing.ho@wisetechglobal.com>,Medium,,"
+POC - in7 or demo
+decision: central vs infra
+implement security
+create deployments
+Update images to pass trivy build scan
+prep for production use, release-bundle
+rollout as kpe-app or as part of GC",,"
+Tested on Apache on ProxyPass.
+RequestHeader Add Cookie ""headlamp-auth-sv4d-scc-nonp.0={TOKEN}""
+
+Create VirtualHost in KIMS Apache and use the token from prod\tanzu_svc_login
+Create RBAC for the prod\tanzu_svc_login on the clusters.
+Update DNS to resolve headlamp domain to KIMS
+"
+Cluster AB on DEV,✅ Done,Wing Ho <wing.ho@e2open.com> Hang Lo <hang.lo@e2open.com> Tulasiram Morusu <tulasiram.morusu@e2open.com>,Medium,,"
+Kubernetes Cronjob
+DNS Updater on Windows
+e2open DNS config",,"
+Target by end of this month
+Demo in January"
+create KIMS CI pipeline & release bundles,🛠️ In progress,Wing Ho <wing.ho@wisetechglobal.com> Hang Lo <hang.lo@wisetechglobal.com>,Medium,,"
+Create CI Pipeline for images
+Create release bundle(s)
+Update images to pass trivy build scan
+update deployment to meet policy261
+Revise pipeline to scan with trivy image and send result to SonarQube
+Create Rollout Strategy",,"
+still fails trivy with critical
+3rd party packages
+revise and send trivy scan results to sonar"
+Implement AB migration for Observability,🛠️ In progress,Wing Ho <wing.ho@wisetechglobal.com> Hang Lo <hang.lo@wisetechglobal.com>,Low,,"
+Dev
+Stg
+Prod",,next step: try 1 app in dev
+Jumppods image automation and upkeep,🛠️ In progress,Wing Ho <wing.ho@wisetechglobal.com> Hang Lo <hang.lo@wisetechglobal.com>,Medium,,"
+Create CI process for JumpPods
+Update images to pass trivy build scan
+Create Rollout Strategy",,"
+Target 2026 Q1
+Updated SVL with bc, pass, gh and lspci.
+Requesting nfs volume for blr."
+Identify all required resources for bootstrap'ing a new cluster greenfield,✏️ To do,Wing Ho <wing.ho@wisetechglobal.com> Michael Kronvold <michael.kronvold@wisetechglobal.com>,Medium,,"
+Split prod from non-prod regcreds
+vault seed
+bitbucket to GitHub?",,26.3

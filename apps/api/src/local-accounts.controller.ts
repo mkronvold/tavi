@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   createLocalAccountSchema,
+  deleteLocalAccountSchema,
   importLocalAccountsSchema,
   setLocalAccountPasswordSchema,
   setOwnPasswordSchema,
@@ -84,9 +85,16 @@ export class LocalAccountsController {
   @Delete('accounts/:userId')
   deleteAccount(
     @Param('userId') userId: string,
+    @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.localAccountsService.deleteAccount(userId, request.user!);
+    const input = parseInput(deleteLocalAccountSchema, body ?? {});
+
+    return this.localAccountsService.deleteAccount(
+      userId,
+      input,
+      request.user!,
+    );
   }
 
   @Post('accounts/:userId/password')

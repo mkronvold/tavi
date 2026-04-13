@@ -10,7 +10,6 @@ const sampleProjects: WorkspaceProject[] = [
   {
     id: "project-1",
     title: "Roadmap refresh",
-    summary: "Summarize the quarter",
     notes: "Discuss sequencing",
     trackerLink: null,
     ownerUserId: "user-1",

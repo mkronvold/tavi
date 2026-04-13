@@ -1,4 +1,4 @@
-Help create docs/design.md and docs/architecture.md to use in copilot-cli to develop Tavi, a web application.
+Help create docs/DESIGN.md and docs/ARCHITECTURE.md to use in copilot-cli to develop Tavi, a web application.
 
 Tavi is our lightweight system for tracking work and projects clearly, without slowing teams down.
 

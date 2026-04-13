@@ -1,10 +1,15 @@
 import { setTimeout as delay } from "node:timers/promises";
-import type { LoopImportMapping, LoopImportUser } from "@tavi/schemas";
 import {
+  buildAuditChanges,
+  buildPreparedLoopImportProjectKey,
+  buildPreparedLoopImportTaskKey,
+  expandLoopImportRows,
+  hasPreparedLoopImportTask,
   loopImportMappingSchema,
   prepareLoopImportRow,
   suggestLoopImportMapping,
 } from "@tavi/schemas";
+import type { LoopImportMapping, LoopImportUser } from "@tavi/schemas";
 import { parse } from "csv-parse/sync";
 import { Prisma, PrismaClient } from "@prisma/client";
 import type { WorkerObservability } from "./worker-observability.js";
@@ -35,8 +40,10 @@ type ImportJobRecord = {
 
 type ImportRowRecord = {
   id: string;
+  projectOverlapAction: "add" | "ignore" | "update";
   rawData: Prisma.JsonValue;
   rowNumber: number;
+  taskOverlapAction: "add" | "ignore" | "update";
 };
 
 type WorkerState = {
@@ -45,11 +52,18 @@ type WorkerState = {
   taskIdByKey: Map<string, string>;
 };
 
+type ImportAuditActor = {
+  email: string;
+  id: string;
+  name: string;
+  role: "admin" | "editor" | "viewer";
+};
+
 type ProjectMutationResult = {
   changedFields: string[];
   id: string;
   outcome: "created" | "skipped" | "updated";
-  ownerUserId: string;
+  ownerUserId: string | null;
   priority: "high" | "low" | "medium";
   sourceExternalId: string | null;
   title: string;
@@ -57,13 +71,13 @@ type ProjectMutationResult = {
 
 type TaskMutationResult = {
   changedFields: string[];
-  id: string;
+  id: string | null;
   outcome: "created" | "skipped" | "updated";
   previousProjectId: string | null;
   projectId: string;
   sourceExternalId: string | null;
   status: "blocked" | "canceled" | "done" | "in_progress" | "todo";
-  title: string;
+  title: string | null;
 };
 
 export class LoopImportWorker {
@@ -155,15 +169,19 @@ export class LoopImportWorker {
     try {
       const parsed = parseImportContent(job.sourceContent);
       const suggestedMapping = suggestLoopImportMapping(parsed.headers);
+      const stagedRows = expandLoopImportRows({
+        mapping: suggestedMapping,
+        rawRows: parsed.rows,
+      });
 
       await this.prisma.$transaction(async (tx) => {
         await tx.importRow.deleteMany({
           where: { importId: job.id },
         });
 
-        if (parsed.rows.length > 0) {
+        if (stagedRows.length > 0) {
           await tx.importRow.createMany({
-            data: parsed.rows.map((row, index) => ({
+            data: stagedRows.map((row, index) => ({
               importId: job.id,
               rawData: row as Prisma.InputJsonValue,
               rowNumber: index + 1,
@@ -184,7 +202,7 @@ export class LoopImportWorker {
             skippedRowCount: 0,
             status: "awaiting_review",
             suggestedMapping: suggestedMapping as Prisma.InputJsonValue,
-            totalRowCount: parsed.rows.length,
+            totalRowCount: stagedRows.length,
             updatedProjectCount: 0,
             updatedRowCount: 0,
             updatedTaskCount: 0,
@@ -196,7 +214,7 @@ export class LoopImportWorker {
         fileName: job.fileName,
         importId: job.id,
         jobType: "parse",
-        stagedRows: parsed.rows.length,
+        stagedRows: stagedRows.length,
       });
       this.observability.finishJob("parse", "completed", startedAt);
     } catch (error) {
@@ -209,12 +227,24 @@ export class LoopImportWorker {
   }
 
   private async processCommitJob(jobId: string) {
-    const job = await this.prisma.importJob.findUnique({
-      where: { id: jobId },
-      select: {
-        createdByUserId: true,
-        fileName: true,
-        id: true,
+      const job = await this.prisma.importJob.findUnique({
+        where: { id: jobId },
+        select: {
+          createdBy: {
+            select: {
+              email: true,
+              id: true,
+              name: true,
+              roleAssignment: {
+                select: {
+                  role: true,
+                },
+              },
+            },
+          },
+          createdByUserId: true,
+          fileName: true,
+          id: true,
         mapping: true,
         sourceSystem: true,
         sourceContent: true,
@@ -222,9 +252,16 @@ export class LoopImportWorker {
       },
     });
 
-    if (!job) {
-      return;
-    }
+      if (!job) {
+        return;
+      }
+
+      const auditActor: ImportAuditActor = {
+        email: job.createdBy?.email ?? "unknown@tavi.local",
+        id: job.createdBy?.id ?? job.createdByUserId,
+        name: job.createdBy?.name ?? "Unknown user",
+        role: job.createdBy?.roleAssignment?.role ?? "viewer",
+      };
 
     const startedAt = this.observability.startJob("commit");
 
@@ -235,8 +272,10 @@ export class LoopImportWorker {
         orderBy: { rowNumber: "asc" },
         select: {
           id: true,
+          projectOverlapAction: true,
           rawData: true,
           rowNumber: true,
+          taskOverlapAction: true,
         },
       });
 
@@ -258,6 +297,7 @@ export class LoopImportWorker {
         for (const row of batch) {
           const affectedProjectIds = await this.processImportRow(
             job,
+            auditActor,
             row,
             mapping,
             users,
@@ -311,6 +351,7 @@ export class LoopImportWorker {
 
   private async processImportRow(
     job: Pick<ImportJobRecord, "createdByUserId" | "id" | "sourceSystem">,
+    auditActor: ImportAuditActor,
     row: ImportRowRecord,
     mapping: LoopImportMapping,
     users: LoopImportUser[],
@@ -334,18 +375,33 @@ export class LoopImportWorker {
         const projectResult = await this.upsertProject(
           tx,
           job,
+          auditActor,
           prepared,
+          row.projectOverlapAction,
           row.rowNumber,
           state,
         );
-        const taskResult = await this.upsertTask(
-          tx,
-          job,
-          prepared,
-          projectResult,
-          row.rowNumber,
-          state,
-        );
+        const taskResult = hasPreparedLoopImportTask(prepared.task)
+          ? await this.upsertTask(
+              tx,
+              job,
+              auditActor,
+              prepared,
+              projectResult,
+              row.taskOverlapAction,
+              row.rowNumber,
+              state,
+            )
+          : {
+              changedFields: [],
+              id: null,
+              outcome: "skipped" as const,
+              previousProjectId: null,
+              projectId: projectResult.id,
+              sourceExternalId: prepared.task.externalId,
+              status: prepared.task.status,
+              title: prepared.task.title,
+            };
         const rowOutcome = deriveRowOutcome(
           projectResult.outcome,
           taskResult.outcome,
@@ -389,19 +445,26 @@ export class LoopImportWorker {
   private async upsertProject(
     tx: Prisma.TransactionClient,
     job: Pick<ImportJobRecord, "createdByUserId" | "id" | "sourceSystem">,
+    auditActor: ImportAuditActor,
     prepared: ReturnType<typeof prepareLoopImportRow>,
+    projectOverlapAction: "add" | "ignore" | "update",
     rowNumber: number,
     state: WorkerState,
   ): Promise<ProjectMutationResult> {
-    const cacheKey = buildProjectCacheKey(prepared);
+    const cacheKey = buildPreparedLoopImportProjectKey(prepared);
     const cachedId = state.projectIdByKey.get(cacheKey);
+    const isCachedProject = cachedId !== undefined;
     const existing = cachedId
       ? await tx.project.findUnique({
           where: { id: cachedId },
         })
       : await findExistingProject(tx, job.sourceSystem, prepared);
+    const nextSourceExternalId =
+      projectOverlapAction === "add" && !isCachedProject && existing
+        ? null
+        : prepared.project.externalId;
 
-    if (!existing) {
+    if (!existing || (!isCachedProject && projectOverlapAction === "add")) {
       const created = await tx.project.create({
         data: {
           derivedStatus: "not_started",
@@ -410,9 +473,8 @@ export class LoopImportWorker {
           notes: prepared.project.notes,
           ownerUserId: prepared.project.ownerUserId,
           priority: prepared.project.priority,
-          sourceExternalId: prepared.project.externalId,
+          sourceExternalId: nextSourceExternalId,
           sourceSystem: job.sourceSystem,
-          summary: prepared.project.summary,
           title: prepared.project.title!,
         },
       });
@@ -420,11 +482,18 @@ export class LoopImportWorker {
       state.projectIdByKey.set(cacheKey, created.id);
       await recordAuditEvent(tx, {
         action: "import_create",
-        actorUserId: job.createdByUserId,
+        actor: auditActor,
         entityId: created.id,
         entityType: "project",
         metadata: {
+          changes: buildAuditChanges(
+            getCreatedProjectFields(created),
+            buildProjectAuditSnapshot(null),
+            buildProjectAuditSnapshot(created),
+          ),
+          dueDate: toIsoDate(created.dueDate),
           importId: job.id,
+          notes: created.notes,
           ownerUserId: created.ownerUserId,
           priority: created.priority,
           rowNumber,
@@ -434,14 +503,7 @@ export class LoopImportWorker {
       });
 
       return {
-        changedFields: [
-          "title",
-          "summary",
-          "notes",
-          "ownerUserId",
-          "priority",
-          "sourceExternalId",
-        ],
+        changedFields: getCreatedProjectFields(created),
         id: created.id,
         outcome: "created",
         ownerUserId: created.ownerUserId,
@@ -451,15 +513,24 @@ export class LoopImportWorker {
       };
     }
 
+    if (projectOverlapAction === "ignore") {
+      state.projectIdByKey.set(cacheKey, existing.id);
+      return {
+        changedFields: [],
+        id: existing.id,
+        outcome: "skipped",
+        ownerUserId: existing.ownerUserId,
+        priority: existing.priority,
+        sourceExternalId: existing.sourceExternalId,
+        title: existing.title,
+      };
+    }
+
     const changedFields: string[] = [];
     const nextDueDate = toDate(prepared.project.dueDate);
 
     if (existing.title !== prepared.project.title) {
       changedFields.push("title");
-    }
-
-    if (existing.summary !== prepared.project.summary) {
-      changedFields.push("summary");
     }
 
     if (existing.notes !== prepared.project.notes) {
@@ -478,10 +549,7 @@ export class LoopImportWorker {
       changedFields.push("dueDate");
     }
 
-    if (
-      prepared.project.externalId &&
-      existing.sourceExternalId !== prepared.project.externalId
-    ) {
+    if (nextSourceExternalId && existing.sourceExternalId !== nextSourceExternalId) {
       changedFields.push("sourceExternalId");
     }
 
@@ -505,10 +573,8 @@ export class LoopImportWorker {
         notes: prepared.project.notes,
         ownerUserId: prepared.project.ownerUserId,
         priority: prepared.project.priority,
-        sourceExternalId:
-          prepared.project.externalId ?? existing.sourceExternalId,
+        sourceExternalId: nextSourceExternalId ?? existing.sourceExternalId,
         sourceSystem: job.sourceSystem,
-        summary: prepared.project.summary,
         title: prepared.project.title!,
       },
     });
@@ -516,12 +582,19 @@ export class LoopImportWorker {
     state.projectIdByKey.set(cacheKey, updated.id);
     await recordAuditEvent(tx, {
       action: "import_update",
-      actorUserId: job.createdByUserId,
+      actor: auditActor,
       entityId: updated.id,
       entityType: "project",
       metadata: {
         changedFields,
+        changes: buildAuditChanges(
+          changedFields,
+          buildProjectAuditSnapshot(existing),
+          buildProjectAuditSnapshot(updated),
+        ),
+        dueDate: toIsoDate(updated.dueDate),
         importId: job.id,
+        notes: updated.notes,
         ownerUserId: updated.ownerUserId,
         priority: updated.priority,
         rowNumber,
@@ -544,20 +617,27 @@ export class LoopImportWorker {
   private async upsertTask(
     tx: Prisma.TransactionClient,
     job: Pick<ImportJobRecord, "createdByUserId" | "id" | "sourceSystem">,
+    auditActor: ImportAuditActor,
     prepared: ReturnType<typeof prepareLoopImportRow>,
     project: ProjectMutationResult,
+    taskOverlapAction: "add" | "ignore" | "update",
     rowNumber: number,
     state: WorkerState,
   ): Promise<TaskMutationResult> {
-    const cacheKey = buildTaskCacheKey(project.id, prepared);
+    const cacheKey = buildPreparedLoopImportTaskKey(project.id, prepared);
     const cachedId = state.taskIdByKey.get(cacheKey);
+    const isCachedTask = cachedId !== undefined;
     const existing = cachedId
       ? await tx.task.findUnique({
           where: { id: cachedId },
         })
       : await findExistingTask(tx, project.id, job.sourceSystem, prepared);
+    const nextSourceExternalId =
+      taskOverlapAction === "add" && !isCachedTask && existing
+        ? null
+        : prepared.task.externalId;
 
-    if (!existing) {
+    if (!existing || (!isCachedTask && taskOverlapAction === "add")) {
       const created = await tx.task.create({
         data: {
           assigneeUserId: prepared.task.assigneeUserId,
@@ -567,7 +647,7 @@ export class LoopImportWorker {
           priority: prepared.task.priority,
           projectId: project.id,
           sortOrder: await nextSortOrder(tx, state, project.id),
-          sourceExternalId: prepared.task.externalId,
+          sourceExternalId: nextSourceExternalId,
           sourceSystem: job.sourceSystem,
           status: prepared.task.status,
           title: prepared.task.title!,
@@ -577,12 +657,19 @@ export class LoopImportWorker {
       state.taskIdByKey.set(cacheKey, created.id);
       await recordAuditEvent(tx, {
         action: "import_create",
-        actorUserId: job.createdByUserId,
+        actor: auditActor,
         entityId: created.id,
         entityType: "task",
         metadata: {
           assigneeUserId: created.assigneeUserId,
+          changes: buildAuditChanges(
+            getCreatedTaskFields(created),
+            buildTaskAuditSnapshot(null),
+            buildTaskAuditSnapshot(created),
+          ),
+          dueDate: toIsoDate(created.dueDate),
           importId: job.id,
+          notes: created.notes,
           priority: created.priority,
           projectId: created.projectId,
           rowNumber,
@@ -593,13 +680,7 @@ export class LoopImportWorker {
       });
 
       return {
-        changedFields: [
-          "title",
-          "notes",
-          "assigneeUserId",
-          "priority",
-          "status",
-        ],
+        changedFields: getCreatedTaskFields(created),
         id: created.id,
         outcome: "created",
         previousProjectId: null,
@@ -607,6 +688,20 @@ export class LoopImportWorker {
         sourceExternalId: created.sourceExternalId,
         status: created.status,
         title: created.title,
+      };
+    }
+
+    if (taskOverlapAction === "ignore") {
+      state.taskIdByKey.set(cacheKey, existing.id);
+      return {
+        changedFields: [],
+        id: existing.id,
+        outcome: "skipped",
+        previousProjectId: null,
+        projectId: existing.projectId,
+        sourceExternalId: existing.sourceExternalId,
+        status: existing.status,
+        title: existing.title,
       };
     }
 
@@ -651,10 +746,7 @@ export class LoopImportWorker {
       changedFields.push("completedAt");
     }
 
-    if (
-      prepared.task.externalId &&
-      existing.sourceExternalId !== prepared.task.externalId
-    ) {
+    if (nextSourceExternalId && existing.sourceExternalId !== nextSourceExternalId) {
       changedFields.push("sourceExternalId");
     }
 
@@ -685,7 +777,7 @@ export class LoopImportWorker {
           existing.projectId === nextProjectId
             ? existing.sortOrder
             : await nextSortOrder(tx, state, nextProjectId),
-        sourceExternalId: prepared.task.externalId ?? existing.sourceExternalId,
+        sourceExternalId: nextSourceExternalId ?? existing.sourceExternalId,
         sourceSystem: job.sourceSystem,
         status: prepared.task.status,
         title: prepared.task.title!,
@@ -695,13 +787,20 @@ export class LoopImportWorker {
     state.taskIdByKey.set(cacheKey, updated.id);
     await recordAuditEvent(tx, {
       action: "import_update",
-      actorUserId: job.createdByUserId,
+      actor: auditActor,
       entityId: updated.id,
       entityType: "task",
       metadata: {
         assigneeUserId: updated.assigneeUserId,
         changedFields,
+        changes: buildAuditChanges(
+          changedFields,
+          buildTaskAuditSnapshot(existing),
+          buildTaskAuditSnapshot(updated),
+        ),
+        dueDate: toIsoDate(updated.dueDate),
         importId: job.id,
+        notes: updated.notes,
         priority: updated.priority,
         projectId: updated.projectId,
         rowNumber,
@@ -956,31 +1055,6 @@ function parseRawRow(value: Prisma.JsonValue): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function buildProjectCacheKey(
-  prepared: ReturnType<typeof prepareLoopImportRow>,
-) {
-  if (prepared.project.externalId) {
-    return `external:${prepared.project.externalId}`;
-  }
-
-  return `natural:${normalizeKey(prepared.project.title)}:${prepared.project.ownerUserId}:${prepared.project.dueDate ?? ""}`;
-}
-
-function buildTaskCacheKey(
-  projectId: string,
-  prepared: ReturnType<typeof prepareLoopImportRow>,
-) {
-  if (prepared.task.externalId) {
-    return `external:${prepared.task.externalId}`;
-  }
-
-  return `natural:${projectId}:${normalizeKey(prepared.task.title)}:${prepared.task.assigneeUserId}:${prepared.task.dueDate ?? ""}`;
-}
-
-function normalizeKey(value: string | null) {
-  return value?.trim().toLowerCase() ?? "";
-}
-
 async function findExistingProject(
   tx: Prisma.TransactionClient,
   sourceSystem: string,
@@ -1082,13 +1156,13 @@ async function recordAuditEvent(
   tx: Prisma.TransactionClient,
   {
     action,
-    actorUserId,
+    actor,
     entityId,
     entityType,
     metadata,
   }: {
     action: string;
-    actorUserId: string;
+    actor: ImportAuditActor;
     entityId: string;
     entityType: "project" | "task";
     metadata: Record<string, unknown>;
@@ -1097,12 +1171,135 @@ async function recordAuditEvent(
   await tx.auditEvent.create({
     data: {
       action,
-      actorUserId,
+      actorEmail: actor.email,
+      actorName: actor.name,
+      actorRole: actor.role,
+      actorUserId: actor.id,
       entityId,
       entityType,
       metadata: metadata as Prisma.InputJsonValue,
     },
   });
+}
+
+function getCreatedProjectFields(project: {
+  dueDate: Date | null;
+  notes: string | null;
+  ownerUserId: string | null;
+  priority: string;
+  sourceExternalId: string | null;
+  title: string;
+}) {
+  return [
+    "title",
+    "notes",
+    "ownerUserId",
+    "priority",
+    "dueDate",
+    "sourceExternalId",
+  ].filter((field) => {
+    switch (field) {
+      case "notes":
+        return project.notes !== null;
+      case "ownerUserId":
+        return project.ownerUserId !== null;
+      case "dueDate":
+        return project.dueDate !== null;
+      case "sourceExternalId":
+        return project.sourceExternalId !== null;
+      default:
+        return true;
+    }
+  });
+}
+
+function getCreatedTaskFields(task: {
+  assigneeUserId: string | null;
+  completedAt: Date | null;
+  dueDate: Date | null;
+  notes: string | null;
+  priority: string;
+  projectId: string;
+  sourceExternalId: string | null;
+  status: string;
+  title: string;
+}) {
+  return [
+    "title",
+    "notes",
+    "assigneeUserId",
+    "priority",
+    "status",
+    "projectId",
+    "dueDate",
+    "completedAt",
+    "sourceExternalId",
+  ].filter((field) => {
+    switch (field) {
+      case "notes":
+        return task.notes !== null;
+      case "assigneeUserId":
+        return task.assigneeUserId !== null;
+      case "dueDate":
+        return task.dueDate !== null;
+      case "completedAt":
+        return task.completedAt !== null;
+      case "sourceExternalId":
+        return task.sourceExternalId !== null;
+      default:
+        return true;
+    }
+  });
+}
+
+function buildProjectAuditSnapshot(
+  project:
+    | {
+        dueDate: Date | null;
+        notes: string | null;
+        ownerUserId: string | null;
+        priority: string;
+        sourceExternalId: string | null;
+        title: string;
+      }
+    | null,
+) {
+  return {
+    dueDate: toIsoDate(project?.dueDate ?? null),
+    notes: project?.notes ?? null,
+    ownerUserId: project?.ownerUserId ?? null,
+    priority: project?.priority ?? null,
+    sourceExternalId: project?.sourceExternalId ?? null,
+    title: project?.title ?? null,
+  };
+}
+
+function buildTaskAuditSnapshot(
+  task:
+    | {
+        assigneeUserId: string | null;
+        completedAt: Date | null;
+        dueDate: Date | null;
+        notes: string | null;
+        priority: string;
+        projectId: string;
+        sourceExternalId: string | null;
+        status: string;
+        title: string;
+      }
+    | null,
+) {
+  return {
+    assigneeUserId: task?.assigneeUserId ?? null,
+    completedAt: toIsoDate(task?.completedAt ?? null),
+    dueDate: toIsoDate(task?.dueDate ?? null),
+    notes: task?.notes ?? null,
+    priority: task?.priority ?? null,
+    projectId: task?.projectId ?? null,
+    sourceExternalId: task?.sourceExternalId ?? null,
+    status: task?.status ?? null,
+    title: task?.title ?? null,
+  };
 }
 
 function deriveRowOutcome(

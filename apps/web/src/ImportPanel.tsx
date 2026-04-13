@@ -4,21 +4,36 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ApiError,
   commitLoopImport,
+  createLocalAccount,
   createLoopImport,
+  deleteLoopImport,
   getLoopImport,
   listLoopImports,
+  resetWorkspaceExamples,
   updateLoopImportMapping,
+  updateLoopImportRowDecisions,
 } from "./api";
+import { generateAlphanumericPassword } from "./password-generator";
 import type {
   LoopImportField,
   LoopImportJob,
+  LoopImportJobSummary,
   LoopImportJobStatus,
   LoopImportMapping,
+  LoopImportMissingUser,
+  LoopImportOverlapAction,
 } from "./types";
 
 type ImportPanelProps = {
   isAdmin: boolean;
+  onNotice: (message: string) => void;
   queryClient: QueryClient;
+};
+
+type CreatedImportAccountCredential = {
+  email: string;
+  name: string;
+  password: string;
 };
 
 const POLLING_STATUSES: LoopImportJobStatus[] = [
@@ -27,13 +42,27 @@ const POLLING_STATUSES: LoopImportJobStatus[] = [
   "queued_commit",
   "committing",
 ];
+const CANCELLABLE_IMPORT_STATUSES: LoopImportJobStatus[] = [
+  "queued_parse",
+  "awaiting_review",
+  "queued_commit",
+];
 
-export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
+export function ImportPanel({
+  isAdmin,
+  onNotice,
+  queryClient,
+}: ImportPanelProps) {
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [mappingDraft, setMappingDraft] = useState<LoopImportMapping>({});
   const [draftImportId, setDraftImportId] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
+  const [createdImportAccounts, setCreatedImportAccounts] = useState<
+    CreatedImportAccountCredential[]
+  >([]);
+  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
+  const [resetPassword, setResetPassword] = useState("");
 
   const importsQuery = useQuery({
     queryKey: ["imports"],
@@ -66,6 +95,7 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
       setSelectedFile(null);
       setSelectedImportId(job.id);
       setDraftImportId(null);
+      setCreatedImportAccounts([]);
       setMappingDraft({});
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["imports"] }),
@@ -75,6 +105,31 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
     onError: (error) => {
       setPanelError(
         error instanceof ApiError ? error.message : "Unable to stage import",
+      );
+    },
+  });
+  const cancelImportMutation = useMutation({
+    mutationFn: (importId: string) => deleteLoopImport(importId),
+    onSuccess: async ({ id }) => {
+      setPanelError(null);
+      setDraftImportId(null);
+      setCreatedImportAccounts([]);
+      setMappingDraft({});
+
+      const remainingImports =
+        (
+          queryClient.getQueryData<LoopImportJobSummary[]>(["imports"]) ?? []
+        ).filter((job) => job.id !== id) ?? [];
+
+      queryClient.setQueryData(["imports"], remainingImports);
+      queryClient.removeQueries({ queryKey: ["import", id] });
+      setSelectedImportId(remainingImports[0]?.id ?? null);
+
+      await queryClient.invalidateQueries({ queryKey: ["imports"] });
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError ? error.message : "Unable to cancel import",
       );
     },
   });
@@ -90,12 +145,100 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
     onSuccess: async (job) => {
       setPanelError(null);
       setDraftImportId(null);
+      setCreatedImportAccounts([]);
       setMappingDraft({});
       await queryClient.invalidateQueries({ queryKey: ["import", job.id] });
     },
     onError: (error) => {
       setPanelError(
         error instanceof ApiError ? error.message : "Unable to update mapping",
+      );
+    },
+  });
+
+  const createMissingUsersMutation = useMutation({
+    mutationFn: async ({
+      missingUsers,
+    }: {
+      importId: string;
+      missingUsers: LoopImportMissingUser[];
+    }) => {
+      const createdAccounts: CreatedImportAccountCredential[] = [];
+
+      for (const user of missingUsers) {
+        if (!user.email) {
+          continue;
+        }
+
+        const password = generateAlphanumericPassword();
+
+        try {
+          await createLocalAccount({
+            email: user.email,
+            name: user.name,
+            password,
+            role: "viewer",
+          });
+          createdAccounts.push({
+            email: user.email,
+            name: user.name,
+            password,
+          });
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 409) {
+            continue;
+          }
+
+          throw error;
+        }
+      }
+
+      return createdAccounts;
+    },
+    onMutate: () => {
+      setPanelError(null);
+      setCreatedImportAccounts([]);
+    },
+    onSuccess: async (createdAccounts, variables) => {
+      setPanelError(null);
+      setCreatedImportAccounts(createdAccounts);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["import", variables.importId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["localAccounts"] }),
+      ]);
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to create missing import users",
+      );
+    },
+  });
+  const updateRowDecisionsMutation = useMutation({
+    mutationFn: ({
+      importId,
+      payload,
+      rowNumber,
+    }: {
+      importId: string;
+      payload: {
+        projectAction?: LoopImportOverlapAction;
+        taskAction?: LoopImportOverlapAction;
+      };
+      rowNumber: number;
+    }) => updateLoopImportRowDecisions(importId, rowNumber, payload),
+    onSuccess: async (job) => {
+      setPanelError(null);
+      await queryClient.invalidateQueries({ queryKey: ["import", job.id] });
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update overlap decisions",
       );
     },
   });
@@ -115,13 +258,60 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
       );
     },
   });
+  const resetWorkspaceMutation = useMutation({
+    mutationFn: (password: string) => resetWorkspaceExamples({ password }),
+    onSuccess: async (summary) => {
+      setPanelError(null);
+      setResetPassword("");
+      setResetConfirmationOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["workspace"] });
+      onNotice(
+        `Reset workspace data: removed ${formatRecordCount(
+          summary.deletedProjectCount,
+          "project",
+        )} and ${formatRecordCount(
+          summary.deletedTaskCount,
+          "task",
+        )}, then seeded ${formatRecordCount(
+          summary.createdProjectCount,
+          "example project",
+        )} and ${formatRecordCount(summary.createdTaskCount, "task")}.`,
+      );
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reset projects and tasks",
+      );
+    },
+  });
 
+  const recentImports = importsQuery.data ?? [];
   const selectedImport = selectedImportQuery.data ?? null;
+  const hasRecentImports = recentImports.length > 0;
+  const showEmptyState = importsQuery.isSuccess && !hasRecentImports;
+  const importsErrorMessage = importsQuery.isError
+    ? formatQueryError(importsQuery.error, "Unable to load recent imports")
+    : null;
+  const selectedImportErrorMessage =
+    selectedImportQuery.isError && effectiveSelectedImportId !== null
+      ? formatQueryError(
+          selectedImportQuery.error,
+          "Unable to load import details",
+        )
+      : null;
+  const creatableMissingUserCount = useMemo(
+    () =>
+      selectedImport?.preview.missingUsers.filter((user) => user.canCreate)
+        .length ?? 0,
+    [selectedImport],
+  );
   const displayedMapping = useMemo(
     () =>
       draftImportId === effectiveSelectedImportId && selectedImport
         ? mappingDraft
-        : selectedImport?.mapping ?? {},
+        : (selectedImport?.mapping ?? {}),
     [draftImportId, effectiveSelectedImportId, mappingDraft, selectedImport],
   );
   const mappingChanged = useMemo(() => {
@@ -136,7 +326,8 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
 
     for (const key of allKeys) {
       if (
-        (displayedMapping[key] ?? null) !== (selectedImport.mapping[key] ?? null)
+        (displayedMapping[key] ?? null) !==
+        (selectedImport.mapping[key] ?? null)
       ) {
         return true;
       }
@@ -153,8 +344,10 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
     <section className="toolbar-card import-card">
       <div className="bulk-action-header">
         <div>
-          <strong>Loop import</strong>
-          <span>Stage CSV exports, review mapping, then commit in the worker.</span>
+          <strong>CSV import</strong>
+          <span>
+            Stage CSV exports, review mapping, then commit in the worker.
+          </span>
         </div>
       </div>
 
@@ -192,13 +385,14 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
             onChange={(event) => {
               const nextImportId = event.target.value;
               setDraftImportId(null);
+              setCreatedImportAccounts([]);
               setMappingDraft({});
               setPanelError(null);
               setSelectedImportId(nextImportId ? nextImportId : null);
             }}
           >
             <option value="">Select an import</option>
-            {importsQuery.data?.map((job) => (
+            {recentImports.map((job) => (
               <option key={job.id} value={job.id}>
                 {job.fileName} · {formatImportStatus(job.status)}
               </option>
@@ -208,17 +402,100 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
       </div>
 
       {panelError ? <p className="error-banner">{panelError}</p> : null}
+      {importsErrorMessage ? (
+        <p className="error-banner">{importsErrorMessage}</p>
+      ) : null}
       {importsQuery.isLoading ? (
         <p className="toolbar-hint">Loading recent imports...</p>
       ) : null}
+
+      <div className="import-subsection import-reset-section">
+        <div className="bulk-action-header">
+          <div>
+            <strong>Reset all Projects/Tasks</strong>
+            <span>
+              Delete the current project/task workspace data and seed example
+              projects. Local accounts, saved views, and import history stay in
+              place.
+            </span>
+          </div>
+          {!resetConfirmationOpen ? (
+            <div className="import-actions">
+              <button
+                type="button"
+                className="danger-button"
+                disabled={resetWorkspaceMutation.isPending}
+                onClick={() => {
+                  setPanelError(null);
+                  setResetConfirmationOpen(true);
+                }}
+              >
+                Reset all Projects/Tasks
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {resetConfirmationOpen ? (
+          <div className="import-reset-confirmation">
+            <p className="toolbar-hint">
+              Confirm with your current admin password to continue.
+            </p>
+            <label>
+              Current password
+              <input
+                type="password"
+                value={resetPassword}
+                onChange={(event) => {
+                  setPanelError(null);
+                  setResetPassword(event.target.value);
+                }}
+              />
+            </label>
+            <div className="import-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={resetWorkspaceMutation.isPending}
+                onClick={() => {
+                  setPanelError(null);
+                  setResetPassword("");
+                  setResetConfirmationOpen(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={
+                  resetPassword.trim().length < 8 ||
+                  resetWorkspaceMutation.isPending
+                }
+                onClick={() => {
+                  resetWorkspaceMutation.mutate(resetPassword);
+                }}
+              >
+                {resetWorkspaceMutation.isPending
+                  ? "Resetting..."
+                  : "Confirm reset"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       {selectedImportQuery.isLoading ? (
         <p className="toolbar-hint">Loading import details...</p>
       ) : null}
 
-      {!selectedImport && !selectedImportQuery.isLoading ? (
+      {selectedImportErrorMessage ? (
+        <p className="error-banner">{selectedImportErrorMessage}</p>
+      ) : null}
+
+      {showEmptyState ? (
         <p className="toolbar-hint">
-          No imports yet. Upload a Loop CSV export to stage the first job.
+          No imports yet. Upload a CSV export to stage the first job.
         </p>
       ) : null}
 
@@ -251,6 +528,23 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
             </div>
           </div>
 
+          {CANCELLABLE_IMPORT_STATUSES.includes(selectedImport.status) ? (
+            <div className="import-actions">
+              <button
+                type="button"
+                className="danger-button"
+                disabled={cancelImportMutation.isPending}
+                onClick={() => {
+                  cancelImportMutation.mutate(selectedImport.id);
+                }}
+              >
+                {cancelImportMutation.isPending
+                  ? "Canceling..."
+                  : "Cancel import"}
+              </button>
+            </div>
+          ) : null}
+
           {selectedImport.lastError ? (
             <p className="error-banner">{selectedImport.lastError}</p>
           ) : null}
@@ -260,7 +554,8 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
               <div>
                 <strong>Header mapping</strong>
                 <span>
-                  Required fields are marked with *. Suggested matches are editable.
+                  Required fields are marked with *. Suggested matches are
+                  editable.
                 </span>
               </div>
               <div className="import-actions">
@@ -281,20 +576,27 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                     }
                   }}
                 >
-                  {updateMappingMutation.isPending ? "Saving..." : "Apply mapping"}
+                  {updateMappingMutation.isPending
+                    ? "Saving..."
+                    : "Apply mapping"}
                 </button>
                 <button
                   type="button"
                   disabled={
                     selectedImport.status !== "awaiting_review" ||
                     selectedImport.preview.validRowCount === 0 ||
+                    selectedImport.preview.blockingMissingUserRowCount > 0 ||
+                    createMissingUsersMutation.isPending ||
+                    updateRowDecisionsMutation.isPending ||
                     commitMutation.isPending
                   }
                   onClick={() => {
                     commitMutation.mutate(selectedImport.id);
                   }}
                 >
-                  {commitMutation.isPending ? "Queueing..." : "Commit valid rows"}
+                  {commitMutation.isPending
+                    ? "Queueing..."
+                    : "Commit valid rows"}
                 </button>
               </div>
             </div>
@@ -330,7 +632,8 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
 
             {selectedImport.preview.unmappedHeaders.length > 0 ? (
               <p className="toolbar-hint">
-                Ignored headers: {selectedImport.preview.unmappedHeaders.join(", ")}
+                Ignored headers:{" "}
+                {selectedImport.preview.unmappedHeaders.join(", ")}
               </p>
             ) : null}
           </div>
@@ -360,9 +663,128 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                 {selectedImport.preview.projectSourceIdRowCount.toString()} rows
               </span>
               <span className="audit-chip">
-                Task ids on {selectedImport.preview.taskSourceIdRowCount.toString()} rows
+                Task ids on{" "}
+                {selectedImport.preview.taskSourceIdRowCount.toString()} rows
               </span>
+              {selectedImport.preview.missingUserRowCount > 0 ? (
+                <span className="audit-chip import-chip-warning">
+                  Missing users on{" "}
+                  {selectedImport.preview.missingUserRowCount.toString()} rows
+                </span>
+              ) : null}
+              {selectedImport.preview.overlappingProjectRowCount > 0 ? (
+                <span className="audit-chip">
+                  Project overlaps on{" "}
+                  {selectedImport.preview.overlappingProjectRowCount.toString()}{" "}
+                  rows
+                </span>
+              ) : null}
+              {selectedImport.preview.overlappingTaskRowCount > 0 ? (
+                <span className="audit-chip">
+                  Task overlaps on{" "}
+                  {selectedImport.preview.overlappingTaskRowCount.toString()} rows
+                </span>
+              ) : null}
             </div>
+
+            {selectedImport.preview.missingUsers.length > 0 ? (
+              <div className="import-missing-users">
+                <div className="bulk-action-header">
+                  <div>
+                    <strong>Missing users</strong>
+                    <span>
+                      Tavi can create local viewer accounts when an email is
+                      available. Unresolved task assignees still block commit;
+                      additional project owners are optional.
+                    </span>
+                  </div>
+                  <div className="import-actions">
+                    <button
+                      type="button"
+                      disabled={
+                        creatableMissingUserCount === 0 ||
+                        createMissingUsersMutation.isPending
+                      }
+                      onClick={() => {
+                        createMissingUsersMutation.mutate({
+                          importId: selectedImport.id,
+                          missingUsers: selectedImport.preview.missingUsers,
+                        });
+                      }}
+                    >
+                      {createMissingUsersMutation.isPending
+                        ? "Creating..."
+                        : `Create ${formatUserCount(creatableMissingUserCount)}`}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="import-user-grid">
+                  {selectedImport.preview.missingUsers.map((user) => (
+                      <article
+                        key={`${user.label}-${user.rowNumbers.join("-")}`}
+                        className="import-user-card"
+                      >
+                        <strong>{user.name}</strong>
+                        <span className="task-subtext">
+                          {user.email ?? "No email available in import data"}
+                        </span>
+                        <span className="task-subtext">
+                          Rows {user.rowNumbers.join(", ")}
+                        </span>
+                        <span className="task-subtext">
+                          {user.sourceLabels.join(", ")}
+                        </span>
+                        <span
+                          className={`audit-chip ${
+                            user.blocksCommit ? "import-chip-warning" : ""
+                          }`}
+                        >
+                          {user.blocksCommit
+                            ? "Blocks commit"
+                            : "Optional"}
+                        </span>
+                        <span
+                          className={`audit-chip ${
+                            user.canCreate ? "" : "import-chip-warning"
+                          }`}
+                        >
+                          {user.canCreate
+                            ? "Create viewer account"
+                            : "Needs email"}
+                        </span>
+                      </article>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+
+            {createdImportAccounts.length > 0 ? (
+              <div className="import-created-users">
+                <div className="bulk-action-header">
+                  <div>
+                    <strong>Created users</strong>
+                    <span>
+                      Save these passwords now. They are only shown in this
+                      panel.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="import-user-grid">
+                  {createdImportAccounts.map((account) => (
+                    <article
+                      key={`${account.email}-${account.password}`}
+                      className="import-user-card"
+                    >
+                      <strong>{account.name}</strong>
+                      <span className="task-subtext">{account.email}</span>
+                      <code className="import-secret">{account.password}</code>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <table className="import-table">
               <thead>
@@ -371,15 +793,30 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                   <th>Project</th>
                   <th>Task</th>
                   <th>Status</th>
+                  <th>Overlap</th>
                   <th>Issues</th>
                 </tr>
               </thead>
               <tbody>
-                {selectedImport.preview.rows.map((row) => (
+                {selectedImport.preview.rows.map((row) => {
+                  const isProjectOnlyRow =
+                    row.taskTitle === null && row.taskExternalId === null;
+                  const taskLabel = isProjectOnlyRow
+                    ? "No task created"
+                    : (row.taskTitle ?? "Missing task title");
+                  const taskSubtext = isProjectOnlyRow
+                    ? "Project only row"
+                    : row.taskExternalId
+                      ? `Source id ${row.taskExternalId}`
+                      : "Natural-key match";
+
+                  return (
                   <tr key={row.rowNumber}>
                     <td>{row.rowNumber.toString()}</td>
                     <td>
-                      <strong>{row.projectTitle ?? "Missing project title"}</strong>
+                      <strong>
+                        {row.projectTitle ?? "Missing project title"}
+                      </strong>
                       <div className="task-subtext">
                         {row.projectExternalId
                           ? `Source id ${row.projectExternalId}`
@@ -387,19 +824,102 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                       </div>
                     </td>
                     <td>
-                      <strong>{row.taskTitle ?? "Missing task title"}</strong>
-                      <div className="task-subtext">
-                        {row.taskExternalId
-                          ? `Source id ${row.taskExternalId}`
-                          : "Natural-key match"}
-                      </div>
+                      <strong>{taskLabel}</strong>
+                      <div className="task-subtext">{taskSubtext}</div>
                     </td>
-                    <td>{formatTaskStatus(row.taskStatus)}</td>
+                    <td>
+                      {isProjectOnlyRow
+                        ? "Project only"
+                        : formatTaskStatus(row.taskStatus)}
+                    </td>
+                    <td>
+                      {row.projectOverlap || row.taskOverlap ? (
+                        <div className="import-issue-list">
+                          {row.projectOverlap ? (
+                            <label className="import-overlap-control">
+                              Project
+                              <select
+                                value={row.projectOverlap.action}
+                                disabled={
+                                  selectedImport.status !== "awaiting_review" ||
+                                  updateRowDecisionsMutation.isPending
+                                }
+                                onChange={(event) => {
+                                  updateRowDecisionsMutation.mutate({
+                                    importId: selectedImport.id,
+                                    payload: {
+                                      projectAction:
+                                        event.target.value as LoopImportOverlapAction,
+                                    },
+                                    rowNumber: row.rowNumber,
+                                  });
+                                }}
+                              >
+                                <option value="update">
+                                  Update existing project
+                                </option>
+                                <option value="add">Add new project</option>
+                                <option value="ignore">
+                                  Use existing project unchanged
+                                </option>
+                              </select>
+                              <span className="task-subtext">
+                                Matches {row.projectOverlap.title} via{" "}
+                                {formatOverlapMatch(row.projectOverlap.matchedBy)}
+                                {formatOverlapChanges(
+                                  row.projectOverlap.changedFields,
+                                )}
+                              </span>
+                            </label>
+                          ) : null}
+                          {row.taskOverlap ? (
+                            <label className="import-overlap-control">
+                              Task
+                              <select
+                                value={row.taskOverlap.action}
+                                disabled={
+                                  selectedImport.status !== "awaiting_review" ||
+                                  updateRowDecisionsMutation.isPending
+                                }
+                                onChange={(event) => {
+                                  updateRowDecisionsMutation.mutate({
+                                    importId: selectedImport.id,
+                                    payload: {
+                                      taskAction:
+                                        event.target.value as LoopImportOverlapAction,
+                                    },
+                                    rowNumber: row.rowNumber,
+                                  });
+                                }}
+                              >
+                                <option value="update">
+                                  Update existing task
+                                </option>
+                                <option value="add">Add new task</option>
+                                <option value="ignore">Ignore task row</option>
+                              </select>
+                              <span className="task-subtext">
+                                Matches {row.taskOverlap.title} via{" "}
+                                {formatOverlapMatch(row.taskOverlap.matchedBy)}
+                                {formatOverlapChanges(
+                                  row.taskOverlap.changedFields,
+                                )}
+                              </span>
+                            </label>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="task-subtext">No overlap</span>
+                      )}
+                    </td>
                     <td>
                       {row.errors.length > 0 ? (
                         <div className="import-issue-list">
                           {row.errors.map((error) => (
-                            <span key={error} className="audit-chip import-chip-error">
+                            <span
+                              key={error}
+                              className="audit-chip import-chip-error"
+                            >
                               {error}
                             </span>
                           ))}
@@ -420,7 +940,8 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -431,8 +952,9 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                 <div>
                   <strong>Commit results</strong>
                   <span>
-                    Projects: {selectedImport.createdProjectCount.toString()} created
-                    / {selectedImport.updatedProjectCount.toString()} updated · Tasks:{" "}
+                    Projects: {selectedImport.createdProjectCount.toString()}{" "}
+                    created / {selectedImport.updatedProjectCount.toString()}{" "}
+                    updated · Tasks:{" "}
                     {selectedImport.createdTaskCount.toString()} created /{" "}
                     {selectedImport.updatedTaskCount.toString()} updated
                   </span>
@@ -457,7 +979,9 @@ export function ImportPanel({ isAdmin, queryClient }: ImportPanelProps) {
                       <td>{formatOutcome(row.projectOutcome)}</td>
                       <td>{formatOutcome(row.taskOutcome)}</td>
                       <td>
-                        <strong>{row.message ?? "No additional details"}</strong>
+                        <strong>
+                          {row.message ?? "No additional details"}
+                        </strong>
                         {row.validationErrors.length > 0 ? (
                           <div className="import-issue-list">
                             {row.validationErrors.map((error) => (
@@ -493,4 +1017,34 @@ function formatTaskStatus(status: string) {
 
 function formatOutcome(outcome: string) {
   return outcome.replace(/_/g, " ");
+}
+
+function formatUserCount(count: number) {
+  return `${count.toString()} ${count === 1 ? "user" : "users"}`;
+}
+
+function formatRecordCount(count: number, label: string) {
+  return `${count.toString()} ${label}${count === 1 ? "" : "s"}`;
+}
+
+function formatOverlapMatch(matchType: "natural_key" | "source_id") {
+  return matchType === "source_id" ? "source id" : "natural key";
+}
+
+function formatOverlapChanges(changedFields: string[]) {
+  if (changedFields.length === 0) {
+    return " with no field changes";
+  }
+
+  return ` with ${changedFields.length.toString()} field ${
+    changedFields.length === 1 ? "change" : "changes"
+  }`;
+}
+
+function formatQueryError(error: unknown, fallbackMessage: string) {
+  if (error instanceof ApiError) {
+    return `${fallbackMessage}: ${error.message}`;
+  }
+
+  return fallbackMessage;
 }

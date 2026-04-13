@@ -18,6 +18,7 @@ const SESSION_COOKIE = 'tavi_session';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const LOCAL_AUTH_MODE = 'local';
 type AuditWriteClient = PrismaService | Prisma.TransactionClient;
+type AuditActor = Pick<SessionUser, 'email' | 'id' | 'name' | 'role'>;
 
 @Injectable()
 export class AuthService {
@@ -44,9 +45,20 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    await this.recordAudit(user.id, 'auth', user.id, 'login', {
-      role: user.roleAssignment.role,
-    });
+    await this.recordAudit(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.roleAssignment.role,
+      },
+      'auth',
+      user.id,
+      'login',
+      {
+        role: user.roleAssignment.role,
+      },
+    );
 
     return {
       id: user.id,
@@ -116,6 +128,28 @@ export class AuthService {
       };
     } catch {
       return null;
+    }
+  }
+
+  async reauthenticateCurrentUser(userId: string, password: string) {
+    this.requireLocalAuthMode();
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { roleAssignment: true },
+    });
+
+    if (!user?.roleAssignment) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordMatches = await this.verifyPassword(
+      password,
+      user.passwordHash,
+    );
+
+    if (!passwordMatches) {
+      throw new UnauthorizedException('Invalid credentials');
     }
   }
 
@@ -198,7 +232,7 @@ export class AuthService {
   }
 
   async recordAudit(
-    actorUserId: string,
+    actor: AuditActor,
     entityType: AuditEntityType,
     entityId: string,
     action: string,
@@ -207,7 +241,10 @@ export class AuthService {
   ) {
     await prismaClient.auditEvent.create({
       data: {
-        actorUserId,
+        actorEmail: actor.email,
+        actorName: actor.name,
+        actorRole: actor.role,
+        actorUserId: actor.id,
         entityType,
         entityId,
         action,

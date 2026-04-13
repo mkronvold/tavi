@@ -45,7 +45,7 @@ export class AuthController {
     this.authService.clearSessionCookie(reply);
 
     await this.authService.recordAudit(
-      request.user!.id,
+      request.user!,
       'auth',
       request.user!.id,
       'logout',

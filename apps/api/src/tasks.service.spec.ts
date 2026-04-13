@@ -17,6 +17,9 @@ type TaskFixture = {
 };
 
 describe('TasksService', () => {
+  type CreateProjectCall = {
+    data: Record<string, unknown>;
+  };
   type UpdateTaskCall = {
     data: Record<string, unknown>;
     where: { id: string };
@@ -30,7 +33,12 @@ describe('TasksService', () => {
   };
 
   const createService = () => {
+    const createProjectMock: jest.MockedFunction<
+      (args: CreateProjectCall) => Promise<unknown>
+    > = jest.fn();
     const findManyMock = jest.fn();
+    const findFirstTaskMock = jest.fn();
+    const findUniqueProjectMock = jest.fn();
     const findUniqueTaskMock = jest.fn();
     const updateSingleTaskMock: jest.MockedFunction<
       (args: UpdateTaskCall) => Promise<unknown>
@@ -39,6 +47,9 @@ describe('TasksService', () => {
       (args: UpdateTaskCall) => Promise<unknown>
     > = jest.fn();
     const tx = {
+      project: {
+        create: createProjectMock,
+      },
       task: {
         update: updateTaskMock,
       },
@@ -56,7 +67,11 @@ describe('TasksService', () => {
     );
     const recalculateProjectMock = jest.fn(() => Promise.resolve());
     const prisma = {
+      project: {
+        findUnique: findUniqueProjectMock,
+      },
       task: {
+        findFirst: findFirstTaskMock,
         findMany: findManyMock,
         findUnique: findUniqueTaskMock,
         update: updateSingleTaskMock,
@@ -74,7 +89,10 @@ describe('TasksService', () => {
     return {
       mocks: {
         findManyMock,
+        findFirstTaskMock,
+        findUniqueProjectMock,
         findUniqueTaskMock,
+        createProjectMock,
         recalculateProjectMock,
         recordAuditCalls,
         recordAuditMock,
@@ -187,7 +205,7 @@ describe('TasksService', () => {
         ? firstAuditMetadata['status']
         : null;
 
-    expect(firstAuditCall[0]).toBe(actor.id);
+    expect(firstAuditCall[0]).toEqual(actor);
     expect(firstAuditCall[1]).toBe('task');
     expect(firstAuditCall[2]).toBe('task-1');
     expect(firstAuditCall[3]).toBe('bulk_update');
@@ -292,7 +310,7 @@ describe('TasksService', () => {
         ? firstAuditMetadata['archivedAt']
         : null;
 
-    expect(firstAuditCall[0]).toBe(actor.id);
+    expect(firstAuditCall[0]).toEqual(actor);
     expect(firstAuditCall[1]).toBe('task');
     expect(firstAuditCall[2]).toBe('task-1');
     expect(firstAuditCall[3]).toBe('bulk_delete');
@@ -478,6 +496,233 @@ describe('TasksService', () => {
       : [];
 
     expect(changedFields).toEqual(['status', 'completedAt']);
+  });
+
+  it('moves tasks between projects and recalculates both project rollups', async () => {
+    const { mocks, service } = createService();
+    const existingTask = {
+      archivedAt: null,
+      assigneeUserId: 'user-1',
+      completedAt: null,
+      dueDate: null,
+      id: 'task-1',
+      notes: 'Confirm milestone scope',
+      priority: 'medium',
+      projectId: 'project-1',
+      sortOrder: 1,
+      status: 'todo',
+      title: 'Kickoff',
+    };
+
+    mocks.findUniqueTaskMock.mockResolvedValue(existingTask);
+    mocks.findUniqueProjectMock.mockResolvedValue({
+      archivedAt: null,
+      id: 'project-2',
+    });
+    mocks.findFirstTaskMock.mockResolvedValue({
+      sortOrder: 2,
+    });
+    mocks.updateSingleTaskMock.mockResolvedValue({
+      ...existingTask,
+      projectId: 'project-2',
+      sortOrder: 3,
+    });
+
+    const result = await service.updateTask(
+      'task-1',
+      {
+        projectId: 'project-2',
+      },
+      actor,
+    );
+
+    const updateCall = mocks.updateSingleTaskMock.mock.calls[0]?.[0] as
+      | UpdateTaskCall
+      | undefined;
+
+    if (!updateCall) {
+      throw new Error('Expected a task update call');
+    }
+
+    expect(mocks.findUniqueProjectMock).toHaveBeenCalledWith({
+      where: { id: 'project-2' },
+      select: { archivedAt: true, id: true },
+    });
+    expect(mocks.findFirstTaskMock).toHaveBeenCalledWith({
+      where: { projectId: 'project-2' },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    expect(updateCall.data).toMatchObject({
+      projectId: 'project-2',
+      sortOrder: 3,
+    });
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-1');
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-2');
+
+    const auditMetadata = mocks.recordAuditCalls[0]?.[4] ?? {};
+    const changedFields = Array.isArray(auditMetadata['changedFields'])
+      ? auditMetadata['changedFields'].filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [];
+
+    expect(changedFields).toEqual(['projectId']);
+    expect(result).toMatchObject({
+      id: 'task-1',
+      projectId: 'project-2',
+    });
+  });
+
+  it('converts a task into a standalone project in one transaction', async () => {
+    const { mocks, service } = createService();
+    const archivedAt = new Date('2026-02-03T11:00:00.000Z');
+    const dueDate = new Date('2026-02-07T09:00:00.000Z');
+    const existingTask = {
+      archivedAt: null,
+      assigneeUserId: 'user-2',
+      completedAt: null,
+      dueDate,
+      id: 'task-1',
+      notes: 'Waiting on a cross-team dependency',
+      priority: 'high',
+      projectId: 'project-1',
+      status: 'blocked',
+      title: 'Resolve blocker',
+    };
+
+    mocks.findUniqueTaskMock.mockResolvedValue(existingTask);
+    mocks.createProjectMock.mockResolvedValue({
+      id: 'project-2',
+      ownerUserId: 'user-2',
+      dueDate,
+      priority: 'high',
+      title: 'Resolve blocker project',
+      trackerLink: null,
+    });
+    mocks.updateTaskMock.mockResolvedValue({
+      ...existingTask,
+      archivedAt,
+      title: 'Resolve blocker project',
+    });
+
+    const result = await service.convertTaskToProject(
+      'task-1',
+      {
+        title: 'Resolve blocker project',
+      },
+      actor,
+    );
+
+    expect(mocks.requireEditAccessMock).toHaveBeenCalledWith(actor);
+    expect(mocks.transactionMock).toHaveBeenCalledTimes(1);
+    expect(mocks.createProjectMock).toHaveBeenCalledWith({
+      data: {
+        title: 'Resolve blocker project',
+        notes: 'Waiting on a cross-team dependency',
+        trackerLink: null,
+        ownerUserId: 'user-2',
+        dueDate,
+        priority: 'high',
+        derivedStatus: 'not_started',
+        displayStatus: 'blocked',
+        manualStatus: 'blocked',
+      },
+    });
+
+    const updateCall = mocks.updateTaskMock.mock.calls[0]?.[0];
+
+    expect(updateCall).toMatchObject({
+      where: { id: 'task-1' },
+      data: {
+        title: 'Resolve blocker project',
+        notes: 'Waiting on a cross-team dependency',
+        assigneeUserId: 'user-2',
+        dueDate,
+        priority: 'high',
+        status: 'blocked',
+      },
+    });
+    expect(updateCall?.data['archivedAt']).toBeInstanceOf(Date);
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith(
+      'project-1',
+      mocks.tx,
+    );
+    expect(mocks.recordAuditMock).toHaveBeenCalledTimes(2);
+    expect(mocks.recordAuditCalls[0]?.[1]).toBe('project');
+    expect(mocks.recordAuditCalls[0]?.[2]).toBe('project-2');
+    expect(mocks.recordAuditCalls[0]?.[3]).toBe('create');
+    expect(mocks.recordAuditCalls[1]?.[1]).toBe('task');
+    expect(mocks.recordAuditCalls[1]?.[2]).toBe('task-1');
+    expect(mocks.recordAuditCalls[1]?.[3]).toBe('convert_to_project');
+
+    const taskAuditMetadata = mocks.recordAuditCalls[1]?.[4] ?? {};
+    const changedFields = Array.isArray(taskAuditMetadata['changedFields'])
+      ? taskAuditMetadata['changedFields'].filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [];
+
+    expect(changedFields).toEqual(['title', 'archivedAt']);
+    expect(taskAuditMetadata['convertedProjectId']).toBe('project-2');
+    expect(taskAuditMetadata['archivedAt']).toBe(archivedAt.toISOString());
+    expect(result).toEqual({
+      projectId: 'project-2',
+      taskId: 'task-1',
+    });
+  });
+
+  it('archives a task and records audit metadata for the delete action', async () => {
+    const { mocks, service } = createService();
+    const archivedAt = new Date('2026-02-03T10:30:00.000Z');
+    const existingTask = {
+      archivedAt: null,
+      assigneeUserId: 'user-1',
+      completedAt: null,
+      dueDate: null,
+      id: 'task-1',
+      notes: 'Confirm milestone scope',
+      priority: 'medium',
+      projectId: 'project-1',
+      status: 'todo',
+      title: 'Kickoff',
+    };
+
+    mocks.findUniqueTaskMock.mockResolvedValue(existingTask);
+    mocks.updateSingleTaskMock.mockResolvedValue({
+      ...existingTask,
+      archivedAt,
+    });
+
+    const result = await service.deleteTask('task-1', actor);
+
+    expect(mocks.requireEditAccessMock).toHaveBeenCalledWith(actor);
+    const updateCall = mocks.updateSingleTaskMock.mock.calls[0]?.[0];
+
+    expect(updateCall).toMatchObject({
+      where: { id: 'task-1' },
+    });
+    expect(updateCall?.data['archivedAt']).toBeInstanceOf(Date);
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-1');
+
+    const auditMetadata = mocks.recordAuditCalls[0]?.[4] ?? {};
+    const changedFields = Array.isArray(auditMetadata['changedFields'])
+      ? auditMetadata['changedFields'].filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [];
+    const archivedAtValue =
+      typeof auditMetadata['archivedAt'] === 'string'
+        ? auditMetadata['archivedAt']
+        : null;
+
+    expect(mocks.recordAuditCalls[0]?.[3]).toBe('delete');
+    expect(changedFields).toEqual(['archivedAt']);
+    expect(archivedAtValue).toBe(archivedAt.toISOString());
+    expect(result).toEqual({
+      id: 'task-1',
+      projectId: 'project-1',
+    });
   });
 
   it('allows blocked bulk updates without requiring dedicated blocker text', async () => {

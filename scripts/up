@@ -16,4 +16,4 @@ if [[ ! -f "${compose_file}" ]]; then
   exit 1
 fi
 
-exec docker compose -f "${compose_file}" up --build -d "$@"
+exec docker compose -f "${compose_file}" up --build --force-recreate -d "$@"

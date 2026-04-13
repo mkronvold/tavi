@@ -1,0 +1,109 @@
+# Local Accounts Guide
+
+Local Accounts is the admin surface for local-auth environments and the self-service password surface for non-admin users.
+
+## Who can do what
+
+| User | What is available |
+| --- | --- |
+| Admin | Create, edit, remove, search, import, export, reset defaults, and set passwords for local accounts |
+| Editor or Viewer | Set only the current user's password |
+
+## Create an account
+
+1. Open `Settings`.
+2. Open `Local Accounts`.
+3. Select `New account`.
+4. Enter name, email, role, and password.
+5. Use `Generate` if you want a random password.
+6. Select `Create`.
+
+## Edit, remove, or reset a password
+
+From the account list, admins can:
+
+1. Select `Edit` to change name, email, or role inline in that account row.
+2. Select `Set Password` to replace the password from the same row.
+3. Select `Remove` to delete the account.
+
+Use the search box to filter by name, email, or role before making bulk admin changes.
+
+If an account still has assigned tasks, Tavi pauses deletion and lets you either:
+
+1. Reassign those tasks to another local account.
+2. Set those tasks to `None` so they become unassigned.
+
+Accounts that still own projects must have those projects reassigned or removed before deletion can continue.
+
+## Bulk actions
+
+Admins can select multiple rows with the account checkboxes, then:
+
+1. Use `Bulk Password Reset` to set the same password across every selected account.
+2. Use `Bulk Change Role` to move all selected accounts to `viewer`, `editor`, or `admin`.
+3. Use `Bulk Delete` to remove all selected accounts that are safe to delete.
+
+Important rules:
+
+1. Bulk role changes and bulk delete still require at least one admin account to remain.
+2. Bulk delete skips accounts that still own projects or have assigned tasks and reports the failures after the run.
+
+## Export JSON and import JSON or CSV
+
+Admins can export local accounts as JSON, then import accounts later from either JSON or CSV.
+
+Important rules:
+
+1. Exports never include passwords.
+2. JSON and CSV imports match existing users by email.
+3. If an imported account leaves `password` blank and the account already exists, the current password stays unchanged.
+4. New imported accounts must include a password.
+5. CSV imports use `name`, `email`, `role`, and optional `password` columns.
+6. If duplicate emails appear in the import file or already exist in Tavi, the panel asks whether to update duplicates or skip them before import continues.
+
+Example JSON import shape:
+
+```json
+{
+  "accounts": [
+    {
+      "name": "Casey Admin",
+      "email": "casey@tavi.local",
+      "role": "admin",
+      "password": "change-me-now"
+    },
+    {
+      "name": "Riley Viewer",
+      "email": "riley@tavi.local",
+      "role": "viewer"
+    }
+  ]
+}
+```
+
+Example CSV import shape:
+
+```csv
+name,email,role,password
+Casey Admin,casey@tavi.local,admin,change-me-now
+Riley Viewer,riley@tavi.local,viewer,
+```
+
+## Reset Defaults
+
+`Reset Defaults` restores:
+
+1. `admin@tavi.local`
+2. `editor@tavi.local`
+3. `viewer@tavi.local`
+
+All three are reset to `password123`. Other local accounts stay in place.
+
+## Import-created users from CSV import
+
+CSV import preview can create missing viewer accounts directly when the source data includes `Name <email>` values. Those accounts appear in this panel after creation.
+
+## Non-obvious behavior
+
+1. Account JSON export and JSON or CSV import are for local auth only.
+2. A password generated or shown during account creation should be copied immediately; the UI does not treat exported JSON as a password backup.

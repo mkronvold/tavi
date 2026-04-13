@@ -5,19 +5,34 @@ import type {
   ImportLocalAccountsInput,
   ImportRowOutcome,
   LoopImportField,
+  LoopImportMissingUser,
+  LoopImportMissingAssignee,
+  LoopImportOverlapAction,
   LoopImportJobStatus,
+  ProjectSortField,
   Priority,
   ProjectStatus,
+  ResetWorkspaceExamplesInput,
   Role,
   SetLocalAccountPasswordInput,
   SetOwnPasswordInput,
   TaskStatus,
   UpdateLocalAccountInput,
+  UpdateLoopImportRowDecisionsInput,
 } from "@tavi/schemas";
 
 export type {
+  AuditChangesQuery as AuditChangesQueryPayload,
   AuditEntityType,
+  AuditLogRetentionPolicy,
+  AuditLogRetentionWindow,
+  AuditLoginsQuery as AuditLoginsQueryPayload,
+  ConvertProjectToTaskResponse,
+  ConvertTaskToProjectResponse,
+  DeleteLocalAccountInput as DeleteLocalAccountPayload,
   DeleteLocalAccountResponse,
+  DeleteProjectResponse,
+  DeleteTaskResponse,
   ExportLocalAccountsResponse,
   GroupBy,
   ImportLocalAccountsResponse,
@@ -27,10 +42,21 @@ export type {
   LocalAccountResponse,
   LocalAccountsResponse,
   LoopImportField,
+  LoopImportMissingUser,
+  LoopImportMissingAssignee,
+  LoopImportOverlapAction,
   LoopImportJobStatus,
+  ProjectSortField,
+  Priority,
   ProjectStatus,
+  PurgeAuditLogsInput as PurgeAuditLogsPayload,
+  PurgeAuditLogsResponse,
+  ResetWorkspaceExamplesResponse,
+  Role,
   ResetDefaultLocalAccountsResponse,
+  SetAuditLogRetentionInput as SetAuditLogRetentionPayload,
   SuccessResponse,
+  TaskStatus,
 } from "@tavi/schemas";
 
 export type WorkspaceUser = {
@@ -45,8 +71,8 @@ export type WorkspaceTask = {
   projectId: string;
   title: string;
   notes: string | null;
-  assigneeUserId: string;
-  assigneeName: string;
+  assigneeUserId: string | null;
+  assigneeName: string | null;
   dueDate: string | null;
   priority: Priority;
   status: TaskStatus;
@@ -57,11 +83,10 @@ export type WorkspaceTask = {
 export type WorkspaceProject = {
   id: string;
   title: string;
-  summary: string | null;
   notes: string | null;
   trackerLink: string | null;
-  ownerUserId: string;
-  ownerName: string;
+  ownerUserId: string | null;
+  ownerName: string | null;
   dueDate: string | null;
   priority: Priority;
   derivedStatus: ProjectStatus;
@@ -82,7 +107,9 @@ export type SavedView = {
   name: string;
   groupBy: GroupBy;
   search: string;
-  statusFilter: ProjectStatus | null;
+  sortBy: ProjectSortField[];
+  statusFilters: TaskStatus[];
+  assigneeUserIds: string[];
   collapsedGroupKeys: string[];
   expandedProjectIds: string[];
   createdAt: string;
@@ -97,7 +124,7 @@ export type WorkspaceResponse = {
 };
 
 export type AuditHistoryActor = {
-  id: string;
+  id: string | null;
   email: string;
   name: string;
   role: Role;
@@ -128,12 +155,13 @@ export type SetOwnPasswordPayload = SetOwnPasswordInput;
 
 export type ImportLocalAccountsPayload = ImportLocalAccountsInput;
 
+export type ResetWorkspaceExamplesPayload = ResetWorkspaceExamplesInput;
+
 export type CreateProjectPayload = {
   title: string;
-  summary: string;
-  notes?: string;
-  trackerLink?: string;
-  ownerUserId: string;
+  notes: string;
+  trackerLink: string;
+  ownerUserId: string | null;
   dueDate: string;
   priority: Priority;
 };
@@ -157,7 +185,11 @@ export type CreateTaskPayload = {
   status: TaskStatus;
 };
 
-export type UpdateTaskPayload = Omit<Partial<CreateTaskPayload>, "notes"> & {
+export type UpdateTaskPayload = Omit<
+  Partial<CreateTaskPayload>,
+  "assigneeUserId" | "notes"
+> & {
+  assigneeUserId?: string | null;
   notes?: string | null;
 };
 
@@ -177,7 +209,9 @@ export type SavedViewPayload = {
   name: string;
   groupBy: GroupBy;
   search: string;
-  statusFilter: ProjectStatus | null;
+  sortBy: ProjectSortField[];
+  statusFilters: TaskStatus[];
+  assigneeUserIds: string[];
   collapsedGroupKeys: string[];
   expandedProjectIds: string[];
 };
@@ -206,20 +240,41 @@ export type LoopImportPreviewRow = {
   projectTitle: string | null;
   projectExternalId: string | null;
   projectIdentityStrategy: "natural_key" | "source_id";
+  projectOverlap: {
+    action: LoopImportOverlapAction;
+    changedFields: string[];
+    existingId: string;
+    matchedBy: "natural_key" | "source_id";
+    title: string;
+  } | null;
   taskTitle: string | null;
   taskExternalId: string | null;
   taskIdentityStrategy: "natural_key" | "source_id";
+  taskOverlap: {
+    action: LoopImportOverlapAction;
+    changedFields: string[];
+    existingId: string;
+    matchedBy: "natural_key" | "source_id";
+    title: string;
+  } | null;
   taskStatus: TaskStatus;
   errors: string[];
   warnings: string[];
 };
 
 export type LoopImportPreview = {
+  blockingMissingUserRowCount: number;
   totalRowCount: number;
   validRowCount: number;
   invalidRowCount: number;
   warningRowCount: number;
+  missingUserRowCount: number;
+  missingUsers: LoopImportMissingUser[];
+  missingTaskAssigneeRowCount: number;
+  missingTaskAssignees: LoopImportMissingAssignee[];
   missingRequiredMappings: LoopImportField[];
+  overlappingProjectRowCount: number;
+  overlappingTaskRowCount: number;
   projectSourceIdRowCount: number;
   taskSourceIdRowCount: number;
   unmappedHeaders: string[];
@@ -275,3 +330,6 @@ export type CreateLoopImportPayload = {
 export type UpdateLoopImportMappingPayload = {
   mapping: LoopImportMapping;
 };
+
+export type UpdateLoopImportRowDecisionsPayload =
+  UpdateLoopImportRowDecisionsInput;

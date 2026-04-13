@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import {
@@ -145,5 +145,47 @@ describe('AuthService', () => {
       visible: false,
     });
     expect(findManyUsersMock).not.toHaveBeenCalled();
+  });
+
+  it('reauthenticates the current local user with their password', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { findUniqueUserMock, service } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash: await bcrypt.hash('current-password-123', 10),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+
+    await expect(
+      service.reauthenticateCurrentUser('user-1', 'current-password-123'),
+    ).resolves.toBeUndefined();
+    expect(findUniqueUserMock).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      include: { roleAssignment: true },
+    });
+  });
+
+  it('rejects reauthentication when the password is wrong', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { findUniqueUserMock, service } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash: await bcrypt.hash('current-password-123', 10),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+
+    await expect(
+      service.reauthenticateCurrentUser('user-1', 'wrong-password-123'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

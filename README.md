@@ -8,9 +8,18 @@ Tavi currently ships as a TypeScript monorepo with:
 
 - `apps/web` - React workspace UI
 - `apps/api` - NestJS API with local-auth support
-- `apps/worker` - background worker for Loop import staging and commit jobs
+- `apps/worker` - background worker for CSV import staging and commit jobs
 
-### Run locally with Docker Compose
+## Documentation
+
+- `docs/README.md` - user, admin, and operator guide index
+- `docs/QUICKSTART.md` - choose between source build, Docker runtime, and Kubernetes deployment guides
+- `docs/BUILD.md` - source-based Docker Compose development guide
+- `docs/DOCKER.md` - prebuilt GHCR image runtime guide
+- `docs/KUBERNETES.md` - raw-manifest deployment and day-2 operations
+- `docs/DESIGN.md` and `docs/ARCHITECTURE.md` - product and technical reference specs
+
+### Run locally from source with Docker Compose
 
 ```bash
 ./scripts/up
@@ -32,6 +41,8 @@ The local stack exposes:
 - postgres: `localhost:5432`
 
 Compose applies the committed Prisma migrations and seeds the local auth accounts automatically when the API container starts.
+
+For a local runtime that uses the published GHCR images and does not build from source, use `docs/DOCKER.md`.
 
 The local containers are named `tavi-postgres`, `tavi-api`, `tavi-web`, and `tavi-worker`.
 

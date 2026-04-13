@@ -1,13 +1,21 @@
 import type { AuditEntityType } from "@tavi/schemas";
 import type {
+  AuditChangesQueryPayload,
   AuditHistoryEvent,
+  AuditLogRetentionPolicy,
+  AuditLoginsQueryPayload,
   BulkDeleteTasksPayload,
   BulkUpdateTasksPayload,
+  ConvertProjectToTaskResponse,
+  ConvertTaskToProjectResponse,
   CreateLocalAccountPayload,
   CreateLoopImportPayload,
   CreateProjectPayload,
   CreateTaskPayload,
+  DeleteLocalAccountPayload,
   DeleteLocalAccountResponse,
+  DeleteProjectResponse,
+  DeleteTaskResponse,
   ExportLocalAccountsResponse,
   ImportLocalAccountsPayload,
   ImportLocalAccountsResponse,
@@ -17,26 +25,34 @@ import type {
   LocalAccountsResponse,
   LoopImportJob,
   LoopImportJobSummary,
+  PurgeAuditLogsPayload,
+  PurgeAuditLogsResponse,
   ResetDefaultLocalAccountsResponse,
   SetLocalAccountPasswordPayload,
+  SetAuditLogRetentionPayload,
   SetOwnPasswordPayload,
   UpdateProjectPayload,
   UpdateLoopImportMappingPayload,
+  UpdateLoopImportRowDecisionsPayload,
   UpdateLocalAccountPayload,
   UpdateSavedViewPayload,
   UpdateTaskPayload,
   RenameSavedViewPayload,
+  ResetWorkspaceExamplesPayload,
+  ResetWorkspaceExamplesResponse,
   SavedView,
   SavedViewPayload,
   SuccessResponse,
   WorkspaceResponse,
 } from "./types";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
+import { getApiBaseUrl } from "./runtime-config";
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
+
+const API_UNAVAILABLE_MESSAGE =
+  "The Tavi API is unavailable and may be restarting. Please wait a moment and try again.";
 
 export class ApiError extends Error {
   status: number;
@@ -48,33 +64,67 @@ export class ApiError extends Error {
   }
 }
 
+type ApiErrorPayload = {
+  error?: string;
+  fieldErrors?: Record<string, string[] | undefined>;
+  formErrors?: string[];
+  message?: string | string[];
+};
+
+function toApiErrorMessage(
+  payload: ApiErrorPayload,
+  fallback: string,
+): string {
+  if (typeof payload.message === "string") {
+    return payload.message;
+  }
+
+  if (Array.isArray(payload.message) && payload.message.length > 0) {
+    return payload.message.join(", ");
+  }
+
+  const messages = [
+    ...(payload.formErrors ?? []).filter((message) => message.length > 0),
+    ...Object.entries(payload.fieldErrors ?? {}).flatMap(
+      ([field, fieldMessages]) =>
+        (fieldMessages ?? [])
+          .filter((message) => message.length > 0)
+          .map((message) => `${field}: ${message}`),
+    ),
+  ];
+
+  if (messages.length > 0) {
+    return messages.join(", ");
+  }
+
+  return payload.error ?? fallback;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const hasBody = options.body !== undefined;
+  const headers = new Headers(options.headers);
+
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
+    body: hasBody ? JSON.stringify(options.body) : undefined,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
+    if (response.status === 502) {
+      throw new ApiError(response.status, API_UNAVAILABLE_MESSAGE);
+    }
+
     let message = `${response.status} ${response.statusText}`;
 
     try {
-      const payload = (await response.json()) as {
-        error?: string;
-        message?: string | string[];
-      };
-
-      if (typeof payload.message === "string") {
-        message = payload.message;
-      } else if (Array.isArray(payload.message)) {
-        message = payload.message.join(", ");
-      } else if (payload.error) {
-        message = payload.error;
-      }
+      const payload = (await response.json()) as ApiErrorPayload;
+      message = toApiErrorMessage(payload, message);
     } catch {
       // Ignore JSON parsing errors and keep the HTTP message.
     }
@@ -85,7 +135,32 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   return (await response.json()) as T;
 }
 
+function toQueryString(
+  params: Record<string, number | string | undefined>,
+) {
+  const searchParams = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "") {
+      continue;
+    }
+
+    searchParams.set(key, value.toString());
+  }
+
+  const query = searchParams.toString();
+  return query ? `?${query}` : "";
+}
+
 export const getWorkspace = () => request<WorkspaceResponse>("/workspace");
+
+export const resetWorkspaceExamples = (
+  payload: ResetWorkspaceExamplesPayload,
+) =>
+  request<ResetWorkspaceExamplesResponse>("/workspace/reset-examples", {
+    method: "POST",
+    body: payload,
+  });
 
 export const login = (payload: LoginPayload) =>
   request("/auth/login", {
@@ -133,9 +208,13 @@ export const updateLocalAccount = (
     body: payload,
   });
 
-export const deleteLocalAccount = (userId: string) =>
+export const deleteLocalAccount = (
+  userId: string,
+  payload?: DeleteLocalAccountPayload,
+) =>
   request<DeleteLocalAccountResponse>(`/auth/accounts/${userId}`, {
     method: "DELETE",
+    body: payload,
   });
 
 export const setLocalAccountPassword = (
@@ -154,7 +233,7 @@ export const setMyPassword = (payload: SetOwnPasswordPayload) =>
   });
 
 export const createProject = (payload: CreateProjectPayload) =>
-  request("/projects", {
+  request<{ id: string }>("/projects", {
     method: "POST",
     body: payload,
   });
@@ -168,6 +247,20 @@ export const updateProject = (
     body: payload,
   });
 
+export const convertProjectToTask = (
+  projectId: string,
+  payload: UpdateProjectPayload,
+) =>
+  request<ConvertProjectToTaskResponse>(`/projects/${projectId}/convert-to-task`, {
+    method: "POST",
+    body: payload,
+  });
+
+export const deleteProject = (projectId: string) =>
+  request<DeleteProjectResponse>(`/projects/${projectId}`, {
+    method: "DELETE",
+  });
+
 export const createTask = (projectId: string, payload: CreateTaskPayload) =>
   request(`/projects/${projectId}/tasks`, {
     method: "POST",
@@ -178,6 +271,20 @@ export const updateTask = (taskId: string, payload: UpdateTaskPayload) =>
   request(`/tasks/${taskId}`, {
     method: "PATCH",
     body: payload,
+  });
+
+export const convertTaskToProject = (
+  taskId: string,
+  payload: Omit<UpdateTaskPayload, "projectId">,
+) =>
+  request<ConvertTaskToProjectResponse>(`/tasks/${taskId}/convert-to-project`, {
+    method: "POST",
+    body: payload,
+  });
+
+export const deleteTask = (taskId: string) =>
+  request<DeleteTaskResponse>(`/tasks/${taskId}`, {
+    method: "DELETE",
   });
 
 export const bulkUpdateTasks = (payload: BulkUpdateTasksPayload) =>
@@ -203,6 +310,27 @@ export const getAuditHistory = (
   request<AuditHistoryEvent[]>(
     `/audit/${entityType}/${entityId}?limit=${limit.toString()}`,
   );
+
+export const listAuditChanges = (query: AuditChangesQueryPayload) =>
+  request<AuditHistoryEvent[]>(`/audit/changes${toQueryString(query)}`);
+
+export const listAuditLogins = (query: AuditLoginsQueryPayload) =>
+  request<AuditHistoryEvent[]>(`/audit/logins${toQueryString(query)}`);
+
+export const getAuditLogRetention = () =>
+  request<AuditLogRetentionPolicy>("/audit/retention");
+
+export const setAuditLogRetention = (payload: SetAuditLogRetentionPayload) =>
+  request<AuditLogRetentionPolicy>("/audit/retention", {
+    method: "PUT",
+    body: payload,
+  });
+
+export const purgeAuditLogs = (payload: PurgeAuditLogsPayload) =>
+  request<PurgeAuditLogsResponse>("/audit/purge", {
+    method: "POST",
+    body: payload,
+  });
 
 export const createSavedView = (payload: SavedViewPayload) =>
   request<SavedView>("/views", {
@@ -245,11 +373,26 @@ export const createLoopImport = (payload: CreateLoopImportPayload) =>
 export const getLoopImport = (importId: string) =>
   request<LoopImportJob>(`/imports/${importId}`);
 
+export const deleteLoopImport = (importId: string) =>
+  request<{ id: string }>(`/imports/${importId}`, {
+    method: "DELETE",
+  });
+
 export const updateLoopImportMapping = (
   importId: string,
   payload: UpdateLoopImportMappingPayload,
 ) =>
   request<LoopImportJob>(`/imports/${importId}/mapping`, {
+    method: "PATCH",
+    body: payload,
+  });
+
+export const updateLoopImportRowDecisions = (
+  importId: string,
+  rowNumber: number,
+  payload: UpdateLoopImportRowDecisionsPayload,
+) =>
+  request<LoopImportJob>(`/imports/${importId}/rows/${rowNumber.toString()}/decisions`, {
     method: "PATCH",
     body: payload,
   });

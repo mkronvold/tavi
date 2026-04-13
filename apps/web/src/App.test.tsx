@@ -13,6 +13,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { AuditHistoryEvent, WorkspaceResponse } from "./types";
 
+const originalScrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "scrollIntoView",
+);
+
 const createResponse = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
     status,
@@ -44,7 +49,6 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
     {
       id: "project-1",
       title: "Roadmap refresh",
-      summary: "Validate overrides",
       notes: "Awaiting dependency",
       trackerLink: "https://tracker.example.com/projects/roadmap-refresh",
       ownerUserId: "user-1",
@@ -97,7 +101,9 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
       name: "Blocked review",
       groupBy: "status",
       search: "Roadmap",
-      statusFilter: "blocked",
+      sortBy: ["progress"],
+      statusFilters: ["blocked"],
+      assigneeUserIds: [],
       collapsedGroupKeys: ["done"],
       expandedProjectIds: ["project-1"],
       createdAt: new Date().toISOString(),
@@ -105,6 +111,174 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
     },
   ],
 });
+
+const createAdminWorkspacePayload = (): WorkspaceResponse => {
+  const payload = createWorkspacePayload();
+
+  payload.currentUser = {
+    ...payload.currentUser,
+    role: "admin",
+  };
+  payload.users[0] = {
+    ...payload.users[0],
+    role: "admin",
+  };
+
+  return payload;
+};
+
+const createSortedWorkspacePayload = (): WorkspaceResponse => {
+  const payload = createWorkspacePayload();
+
+  payload.projects = [
+    {
+      id: "project-1",
+      title: "Roadmap refresh",
+      notes: "Awaiting dependency",
+      trackerLink: "https://tracker.example.com/projects/roadmap-refresh",
+      ownerUserId: "user-1",
+      ownerName: "Tavi Editor",
+      dueDate: null,
+      priority: "medium",
+      derivedStatus: "in_progress",
+      displayStatus: "blocked",
+      manualStatus: "blocked",
+      taskTotalCount: 2,
+      taskTodoCount: 1,
+      taskInProgressCount: 1,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      tasks: [
+        {
+          id: "task-1",
+          projectId: "project-1",
+          title: "Kickoff",
+          notes: "Confirm milestone scope",
+          assigneeUserId: "user-1",
+          assigneeName: "Tavi Editor",
+          dueDate: null,
+          priority: "medium",
+          status: "todo",
+          sortOrder: 0,
+          completedAt: null,
+        },
+        {
+          id: "task-2",
+          projectId: "project-1",
+          title: "Review plan",
+          notes: "Validate timing",
+          assigneeUserId: "user-2",
+          assigneeName: "Tavi Viewer",
+          dueDate: null,
+          priority: "medium",
+          status: "in_progress",
+          sortOrder: 1,
+          completedAt: null,
+        },
+      ],
+    },
+    {
+      id: "project-2",
+      title: "Beta rollout",
+      notes: "Track launch blockers",
+      trackerLink: null,
+      ownerUserId: "user-2",
+      ownerName: "Tavi Viewer",
+      dueDate: "2026-04-10T00:00:00.000Z",
+      priority: "high",
+      derivedStatus: "in_progress",
+      displayStatus: "in_progress",
+      manualStatus: null,
+      taskTotalCount: 2,
+      taskTodoCount: 1,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 1,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      tasks: [
+        {
+          id: "task-3",
+          projectId: "project-2",
+          title: "Check release notes",
+          notes: null,
+          assigneeUserId: "user-2",
+          assigneeName: "Tavi Viewer",
+          dueDate: "2026-04-09T00:00:00.000Z",
+          priority: "high",
+          status: "done",
+          sortOrder: 0,
+          completedAt: "2026-04-01T12:00:00.000Z",
+        },
+        {
+          id: "task-4",
+          projectId: "project-2",
+          title: "Confirm staging",
+          notes: null,
+          assigneeUserId: "user-1",
+          assigneeName: "Tavi Editor",
+          dueDate: "2026-04-08T00:00:00.000Z",
+          priority: "medium",
+          status: "todo",
+          sortOrder: 1,
+          completedAt: null,
+        },
+      ],
+    },
+    {
+      id: "project-3",
+      title: "Alpha planning",
+      notes: "Prep the next cycle",
+      trackerLink: null,
+      ownerUserId: null,
+      ownerName: null,
+      dueDate: "2026-04-05T00:00:00.000Z",
+      priority: "low",
+      derivedStatus: "done",
+      displayStatus: "done",
+      manualStatus: null,
+      taskTotalCount: 2,
+      taskTodoCount: 0,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 2,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      tasks: [
+        {
+          id: "task-5",
+          projectId: "project-3",
+          title: "Outline milestones",
+          notes: null,
+          assigneeUserId: "user-1",
+          assigneeName: "Tavi Editor",
+          dueDate: "2026-04-03T00:00:00.000Z",
+          priority: "low",
+          status: "done",
+          sortOrder: 0,
+          completedAt: "2026-03-30T09:00:00.000Z",
+        },
+        {
+          id: "task-6",
+          projectId: "project-3",
+          title: "Close prep work",
+          notes: null,
+          assigneeUserId: "user-2",
+          assigneeName: "Tavi Viewer",
+          dueDate: "2026-04-04T00:00:00.000Z",
+          priority: "low",
+          status: "done",
+          sortOrder: 1,
+          completedAt: "2026-03-31T11:00:00.000Z",
+        },
+      ],
+    },
+  ];
+
+  return payload;
+};
 
 describe("App", () => {
   const createQueryClient = () =>
@@ -136,10 +310,45 @@ describe("App", () => {
     return projectCard!;
   };
 
+  const toggleGroupByTitle = (title: string) => {
+    const groupCard = screen.getByRole("heading", { name: title }).closest("section");
+
+    expect(groupCard).not.toBeNull();
+
+    const toggleButton = groupCard?.querySelector(".group-header .group-toggle");
+
+    expect(toggleButton).toBeTruthy();
+    fireEvent.click(toggleButton!);
+
+    return groupCard!;
+  };
+
+  const getVisibleProjectTitles = () =>
+    Array.from(document.querySelectorAll(".project-card .project-main strong"))
+      .map((element) => element.textContent?.trim())
+      .filter((value): value is string => Boolean(value));
+
+  const mockElementHeight = (element: HTMLElement, getHeight: () => number) => {
+    Object.defineProperty(element, "offsetHeight", {
+      configurable: true,
+      get: getHeight,
+    });
+  };
+
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
     Reflect.deleteProperty(window, "__TAVI_RUNTIME_CONFIG__");
+    if (originalScrollIntoViewDescriptor) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollIntoView",
+        originalScrollIntoViewDescriptor,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -230,8 +439,52 @@ describe("App", () => {
     expect(headerActions).toHaveClass("header-actions");
     expect(headerActions?.firstElementChild).toHaveTextContent("Tavi Admin");
     expect(headerActions?.lastElementChild).toBe(signOutButton);
-    expect(brandLink).toHaveAttribute("href", "https://tavi.example.com/current");
+    expect(brandLink).toHaveAttribute(
+      "href",
+      "https://tavi.example.com/current",
+    );
     expect(brandLink.querySelector(".brand-logo")).not.toBeNull();
+    expect(screen.getByLabelText("Search")).toBeInTheDocument();
+    expect(
+      Array.from(
+        screen.getByLabelText("Group by").querySelectorAll("option"),
+      ).map((option) => option.textContent),
+    ).toEqual(expect.arrayContaining(["Projects", "Progress"]));
+    expect(screen.queryByText("Search")).not.toBeInTheDocument();
+    expect(screen.queryByText("Group by")).not.toBeInTheDocument();
+  });
+
+  it("uses the runtime API base URL override for workspace requests", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url === "https://api.tavi.example.com/base/workspace") {
+        return createResponse(workspacePayload);
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    Object.assign(window, {
+      __TAVI_RUNTIME_CONFIG__: {
+        apiBaseUrl: "https://api.tavi.example.com/base/",
+      },
+    });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.tavi.example.com/base/workspace",
+      expect.objectContaining({
+        credentials: "include",
+      }),
+    );
   });
 
   it("applies personal saved views and shows override context", async () => {
@@ -247,7 +500,7 @@ describe("App", () => {
     });
 
     expect(screen.getByText("Derived: in progress")).toBeInTheDocument();
-    expect(screen.getByText("Notes: Awaiting dependency")).toBeInTheDocument();
+    expect(screen.getByText("Awaiting dependency")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
     await waitFor(() => {
@@ -261,11 +514,14 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Search")).toHaveValue("Roadmap");
       expect(screen.getByLabelText("Group by")).toHaveValue("status");
-      expect(screen.getByLabelText("Project status")).toHaveValue("blocked");
+      expect(
+        screen.getByRole("button", { name: "Sort by: 1 Progress" }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Status: Blocked")).toBeInTheDocument();
     });
   });
 
-  it("shows completion percentages in project rows", async () => {
+  it("applies task filters only when the green checkmark is used", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -277,7 +533,147 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("0/2 0% done")).toBeInTheDocument();
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Status: All" }));
+
+    const statusMenu = screen.getByRole("dialog", { name: "Status" });
+    fireEvent.click(
+      within(statusMenu).getByRole("checkbox", { name: "In progress" }),
+    );
+
+    expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    expect(screen.getByText("Review plan")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(statusMenu).getByRole("button", { name: "Apply status" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Kickoff")).not.toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Status: In progress" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("normalizes multi-sort order and applies it when the menu closes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createSortedWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha planning")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "none" },
+    });
+
+    expect(getVisibleProjectTitles()).toEqual([
+      "Roadmap refresh",
+      "Beta rollout",
+      "Alpha planning",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by: Default" }));
+
+    const sortMenu = screen.getByRole("dialog", { name: "Sort by" });
+    fireEvent.click(
+      within(sortMenu).getByRole("button", {
+        name: "Title not included in the current sort",
+      }),
+    );
+    fireEvent.click(
+      within(sortMenu).getByRole("button", { name: "Title sort order 1" }),
+    );
+    fireEvent.click(
+      within(sortMenu).getByRole("button", {
+        name: "Progress not included in the current sort",
+      }),
+    );
+    fireEvent.click(
+      within(sortMenu).getByRole("button", {
+        name: "Due Date not included in the current sort",
+      }),
+    );
+    fireEvent.click(
+      within(sortMenu).getByRole("button", { name: "Due Date sort order 1" }),
+    );
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(localStorage.getItem("tavi.workspace.filters") ?? "{}"),
+      ).toEqual(
+        expect.objectContaining({
+          sortBy: ["progress", "title", "dueDate"],
+        }),
+      );
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Sort by: 3 fields" }),
+    ).toBeInTheDocument();
+    expect(getVisibleProjectTitles()).toEqual([
+      "Alpha planning",
+      "Beta rollout",
+      "Roadmap refresh",
+    ]);
+  });
+
+  it("shows completion percentages in project rows", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const dueDate = "2026-05-01T00:00:00.000Z";
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      derivedStatus: "in_progress",
+      displayStatus: "in_progress",
+      dueDate,
+      manualStatus: null,
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("0%")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Derived from task rollup"),
+    ).not.toBeInTheDocument();
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+
+    const projectMetaItems = Array.from(
+      projectCard!.querySelectorAll(".project-meta > *"),
+    ).map((element) => element.textContent?.trim());
+
+    expect(projectMetaItems).toEqual([
+      "Tavi Editor",
+      "Medium",
+      "0%",
+      new Date(dueDate).toLocaleDateString(),
+      "Tracker Link ↗",
+    ]);
   });
 
   it("renders tracker links as safe external links", async () => {
@@ -317,8 +713,9 @@ describe("App", () => {
           expect(init.body).toBe(
             JSON.stringify({
               title: "Launch planning",
-              summary: "",
-              trackerLink: "https://tracker.example.com/projects/launch-planning",
+              notes: "",
+              trackerLink:
+                "https://tracker.example.com/projects/launch-planning",
               ownerUserId: "user-1",
               dueDate: "",
               priority: "medium",
@@ -328,10 +725,8 @@ describe("App", () => {
           workspacePayload.projects.push({
             id: "project-2",
             title: "Launch planning",
-            summary: null,
             notes: null,
-            trackerLink:
-              "https://tracker.example.com/projects/launch-planning",
+            trackerLink: "https://tracker.example.com/projects/launch-planning",
             ownerUserId: "user-1",
             ownerName: "Tavi Editor",
             dueDate: null,
@@ -387,9 +782,8 @@ describe("App", () => {
         expect.objectContaining({
           body: JSON.stringify({
             title: "Launch planning",
-            summary: "",
-            trackerLink:
-              "https://tracker.example.com/projects/launch-planning",
+            notes: "",
+            trackerLink: "https://tracker.example.com/projects/launch-planning",
             ownerUserId: "user-1",
             dueDate: "",
             priority: "medium",
@@ -414,7 +808,6 @@ describe("App", () => {
           expect(init.body).toBe(
             JSON.stringify({
               title: "Roadmap refresh",
-              summary: "Validate overrides",
               notes: "Awaiting dependency",
               trackerLink: "https://tracker.example.com/projects/roadmap-v2",
               ownerUserId: "user-1",
@@ -464,7 +857,6 @@ describe("App", () => {
         expect.objectContaining({
           body: JSON.stringify({
             title: "Roadmap refresh",
-            summary: "Validate overrides",
             notes: "Awaiting dependency",
             trackerLink: "https://tracker.example.com/projects/roadmap-v2",
             ownerUserId: "user-1",
@@ -476,6 +868,312 @@ describe("App", () => {
         }),
       );
     });
+  });
+
+  it("opens project edit mode on control-click", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+    const projectRow = projectCard?.querySelector(".project-row");
+
+    expect(projectCard).not.toBeNull();
+    expect(projectRow).not.toBeNull();
+    fireEvent.click(projectRow!, { ctrlKey: true });
+
+    await waitFor(() => {
+      expect(
+        within(projectCard!).getByDisplayValue("Roadmap refresh"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("toggles project expansion when clicking the project row", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+    const projectRow = projectCard?.querySelector(".project-row");
+
+    expect(projectCard).not.toBeNull();
+    expect(projectRow).not.toBeNull();
+    expect(within(projectCard!).queryByText("Kickoff")).not.toBeInTheDocument();
+
+    fireEvent.click(projectRow!);
+
+    await waitFor(() => {
+      expect(within(projectCard!).getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    fireEvent.click(projectRow!);
+
+    await waitFor(() => {
+      expect(within(projectCard!).queryByText("Kickoff")).not.toBeInTheDocument();
+    });
+  });
+
+  it("scrolls the inline project editor into view when editing starts", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const scrollIntoViewMock = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(projectCard!).getByDisplayValue("Roadmap refresh"),
+      ).toBeInTheDocument();
+    });
+
+    expect(scrollIntoViewMock).toHaveBeenCalled();
+  });
+
+  it("deletes a project from the inline project editor", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const confirmMock = vi.fn(() => true);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/projects/project-1") && init?.method === "DELETE") {
+          workspacePayload.projects = [];
+          return createResponse({
+            id: "project-1",
+            archivedTaskCount: 2,
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", confirmMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "Delete" }),
+    );
+
+    expect(confirmMock).toHaveBeenCalledWith(
+      'Delete project "Roadmap refresh" and remove its 2 tasks from the workspace?',
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/projects/project-1",
+        expect.objectContaining({
+          method: "DELETE",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Roadmap refresh")).not.toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(
+        'Deleted project "Roadmap refresh" and 2 tasks from the workspace.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("disables project conversion while a project still has active tasks", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
+
+    expect(
+      within(projectCard!).getByRole("button", { name: "Convert to Task" }),
+    ).toBeDisabled();
+    expect(
+      within(projectCard!).getByText(
+        "Move or delete this project's 2 active tasks before converting it into a task.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("converts a taskless project into a task inside Unassigned", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let convertBody: string | null = null;
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      taskTotalCount: 0,
+      taskTodoCount: 0,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      tasks: [],
+    };
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/projects/project-1/convert-to-task") &&
+          init?.method === "POST"
+        ) {
+          convertBody = typeof init.body === "string" ? init.body : null;
+          workspacePayload.projects = [
+            {
+              id: "project-unassigned",
+              title: "Unassigned",
+              notes: null,
+              trackerLink: null,
+              ownerUserId: "user-1",
+              ownerName: "Tavi Editor",
+              dueDate: null,
+              priority: "medium",
+              derivedStatus: "blocked",
+              displayStatus: "blocked",
+              manualStatus: null,
+              taskTotalCount: 1,
+              taskTodoCount: 0,
+              taskInProgressCount: 0,
+              taskBlockedCount: 1,
+              taskDoneCount: 0,
+              taskCanceledCount: 0,
+              taskOverdueCount: 0,
+              tasks: [
+                {
+                  id: "task-3",
+                  projectId: "project-unassigned",
+                  title: "Roadmap refresh",
+                  notes: "Awaiting dependency",
+                  assigneeUserId: "user-1",
+                  assigneeName: "Tavi Editor",
+                  dueDate: null,
+                  priority: "medium",
+                  status: "blocked",
+                  sortOrder: 0,
+                  completedAt: null,
+                },
+              ],
+            },
+          ];
+
+          return createResponse({
+            projectId: "project-unassigned",
+            taskId: "task-3",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "Convert to Task" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Unassigned")).toBeInTheDocument();
+    });
+
+    const unassignedProject = screen.getByText("Unassigned").closest("article");
+
+    expect(unassignedProject).not.toBeNull();
+    expect(
+      within(unassignedProject!).getByText("Roadmap refresh"),
+    ).toBeInTheDocument();
+    expect(JSON.parse(convertBody ?? "{}")).toEqual({
+      title: "Roadmap refresh",
+      notes: "Awaiting dependency",
+      trackerLink: "https://tracker.example.com/projects/roadmap-refresh",
+      ownerUserId: "user-1",
+      dueDate: "",
+      priority: "medium",
+      manualStatus: "blocked",
+    });
+    expect(
+      screen.getByText(
+        'Converted project "Roadmap refresh" into a task in Unassigned.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it("persists workspace panel toggles across reloads", async () => {
@@ -518,6 +1216,92 @@ describe("App", () => {
       expect(
         screen.getByPlaceholderText("New project title"),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("persists grouped collapse state for each group-by mode across reloads", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createSortedWorkspacePayload())),
+    );
+
+    const firstRender = renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha planning")).toBeInTheDocument();
+    });
+
+    toggleGroupByTitle("Tavi Viewer");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Beta rollout")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "status" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "done" })).toBeInTheDocument();
+      expect(screen.getByText("Alpha planning")).toBeInTheDocument();
+    });
+
+    toggleGroupByTitle("done");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Alpha planning")).not.toBeInTheDocument();
+    });
+
+    expect(
+      JSON.parse(localStorage.getItem("tavi.workspace.collapsedGroups") ?? "{}"),
+    ).toEqual(
+      expect.objectContaining({
+        owner: {
+          "Tavi Viewer": true,
+        },
+        status: {
+          done: true,
+        },
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "owner" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Tavi Viewer" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Beta rollout")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "status" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "done" })).toBeInTheDocument();
+      expect(screen.queryByText("Alpha planning")).not.toBeInTheDocument();
+    });
+
+    firstRender.unmount();
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "done" })).toBeInTheDocument();
+      expect(screen.queryByText("Alpha planning")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "owner" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Tavi Viewer" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Beta rollout")).not.toBeInTheDocument();
     });
   });
 
@@ -591,15 +1375,17 @@ describe("App", () => {
     expect(
       screen.getByRole("switch", { name: "Auto Collapse" }),
     ).not.toBeChecked();
-    expect(screen.getByRole("switch", { name: "Bulk Actions" })).not.toBeChecked();
+    expect(
+      screen.getByRole("switch", { name: "Bulk Actions" }),
+    ).not.toBeChecked();
     expect(screen.getByRole("switch", { name: "Full Width" })).toBeChecked();
     expect(screen.getByRole("main")).toHaveClass("workspace-shell--full-width");
   });
 
-  it("shows local accounts first in settings and links the version tile to the repo", async () => {
+  it("shows settings cards in the requested order and links the version tile to the repo", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => createResponse(createWorkspacePayload())),
+      vi.fn(async () => createResponse(createAdminWorkspacePayload())),
     );
 
     const { container } = renderApp();
@@ -615,18 +1401,53 @@ describe("App", () => {
     );
 
     expect(settingsItems).not.toHaveLength(0);
-    expect(
-      within(settingsItems[0] as HTMLElement).getByText("Local Accounts"),
-    ).toBeInTheDocument();
-    expect(
-      within(settingsItems[settingsItems.length - 1] as HTMLElement).getByText(
-        "Version",
-      ),
-    ).toBeInTheDocument();
+    expect(settingsItems).toHaveLength(10);
+    expect(settingsItems[0]?.textContent).toContain("Theme");
+    expect(settingsItems[1]?.textContent).toContain("Auto Collapse");
+    expect(settingsItems[2]?.textContent).toContain("Bulk Actions");
+    expect(settingsItems[3]?.textContent).toContain("Full Width");
+    expect(settingsItems[4]?.textContent).toContain("Version");
+    expect(settingsItems[5]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[6]?.textContent).toContain("My Auth History");
+    expect(settingsItems[7]?.textContent).toContain("Audit logins");
+    expect(settingsItems[8]?.textContent).toContain("Audit changes");
+    expect(settingsItems[9]?.textContent).toContain("Clear Local Storage");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
       appRepositoryUrl,
     );
+  });
+
+  it("closes the local accounts panel from its header button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    const { container } = renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open local accounts" }));
+
+    await waitFor(() => {
+      expect(container.querySelector(".local-accounts-panel")).not.toBeNull();
+    });
+
+    fireEvent.click(
+      within(container.querySelector(".local-accounts-panel") as HTMLElement).getByRole(
+        "button",
+        { name: "Close" },
+      ),
+    );
+
+    expect(container.querySelector(".local-accounts-panel")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Open local accounts" }),
+    ).toBeInTheDocument();
   });
 
   it("persists the per-project add task toggle", async () => {
@@ -712,12 +1533,16 @@ describe("App", () => {
     fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
 
     await waitFor(() => {
-      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
       expect(within(projectCard).getByText("Review plan")).toBeInTheDocument();
     });
 
     const projectToggle = projectCard.querySelector("button.group-toggle");
-    const editingRow = within(projectCard).getByDisplayValue("Kickoff").closest("tr");
+    const editingRow = within(projectCard)
+      .getByDisplayValue("Kickoff")
+      .closest("tr");
 
     expect(editingRow).not.toBeNull();
     expect(projectToggle).toHaveTextContent("-");
@@ -731,6 +1556,152 @@ describe("App", () => {
         name: "Cancel editing task",
       }),
     ).toHaveTextContent("X");
+  });
+
+  it("persists the project note editor height in local storage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    const firstRender = renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(projectCard!).getByPlaceholderText("Project notes"),
+      ).toBeInTheDocument();
+    });
+
+    const projectNotes = within(projectCard!).getByPlaceholderText(
+      "Project notes",
+    ) as HTMLTextAreaElement;
+    let projectNotesHeight = 72;
+
+    mockElementHeight(projectNotes, () => projectNotesHeight);
+    fireEvent.pointerDown(projectNotes);
+    projectNotesHeight = 180;
+    fireEvent.pointerUp(projectNotes);
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          localStorage.getItem("tavi.workspace.noteEditorHeights") ?? "{}",
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          project: 180,
+        }),
+      );
+    });
+
+    firstRender.unmount();
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const reloadedProjectCard = screen
+      .getByText("Roadmap refresh")
+      .closest("article");
+
+    expect(reloadedProjectCard).not.toBeNull();
+    fireEvent.click(
+      within(reloadedProjectCard!).getByRole("button", { name: "Edit" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(reloadedProjectCard!).getByPlaceholderText("Project notes"),
+      ).toHaveStyle({ height: "180px" });
+    });
+  });
+
+  it("persists the task note editor height in local storage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    const firstRender = renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(projectCard).getByPlaceholderText("Task notes"),
+      ).toBeInTheDocument();
+    });
+
+    const taskNotes = within(projectCard).getByPlaceholderText(
+      "Task notes",
+    ) as HTMLTextAreaElement;
+    let taskNotesHeight = 72;
+
+    mockElementHeight(taskNotes, () => taskNotesHeight);
+    fireEvent.pointerDown(taskNotes);
+    taskNotesHeight = 156;
+    fireEvent.pointerUp(taskNotes);
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          localStorage.getItem("tavi.workspace.noteEditorHeights") ?? "{}",
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          task: 156,
+        }),
+      );
+    });
+
+    firstRender.unmount();
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const reloadedProjectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const reloadedKickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(reloadedKickoffRow).not.toBeNull();
+    fireEvent.click(
+      within(reloadedKickoffRow!).getByRole("button", { name: "Edit" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(reloadedProjectCard).getByPlaceholderText("Task notes"),
+      ).toHaveStyle({ height: "156px" });
+    });
   });
 
   it("defers task edit mode so the first click cannot submit the inline save button", async () => {
@@ -802,7 +1773,9 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
     });
 
     fireEvent.change(within(projectCard).getByDisplayValue("Kickoff"), {
@@ -817,6 +1790,7 @@ describe("App", () => {
 
     expect(patchBody).toBe(
       JSON.stringify({
+        projectId: "project-1",
         title: "Kickoff updated",
         notes: "Confirm milestone scope",
         assigneeUserId: "user-1",
@@ -825,6 +1799,505 @@ describe("App", () => {
         status: "todo",
       }),
     );
+  });
+
+  it("opens task edit mode on control-click", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(kickoffRow!, { ctrlKey: true });
+
+    await waitFor(() => {
+      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+    });
+  });
+
+  it("moves a task to another project from the inline task editor", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let patchBody: string | null = null;
+
+    workspacePayload.projects.push({
+      id: "project-2",
+      title: "Beta rollout",
+      notes: null,
+      trackerLink: null,
+      ownerUserId: "user-2",
+      ownerName: "Tavi Viewer",
+      dueDate: null,
+      priority: "high",
+      derivedStatus: "not_started",
+      displayStatus: "not_started",
+      manualStatus: null,
+      taskTotalCount: 0,
+      taskTodoCount: 0,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      tasks: [],
+    });
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/task-1") && init?.method === "PATCH") {
+          patchBody = typeof init.body === "string" ? init.body : null;
+
+          const movedTask = {
+            ...workspacePayload.projects[0].tasks[0],
+            projectId: "project-2",
+          };
+
+          workspacePayload.projects[0].tasks =
+            workspacePayload.projects[0].tasks.filter(
+              (task) => task.id !== "task-1",
+            );
+          workspacePayload.projects[0].taskTotalCount = 1;
+          workspacePayload.projects[0].taskTodoCount = 1;
+          workspacePayload.projects[1].tasks = [movedTask];
+          workspacePayload.projects[1].taskTotalCount = 1;
+          workspacePayload.projects[1].taskTodoCount = 1;
+
+          return createResponse(movedTask);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+      expect(screen.getByText("Beta rollout")).toBeInTheDocument();
+    });
+
+    const sourceProject = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(sourceProject).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(
+      within(sourceProject).getByRole("combobox", { name: "Project" }),
+      {
+        target: { value: "project-2" },
+      },
+    );
+    fireEvent.click(
+      within(sourceProject).getByRole("button", { name: "Save" }),
+    );
+
+    await waitFor(() => {
+      const destinationProject = screen
+        .getByText("Beta rollout")
+        .closest("article");
+
+      expect(destinationProject).not.toBeNull();
+      expect(
+        within(destinationProject!).getByText("Kickoff"),
+      ).toBeInTheDocument();
+      expect(
+        within(sourceProject).queryByText("Kickoff"),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(patchBody).toBe(
+      JSON.stringify({
+        projectId: "project-2",
+        title: "Kickoff",
+        notes: "Confirm milestone scope",
+        assigneeUserId: "user-1",
+        dueDate: "",
+        priority: "medium",
+        status: "todo",
+      }),
+    );
+  });
+
+  it("clears a task assignee to None without leaving the project editor open", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let patchBody: string | null = null;
+    let convertToTaskCount = 0;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/task-1") && init?.method === "PATCH") {
+          patchBody = typeof init.body === "string" ? init.body : null;
+          workspacePayload.projects[0].tasks[0] = {
+            ...workspacePayload.projects[0].tasks[0],
+            assigneeUserId: null,
+            assigneeName: null,
+          };
+
+          return createResponse(workspacePayload.projects[0].tasks[0]);
+        }
+
+        if (
+          url.endsWith("/projects/project-1/convert-to-task") &&
+          init?.method === "POST"
+        ) {
+          convertToTaskCount += 1;
+          return createResponse(
+            {
+              message:
+                "Move or delete this project's 2 active tasks before converting it into a task.",
+            },
+            400,
+          );
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+    const projectActions = projectCard.querySelector(".project-row-actions");
+
+    expect(projectActions).toBeInstanceOf(HTMLElement);
+    if (!(projectActions instanceof HTMLElement)) {
+      throw new Error("Expected project actions");
+    }
+    fireEvent.click(within(projectActions).getByRole("button", { name: "Edit" }));
+
+    expect(
+      within(projectCard).getByText(
+        "Move or delete this project's 2 active tasks before converting it into a task.",
+      ),
+    ).toBeInTheDocument();
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+    });
+
+    expect(
+      within(projectCard).queryByRole("button", { name: "Convert to Task" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(projectCard).queryByText(
+        "Move or delete this project's 2 active tasks before converting it into a task.",
+      ),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(within(projectCard).getByRole("combobox", { name: "Assignee" }), {
+      target: { value: "" },
+    });
+    fireEvent.click(within(projectCard).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(patchBody).toBe(
+        JSON.stringify({
+          projectId: "project-1",
+          title: "Kickoff",
+          notes: "Confirm milestone scope",
+          assigneeUserId: null,
+          dueDate: "",
+          priority: "medium",
+          status: "todo",
+        }),
+      );
+    });
+
+    expect(convertToTaskCount).toBe(0);
+  });
+
+  it("scrolls the inline task editor into view when editing starts", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const scrollIntoViewMock = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+    });
+
+    expect(scrollIntoViewMock).toHaveBeenCalled();
+  });
+
+  it("converts a task into a project from the inline task editor", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let convertBody: string | null = null;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/tasks/task-1/convert-to-project") &&
+          init?.method === "POST"
+        ) {
+          convertBody = typeof init.body === "string" ? init.body : null;
+          workspacePayload.projects[0].tasks =
+            workspacePayload.projects[0].tasks.filter(
+              (task) => task.id !== "task-1",
+            );
+          workspacePayload.projects[0].taskTotalCount = 1;
+          workspacePayload.projects[0].taskTodoCount = 0;
+          workspacePayload.projects[0].taskInProgressCount = 1;
+          workspacePayload.projects.push({
+            id: "project-2",
+            title: "Kickoff project",
+            notes: "Confirm milestone scope",
+            trackerLink: null,
+            ownerUserId: "user-1",
+            ownerName: "Tavi Editor",
+            dueDate: null,
+            priority: "medium",
+            derivedStatus: "not_started",
+            displayStatus: "not_started",
+            manualStatus: null,
+            taskTotalCount: 0,
+            taskTodoCount: 0,
+            taskInProgressCount: 0,
+            taskBlockedCount: 0,
+            taskDoneCount: 0,
+            taskCanceledCount: 0,
+            taskOverdueCount: 0,
+            tasks: [],
+          });
+
+          return createResponse({
+            projectId: "project-2",
+            taskId: "task-1",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const sourceProject = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(sourceProject).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(sourceProject).getByDisplayValue("Kickoff"), {
+      target: { value: "Kickoff project" },
+    });
+
+    const projectSelect = within(sourceProject).getByRole("combobox", {
+      name: "Project",
+    }) as HTMLSelectElement;
+    const lastOption = projectSelect.options[projectSelect.options.length - 1];
+
+    expect(lastOption.textContent).toBe("Convert to Project");
+    fireEvent.change(projectSelect, {
+      target: { value: lastOption.value },
+    });
+    fireEvent.click(
+      within(sourceProject).getByRole("button", { name: "Convert" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff project")).toBeInTheDocument();
+      expect(
+        within(sourceProject).queryByText("Kickoff"),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(JSON.parse(convertBody ?? "{}")).toEqual({
+      title: "Kickoff project",
+      notes: "Confirm milestone scope",
+      assigneeUserId: "user-1",
+      dueDate: "",
+      priority: "medium",
+      status: "todo",
+    });
+    expect(
+      screen.getByText('Converted task "Kickoff project" into a project.'),
+    ).toBeInTheDocument();
+  });
+
+  it("deletes a task from the inline task editor", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const confirmMock = vi.fn(() => true);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/task-1") && init?.method === "DELETE") {
+          workspacePayload.projects[0].tasks =
+            workspacePayload.projects[0].tasks.filter(
+              (task) => task.id !== "task-1",
+            );
+          workspacePayload.projects[0].taskTotalCount = 1;
+          workspacePayload.projects[0].taskTodoCount = 0;
+
+          return createResponse({
+            id: "task-1",
+            projectId: "project-1",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("confirm", confirmMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(projectCard).getByRole("button", { name: "Delete" }),
+    );
+
+    expect(confirmMock).toHaveBeenCalledWith(
+      'Delete task "Kickoff" from the workspace?',
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/tasks/task-1",
+        expect.objectContaining({
+          method: "DELETE",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        within(projectCard).queryByText("Kickoff"),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText('Deleted task "Kickoff" from the workspace.'),
+    ).toBeInTheDocument();
   });
 
   it("clears only tavi-owned local storage keys from settings", async () => {
@@ -874,13 +2347,273 @@ describe("App", () => {
     });
   });
 
+  it("shows admin audit changes with filters and changed values", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const auditRequests: string[] = [];
+    const retentionRequests: string[] = [];
+    const purgeRequests: string[] = [];
+    const auditEvents: AuditHistoryEvent[] = [
+      {
+        id: "event-1",
+        entityType: "task",
+        entityId: "task-1",
+        action: "update",
+        metadata: {
+          title: "Kickoff",
+          changedFields: ["assigneeUserId", "status"],
+          changes: [
+            {
+              field: "assigneeUserId",
+              from: "user-1",
+              to: null,
+            },
+            {
+              field: "status",
+              from: "todo",
+              to: "in_progress",
+            },
+          ],
+        },
+        createdAt: "2026-02-01T12:00:00.000Z",
+        actor: {
+          id: "user-1",
+          email: "editor@tavi.local",
+          name: "Tavi Editor",
+          role: "admin",
+        },
+      },
+    ];
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      if (url.endsWith("/audit/retention")) {
+        if (method === "PUT") {
+          const payload = JSON.parse(String(init?.body ?? "{}")) as {
+            olderThan: string;
+          };
+          retentionRequests.push(payload.olderThan);
+          return createResponse({ olderThan: payload.olderThan });
+        }
+
+        return createResponse({ olderThan: "six_months" });
+      }
+
+      if (url.endsWith("/audit/purge")) {
+        const payload = JSON.parse(String(init?.body ?? "{}")) as {
+          olderThan: string;
+        };
+        purgeRequests.push(payload.olderThan);
+        return createResponse({ deletedCount: 3 });
+      }
+
+      if (url.includes("/audit/changes")) {
+        auditRequests.push(url);
+        return createResponse(auditEvents);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open audit changes" }));
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText("Admin-only project and task change history")
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    await waitFor(() => {
+      expect(within(panel).getByText("Task: Kickoff")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Automatic log aging: 6 months."),
+      ).toBeInTheDocument();
+    });
+
+    expect(within(panel).getByText("Tavi Editor -> None")).toBeInTheDocument();
+    expect(within(panel).getByText("todo -> in progress")).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("button", { name: "Export CSV" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText("Log aging"), {
+      target: { value: "one_month" },
+    });
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Set automatic aging" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Automatic log aging is now set to 1 month."),
+      ).toBeInTheDocument();
+    });
+    expect(retentionRequests).toEqual(["one_month"]);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Purge logs" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("Purge audit logs older than 1 month?");
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Purged 3 audit events older than 1 month."),
+      ).toBeInTheDocument();
+    });
+    expect(purgeRequests).toEqual(["one_month"]);
+
+    fireEvent.change(within(panel).getByLabelText("Action"), {
+      target: { value: "update" },
+    });
+    fireEvent.change(within(panel).getByLabelText("User"), {
+      target: { value: "user-2" },
+    });
+    fireEvent.change(within(panel).getByLabelText("Search"), {
+      target: { value: "Kickoff" },
+    });
+
+    await waitFor(() => {
+      expect(
+        auditRequests.some((requestUrl) => {
+          const params = new URL(requestUrl, "http://localhost").searchParams;
+
+          return (
+            params.get("action") === "update" &&
+            params.get("actorUserId") === "user-2" &&
+            params.get("search") === "Kickoff"
+          );
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it("shows admin audit logins with search and date filters", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const auditRequests: string[] = [];
+    const auditEvents: AuditHistoryEvent[] = [
+      {
+        id: "event-login-1",
+        entityType: "auth",
+        entityId: "session-1",
+        action: "login",
+        metadata: {
+          title: "Viewer session",
+        },
+        createdAt: "2026-02-01T08:30:00.000Z",
+        actor: {
+          id: "user-2",
+          email: "viewer@tavi.local",
+          name: "Tavi Viewer",
+          role: "viewer",
+        },
+      },
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      if (url.endsWith("/audit/retention")) {
+        return createResponse({ olderThan: null });
+      }
+
+      if (url.includes("/audit/logins")) {
+        auditRequests.push(url);
+        return createResponse(auditEvents);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open audit logins" }));
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText("Admin-only sign-in and sign-out history")
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Tavi Viewer · viewer@tavi.local"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      within(panel).getByRole("button", { name: "Purge logs" }),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("button", { name: "Set automatic aging" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Automatic log aging is not set."),
+      ).toBeInTheDocument();
+    });
+
+    expect(within(panel).queryByLabelText("Action")).not.toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText("User"), {
+      target: { value: "user-2" },
+    });
+    fireEvent.change(within(panel).getByLabelText("From"), {
+      target: { value: "2026-02-01" },
+    });
+    fireEvent.change(within(panel).getByLabelText("Search"), {
+      target: { value: "viewer" },
+    });
+
+    await waitFor(() => {
+      expect(
+        auditRequests.some((requestUrl) => {
+          const params = new URL(requestUrl, "http://localhost").searchParams;
+
+          return (
+            params.get("actorUserId") === "user-2" &&
+            params.get("fromDate") === "2026-02-01" &&
+            params.get("search") === "viewer"
+          );
+        }),
+      ).toBe(true);
+    });
+  });
+
   it("auto-collapses projects by default and keeps them open when disabled", async () => {
     const workspacePayload = createWorkspacePayload();
 
     workspacePayload.projects.push({
       id: "project-2",
       title: "Beta rollout",
-      summary: "Prepare the rollout window",
       notes: null,
       trackerLink: null,
       ownerUserId: "user-2",
@@ -914,7 +2647,10 @@ describe("App", () => {
       ],
     });
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -953,7 +2689,6 @@ describe("App", () => {
     workspacePayload.projects.push({
       id: "project-2",
       title: "Beta rollout",
-      summary: "Coordinate launch timing",
       notes: null,
       trackerLink: null,
       ownerUserId: "user-2",
@@ -987,7 +2722,10 @@ describe("App", () => {
       ],
     });
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -1007,7 +2745,9 @@ describe("App", () => {
       expect(screen.getByText("Draft brief")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByLabelText("Select all tasks in Roadmap refresh"));
+    fireEvent.click(
+      screen.getByLabelText("Select all tasks in Roadmap refresh"),
+    );
     fireEvent.click(screen.getByLabelText("Select all tasks in Beta rollout"));
 
     await waitFor(() => {
@@ -1021,7 +2761,9 @@ describe("App", () => {
       expect(screen.getByText("1 selected task")).toBeInTheDocument();
     });
 
-    expect(screen.getByLabelText("Select all tasks in Beta rollout")).toBeChecked();
+    expect(
+      screen.getByLabelText("Select all tasks in Beta rollout"),
+    ).toBeChecked();
 
     toggleProjectByTitle("Roadmap refresh");
 
@@ -1071,7 +2813,9 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("1 selected task")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Select task Kickoff")).not.toBeInTheDocument();
+      expect(
+        screen.queryByLabelText("Select task Kickoff"),
+      ).not.toBeInTheDocument();
       expect(
         screen.queryByLabelText("Select all tasks in Roadmap refresh"),
       ).not.toBeInTheDocument();

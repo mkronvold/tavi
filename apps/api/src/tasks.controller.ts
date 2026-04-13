@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Param,
   Patch,
   Post,
@@ -10,6 +11,7 @@ import {
 import {
   bulkArchiveTasksSchema,
   bulkUpdateTasksSchema,
+  convertTaskToProjectSchema,
   createTaskSchema,
   updateTaskSchema,
 } from '@tavi/schemas';
@@ -60,5 +62,23 @@ export class TasksController {
   ) {
     const input = parseInput(updateTaskSchema, body);
     return this.tasksService.updateTask(taskId, input, request.user!);
+  }
+
+  @Post('tasks/:taskId/convert-to-project')
+  convertTaskToProject(
+    @Param('taskId') taskId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(convertTaskToProjectSchema, body);
+    return this.tasksService.convertTaskToProject(taskId, input, request.user!);
+  }
+
+  @Delete('tasks/:taskId')
+  deleteTask(
+    @Param('taskId') taskId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.tasksService.deleteTask(taskId, request.user!);
   }
 }

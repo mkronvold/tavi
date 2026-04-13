@@ -52,11 +52,26 @@ enum ImportRowOutcome {
   failed
 }
 
+enum ImportOverlapAction {
+  update
+  add
+  ignore
+}
+
 enum AuditEntityType {
   auth
   project
   task
   saved_view
+}
+
+enum AuditLogRetentionWindow {
+  one_day
+  one_week
+  one_month
+  three_months
+  six_months
+  one_year
 }
 
 model User {
@@ -86,11 +101,10 @@ model RoleAssignment {
 model Project {
   id                  String         @id @default(cuid())
   title               String
-  summary             String?
   notes               String?
   trackerLink         String?
-  ownerUserId         String
-  owner               User           @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  ownerUserId         String?
+  owner               User?          @relation("ProjectOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   dueDate             DateTime?
   priority            Priority       @default(medium)
   derivedStatus       ProjectStatus  @default(not_started)
@@ -121,8 +135,8 @@ model Task {
   project          Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   title            String
   notes            String?
-  assigneeUserId   String
-  assignee         User       @relation("TaskAssignee", fields: [assigneeUserId], references: [id])
+  assigneeUserId   String?
+  assignee         User?      @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
   dueDate          DateTime?
   priority         Priority   @default(medium)
   status           TaskStatus @default(todo)
@@ -191,6 +205,8 @@ model ImportRow {
   importJob        ImportJob        @relation(fields: [importId], references: [id], onDelete: Cascade)
   rowNumber        Int
   rawData          Json
+  projectOverlapAction ImportOverlapAction @default(update)
+  taskOverlapAction    ImportOverlapAction @default(update)
   rowOutcome       ImportRowOutcome @default(pending)
   projectOutcome   ImportRowOutcome @default(pending)
   taskOutcome      ImportRowOutcome @default(pending)
@@ -207,8 +223,11 @@ model ImportRow {
 
 model AuditEvent {
   id          String          @id @default(cuid())
-  actorUserId String
-  actor       User            @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  actorUserId String?
+  actor       User?           @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorEmail  String
+  actorName   String
+  actorRole   Role?
   entityType  AuditEntityType
   entityId    String
   action      String
@@ -216,5 +235,14 @@ model AuditEvent {
   createdAt   DateTime        @default(now())
 
   @@index([entityType, entityId])
+  @@index([entityType, createdAt])
+  @@index([action, createdAt])
   @@index([actorUserId])
+}
+
+model AuditLogRetention {
+  id        String                   @id @default("global")
+  olderThan AuditLogRetentionWindow
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
 }

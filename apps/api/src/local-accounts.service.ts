@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type {
   CreateLocalAccountInput,
+  DeleteLocalAccountInput,
   ExportLocalAccountsResponse,
   ImportLocalAccountsInput,
   ImportLocalAccountsResponse,
@@ -56,7 +57,15 @@ export class LocalAccountsService {
     );
 
     const users = await this.prisma.user.findMany({
-      include: { roleAssignment: true },
+      include: {
+        roleAssignment: true,
+        _count: {
+          select: {
+            assignedTasks: true,
+            ownedProjects: true,
+          },
+        },
+      },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
     });
 
@@ -142,7 +151,7 @@ export class LocalAccountsService {
           });
 
           await this.authService.recordAudit(
-            actor.id,
+            actor,
             'auth',
             createdUser.id,
             'account_import',
@@ -210,7 +219,7 @@ export class LocalAccountsService {
         });
 
         await this.authService.recordAudit(
-          actor.id,
+          actor,
           'auth',
           updatedUser.id,
           'account_import',
@@ -303,7 +312,7 @@ export class LocalAccountsService {
           });
 
           await this.authService.recordAudit(
-            actor.id,
+            actor,
             'auth',
             createdUser.id,
             'account_reset_defaults',
@@ -340,7 +349,7 @@ export class LocalAccountsService {
         });
 
         await this.authService.recordAudit(
-          actor.id,
+          actor,
           'auth',
           updatedUser.id,
           'account_reset_defaults',
@@ -390,7 +399,7 @@ export class LocalAccountsService {
       });
 
       await this.authService.recordAudit(
-        actor.id,
+        actor,
         'auth',
         user.id,
         'account_create',
@@ -468,7 +477,7 @@ export class LocalAccountsService {
       });
 
       await this.authService.recordAudit(
-        actor.id,
+        actor,
         'auth',
         userId,
         'account_update',
@@ -490,7 +499,11 @@ export class LocalAccountsService {
     return this.toLocalAccount(updated);
   }
 
-  async deleteAccount(userId: string, actor: SessionUser) {
+  async deleteAccount(
+    userId: string,
+    input: DeleteLocalAccountInput,
+    actor: SessionUser,
+  ) {
     this.authService.requireLocalAuthMode();
     this.authService.requireAdminAccess(
       actor,
@@ -504,11 +517,43 @@ export class LocalAccountsService {
       await this.assertAdminRoleCanBeRemoved(userId);
     }
 
-    this.assertNoDeleteDependencies(existing);
+    if (input.nextProjectOwnerUserId) {
+      await this.assertDeleteProjectOwnerTarget(
+        userId,
+        input.nextProjectOwnerUserId,
+      );
+    }
+
+    if (input.nextTaskAssigneeUserId) {
+      await this.assertDeleteTaskAssigneeTarget(
+        userId,
+        input.nextTaskAssigneeUserId,
+      );
+    }
+
+    this.assertNoDeleteDependencies(existing, input);
 
     await this.prisma.$transaction(async (tx) => {
+      if (existing._count.ownedProjects > 0) {
+        await tx.project.updateMany({
+          where: { ownerUserId: userId },
+          data: {
+            ownerUserId: input.nextProjectOwnerUserId ?? null,
+          },
+        });
+      }
+
+      if (existing._count.assignedTasks > 0) {
+        await tx.task.updateMany({
+          where: { assigneeUserId: userId },
+          data: {
+            assigneeUserId: input.nextTaskAssigneeUserId ?? null,
+          },
+        });
+      }
+
       await this.authService.recordAudit(
-        actor.id,
+        actor,
         'auth',
         userId,
         'account_delete',
@@ -516,6 +561,18 @@ export class LocalAccountsService {
           email: existing.email,
           name: existing.name,
           role: currentRole,
+          ...(existing._count.ownedProjects > 0
+            ? {
+                ownedProjectCount: existing._count.ownedProjects,
+                nextProjectOwnerUserId: input.nextProjectOwnerUserId ?? null,
+              }
+            : {}),
+          ...(existing._count.assignedTasks > 0
+            ? {
+                assignedTaskCount: existing._count.assignedTasks,
+                nextTaskAssigneeUserId: input.nextTaskAssigneeUserId ?? null,
+              }
+            : {}),
         },
         tx,
       );
@@ -625,14 +682,23 @@ export class LocalAccountsService {
     }
   }
 
-  private assertNoDeleteDependencies(account: LocalAccountDeleteRecord) {
+  private assertNoDeleteDependencies(
+    account: LocalAccountDeleteRecord,
+    input: DeleteLocalAccountInput,
+  ) {
     const blockers: string[] = [];
 
-    if (account._count.ownedProjects > 0) {
+    if (
+      account._count.ownedProjects > 0 &&
+      input.nextProjectOwnerUserId === undefined
+    ) {
       blockers.push('owned projects');
     }
 
-    if (account._count.assignedTasks > 0) {
+    if (
+      account._count.assignedTasks > 0 &&
+      input.nextTaskAssigneeUserId === undefined
+    ) {
       blockers.push('assigned tasks');
     }
 
@@ -641,6 +707,32 @@ export class LocalAccountsService {
         `Reassign or remove related data before deleting this account: ${blockers.join(', ')}`,
       );
     }
+  }
+
+  private async assertDeleteProjectOwnerTarget(
+    deletedUserId: string,
+    nextProjectOwnerUserId: string,
+  ) {
+    if (nextProjectOwnerUserId === deletedUserId) {
+      throw new BadRequestException(
+        'Choose another local account or set projects to None before deleting this account',
+      );
+    }
+
+    await this.findAccountOrThrow(nextProjectOwnerUserId);
+  }
+
+  private async assertDeleteTaskAssigneeTarget(
+    deletedUserId: string,
+    nextTaskAssigneeUserId: string,
+  ) {
+    if (nextTaskAssigneeUserId === deletedUserId) {
+      throw new BadRequestException(
+        'Choose another local account or set tasks to None before deleting this account',
+      );
+    }
+
+    await this.findAccountOrThrow(nextTaskAssigneeUserId);
   }
 
   private async assertEmailAvailable(email: string, excludeUserId?: string) {
@@ -722,7 +814,7 @@ export class LocalAccountsService {
       });
 
       await this.authService.recordAudit(
-        actor.id,
+        actor,
         'auth',
         userId,
         action,
@@ -737,6 +829,10 @@ export class LocalAccountsService {
     email: string;
     id: string;
     name: string;
+    _count?: {
+      assignedTasks: number;
+      ownedProjects: number;
+    };
     roleAssignment: {
       role: Role;
     } | null;
@@ -747,6 +843,12 @@ export class LocalAccountsService {
       email: account.email,
       name: account.name,
       role: account.roleAssignment?.role ?? Role.viewer,
+      ...(account._count
+        ? {
+            assignedTaskCount: account._count.assignedTasks,
+            ownedProjectCount: account._count.ownedProjects,
+          }
+        : {}),
       createdAt: account.createdAt.toISOString(),
       updatedAt: account.updatedAt.toISOString(),
     };

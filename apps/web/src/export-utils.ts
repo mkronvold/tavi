@@ -1,12 +1,14 @@
 import { appName, appVersion } from "@tavi/config";
-import type { GroupBy, ProjectStatus } from "./types";
+import type { GroupBy, ProjectSortField, TaskStatus } from "./types";
 import type { WorkspaceProject, WorkspaceTask } from "./types";
 
 type ExportContext = {
+  assigneeUserIds: string[];
   groupBy: GroupBy;
   projects: WorkspaceProject[];
   search: string;
-  statusFilter: ProjectStatus | "all";
+  sortBy: ProjectSortField[];
+  statusFilters: TaskStatus[];
 };
 
 type ExportRow = Record<string, string>;
@@ -18,7 +20,6 @@ type FlattenedProjectRow = {
 const WORKSPACE_EXPORT_COLUMNS = [
   "Group",
   "Project Title",
-  "Project Summary",
   "Project Notes",
   "Project Owner",
   "Project Display Status",
@@ -37,7 +38,6 @@ const WORKSPACE_EXPORT_COLUMNS = [
 const LOOP_EXPORT_COLUMNS = [
   "Project External Id",
   "Project Title",
-  "Project Summary",
   "Project Notes",
   "Project Owner",
   "Project Due Date",
@@ -58,9 +58,8 @@ export function buildWorkspaceExportRows({
   return flattenProjects(projects).map(({ project, task }) => ({
     Group: formatProjectGroup(project, groupBy),
     "Project Title": project.title,
-    "Project Summary": project.summary ?? "",
     "Project Notes": project.notes ?? "",
-    "Project Owner": project.ownerName,
+    "Project Owner": project.ownerName ?? "",
     "Project Display Status": project.displayStatus,
     "Project Derived Status": project.derivedStatus,
     "Project Priority": project.priority,
@@ -79,9 +78,8 @@ export function buildLoopExportRows(projects: WorkspaceProject[]): ExportRow[] {
   return flattenProjects(projects).map(({ project, task }) => ({
     "Project External Id": "",
     "Project Title": project.title,
-    "Project Summary": project.summary ?? "",
     "Project Notes": project.notes ?? "",
-    "Project Owner": project.ownerName,
+    "Project Owner": project.ownerName ?? "",
     "Project Due Date": formatExportDate(project.dueDate),
     "Project Priority": project.priority,
     "Task External Id": "",
@@ -101,20 +99,30 @@ export function createCsvContent(
   const lines = [headers.map(escapeCsvValue).join(",")];
 
   for (const row of rows) {
-    lines.push(headers.map((header) => escapeCsvValue(row[header] ?? "")).join(","));
+    lines.push(
+      headers.map((header) => escapeCsvValue(row[header] ?? "")).join(","),
+    );
   }
 
   return lines.join("\n");
 }
 
-export function downloadWorkspaceCsv(context: ExportContext) {
-  const rows = buildWorkspaceExportRows(context);
-  const content = createCsvContent(rows, WORKSPACE_EXPORT_COLUMNS);
+export function downloadCsvFile(
+  prefix: string,
+  rows: ExportRow[],
+  headers: readonly string[],
+) {
+  const content = createCsvContent(rows, headers);
 
   downloadBlob(
-    buildFileName("workspace", "csv"),
+    buildFileName(prefix, "csv"),
     new Blob([content], { type: "text/csv;charset=utf-8" }),
   );
+}
+
+export function downloadWorkspaceCsv(context: ExportContext) {
+  const rows = buildWorkspaceExportRows(context);
+  downloadCsvFile("workspace", rows, WORKSPACE_EXPORT_COLUMNS);
 }
 
 export async function downloadWorkspaceXlsx(context: ExportContext) {
@@ -145,7 +153,9 @@ export function downloadWorkspaceJson(context: ExportContext) {
     view: {
       groupBy: context.groupBy,
       search: context.search,
-      statusFilter: context.statusFilter === "all" ? null : context.statusFilter,
+      sortBy: context.sortBy,
+      statusFilters: context.statusFilters,
+      assigneeUserIds: context.assigneeUserIds,
     },
     counts: {
       projectCount: context.projects.length,
@@ -167,12 +177,7 @@ export function downloadWorkspaceJson(context: ExportContext) {
 
 export function downloadLoopCsv(projects: WorkspaceProject[]) {
   const rows = buildLoopExportRows(projects);
-  const content = createCsvContent(rows, LOOP_EXPORT_COLUMNS);
-
-  downloadBlob(
-    buildFileName("loop-export", "csv"),
-    new Blob([content], { type: "text/csv;charset=utf-8" }),
-  );
+  downloadCsvFile("loop-export", rows, LOOP_EXPORT_COLUMNS);
 }
 
 function flattenProjects(projects: WorkspaceProject[]): FlattenedProjectRow[] {
@@ -188,14 +193,24 @@ function flattenProjects(projects: WorkspaceProject[]): FlattenedProjectRow[] {
 function formatProjectGroup(project: WorkspaceProject, groupBy: GroupBy) {
   switch (groupBy) {
     case "none":
-      return "All projects";
+      return "Projects";
     case "owner":
-      return project.ownerName;
+      return project.ownerName ?? "No owner";
     case "priority":
       return project.priority;
+    case "progress":
+      return formatProjectProgress(project);
     case "status":
       return formatStatusLabel(project.displayStatus);
   }
+}
+
+function formatProjectProgress(project: WorkspaceProject) {
+  if (project.taskTotalCount === 0) {
+    return "0%";
+  }
+
+  return `${Math.round((project.taskDoneCount / project.taskTotalCount) * 100).toString()}%`;
 }
 
 function formatStatusLabel(value: string) {
@@ -212,7 +227,7 @@ function formatExportDateTime(value: string | null) {
 
 function escapeCsvValue(value: string) {
   if (/[",\n]/.test(value)) {
-    return `"${value.replace(/"/g, "\"\"")}"`;
+    return `"${value.replace(/"/g, '""')}"`;
   }
 
   return value;

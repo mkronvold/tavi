@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { GroupBy, ProjectStatus, WorkspaceProject } from "./types";
+import type {
+  GroupBy,
+  ProjectSortField,
+  TaskStatus,
+  WorkspaceProject,
+} from "./types";
 import {
   downloadLoopCsv,
   downloadWorkspaceCsv,
@@ -12,7 +17,9 @@ type ExportPanelProps = {
   onNotice: (message: string) => void;
   projects: WorkspaceProject[];
   search: string;
-  statusFilter: ProjectStatus | "all";
+  sortBy: ProjectSortField[];
+  statusFilters: TaskStatus[];
+  assigneeUserIds: string[];
 };
 
 type ExportFormat = "csv" | "xlsx" | "json" | "loop";
@@ -22,7 +29,9 @@ export function ExportPanel({
   onNotice,
   projects,
   search,
-  statusFilter,
+  sortBy,
+  statusFilters,
+  assigneeUserIds,
 }: ExportPanelProps) {
   const [pendingFormat, setPendingFormat] = useState<ExportFormat | null>(null);
 
@@ -31,11 +40,32 @@ export function ExportPanel({
 
     try {
       if (format === "csv") {
-        downloadWorkspaceCsv({ groupBy, projects, search, statusFilter });
+        downloadWorkspaceCsv({
+          assigneeUserIds,
+          groupBy,
+          projects,
+          search,
+          sortBy,
+          statusFilters,
+        });
       } else if (format === "xlsx") {
-        await downloadWorkspaceXlsx({ groupBy, projects, search, statusFilter });
+        await downloadWorkspaceXlsx({
+          assigneeUserIds,
+          groupBy,
+          projects,
+          search,
+          sortBy,
+          statusFilters,
+        });
       } else if (format === "json") {
-        downloadWorkspaceJson({ groupBy, projects, search, statusFilter });
+        downloadWorkspaceJson({
+          assigneeUserIds,
+          groupBy,
+          projects,
+          search,
+          sortBy,
+          statusFilters,
+        });
       } else {
         downloadLoopCsv(projects);
       }
@@ -98,8 +128,8 @@ export function ExportPanel({
       </div>
 
       <p className="toolbar-hint">
-        Exports follow the current search, group, and project-status filters and
-        include only the data visible to you.
+        Exports follow the current search, group, sort, status, and assignee
+        controls and include only the data visible to you.
       </p>
     </section>
   );

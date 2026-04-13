@@ -42,21 +42,21 @@ export class SavedViewsService {
   }
 
   async createSavedView(input: CreateSavedViewInput, actor: SessionUser) {
-    const filtersJson = toSavedViewFiltersJson(input);
-    const layoutState = parseSavedViewLayoutState(filtersJson);
+    const viewState = toSavedViewLayoutState(input);
+    const filtersJson = toSavedViewFiltersJson(viewState);
     const savedView = await this.prisma.savedView.create({
       data: {
         userId: actor.id,
         name: input.name,
         groupBy: input.groupBy,
         search: input.search,
-        statusFilter: input.statusFilter ?? null,
+        statusFilter: null,
         filtersJson,
       },
     });
 
     await this.authService.recordAudit(
-      actor.id,
+      actor,
       'saved_view',
       savedView.id,
       'create',
@@ -64,9 +64,11 @@ export class SavedViewsService {
         name: savedView.name,
         groupBy: savedView.groupBy,
         search: savedView.search,
-        statusFilter: savedView.statusFilter,
-        collapsedGroupCount: layoutState.collapsedGroupKeys.length,
-        expandedProjectCount: layoutState.expandedProjectIds.length,
+        sortBy: viewState.sortBy,
+        statusFilters: viewState.statusFilters,
+        assigneeCount: viewState.assigneeUserIds.length,
+        collapsedGroupCount: viewState.collapsedGroupKeys.length,
+        expandedProjectCount: viewState.expandedProjectIds.length,
       },
     );
 
@@ -80,9 +82,9 @@ export class SavedViewsService {
   ) {
     const existing = await this.getOwnedSavedView(viewId, actor.id);
     const changedFields: string[] = [];
-    const filtersJson = toSavedViewFiltersJson(input);
-    const existingLayoutState = parseSavedViewLayoutState(existing.filtersJson);
-    const layoutState = parseSavedViewLayoutState(filtersJson);
+    const layoutState = toSavedViewLayoutState(input);
+    const filtersJson = toSavedViewFiltersJson(layoutState);
+    const existingLayoutState = this.readSavedViewState(existing);
 
     if (input.groupBy !== existing.groupBy) {
       changedFields.push('groupBy');
@@ -92,8 +94,26 @@ export class SavedViewsService {
       changedFields.push('search');
     }
 
-    if ((input.statusFilter ?? null) !== existing.statusFilter) {
-      changedFields.push('statusFilter');
+    if (!sameStringArray(layoutState.sortBy, existingLayoutState.sortBy)) {
+      changedFields.push('sortBy');
+    }
+
+    if (
+      !sameStringArray(
+        layoutState.statusFilters,
+        existingLayoutState.statusFilters,
+      )
+    ) {
+      changedFields.push('statusFilters');
+    }
+
+    if (
+      !sameStringArray(
+        layoutState.assigneeUserIds,
+        existingLayoutState.assigneeUserIds,
+      )
+    ) {
+      changedFields.push('assigneeUserIds');
     }
 
     if (
@@ -114,13 +134,13 @@ export class SavedViewsService {
       data: {
         groupBy: input.groupBy,
         search: input.search,
-        statusFilter: input.statusFilter ?? null,
+        statusFilter: null,
         filtersJson,
       },
     });
 
     await this.authService.recordAudit(
-      actor.id,
+      actor,
       'saved_view',
       savedView.id,
       'update',
@@ -128,13 +148,17 @@ export class SavedViewsService {
         name: savedView.name,
         groupBy: savedView.groupBy,
         search: savedView.search,
-        statusFilter: savedView.statusFilter,
+        sortBy: layoutState.sortBy,
+        statusFilters: layoutState.statusFilters,
+        assigneeCount: layoutState.assigneeUserIds.length,
         collapsedGroupCount: layoutState.collapsedGroupKeys.length,
         expandedProjectCount: layoutState.expandedProjectIds.length,
         changedFields,
         previousGroupBy: existing.groupBy,
         previousSearch: existing.search,
-        previousStatusFilter: existing.statusFilter,
+        previousSortBy: existingLayoutState.sortBy,
+        previousStatusFilters: existingLayoutState.statusFilters,
+        previousAssigneeCount: existingLayoutState.assigneeUserIds.length,
       },
     );
 
@@ -154,7 +178,7 @@ export class SavedViewsService {
     });
 
     await this.authService.recordAudit(
-      actor.id,
+      actor,
       'saved_view',
       savedView.id,
       'rename',
@@ -174,15 +198,9 @@ export class SavedViewsService {
       where: { id: viewId },
     });
 
-    await this.authService.recordAudit(
-      actor.id,
-      'saved_view',
-      viewId,
-      'delete',
-      {
-        name: existing.name,
-      },
-    );
+    await this.authService.recordAudit(actor, 'saved_view', viewId, 'delete', {
+      name: existing.name,
+    });
 
     return { id: viewId };
   }
@@ -202,15 +220,26 @@ export class SavedViewsService {
     return savedView;
   }
 
+  private readSavedViewState(savedView: SavedViewRecord) {
+    const viewState = parseSavedViewLayoutState(savedView.filtersJson);
+
+    return {
+      ...viewState,
+      statusFilters:
+        viewState.statusFilters.length > 0
+          ? viewState.statusFilters
+          : normalizeLegacyStatusFilter(savedView.statusFilter),
+    };
+  }
+
   private toSavedViewResponse(savedView: SavedViewRecord) {
-    const layoutState = parseSavedViewLayoutState(savedView.filtersJson);
+    const layoutState = this.readSavedViewState(savedView);
 
     return {
       id: savedView.id,
       name: savedView.name,
       groupBy: savedView.groupBy,
       search: savedView.search,
-      statusFilter: savedView.statusFilter,
       ...layoutState,
       createdAt: savedView.createdAt,
       updatedAt: savedView.updatedAt,
@@ -222,5 +251,45 @@ function sameStringArray(left: string[], right: string[]) {
   return (
     left.length === right.length &&
     left.every((value, index) => value === right[index])
+  );
+}
+
+function normalizeLegacyStatusFilter(statusFilter: string | null) {
+  switch (statusFilter) {
+    case 'not_started':
+      return ['todo'];
+    case 'in_progress':
+      return ['in_progress'];
+    case 'blocked':
+      return ['blocked'];
+    case 'done':
+      return ['done'];
+    default:
+      return [];
+  }
+}
+
+function toSavedViewLayoutState(
+  input: Pick<
+    CreateSavedViewInput | UpdateSavedViewInput,
+    'collapsedGroupKeys' | 'expandedProjectIds'
+  > & {
+    sortBy?: CreateSavedViewInput['sortBy'];
+    assigneeUserIds?: string[];
+    statusFilter?: string | null;
+    statusFilters?: string[];
+  },
+) {
+  return parseSavedViewLayoutState(
+    toSavedViewFiltersJson({
+      sortBy: input.sortBy ?? [],
+      statusFilters:
+        input.statusFilters && input.statusFilters.length > 0
+          ? input.statusFilters
+          : normalizeLegacyStatusFilter(input.statusFilter ?? null),
+      assigneeUserIds: input.assigneeUserIds ?? [],
+      collapsedGroupKeys: input.collapsedGroupKeys,
+      expandedProjectIds: input.expandedProjectIds,
+    }),
   );
 }

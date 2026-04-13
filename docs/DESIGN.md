@@ -41,7 +41,6 @@ A project is the top-level tracking unit. It represents a deliverable, initiativ
 Recommended fields:
 
 - Title
-- Summary
 - Owner
 - Due date
 - Priority
@@ -77,7 +76,8 @@ A saved view stores a named combination of:
 
 - Search text
 - Grouping mode
-- Project-status filter
+- Task-status filters
+- Task-assignee filters
 - Expanded/collapsed defaults for the grouped workspace
 
 Milestone 4A scope:
@@ -132,7 +132,7 @@ Default project status is auto-calculated from task state.
 Override requirements:
 
 - Only admins and editors can set or clear an override.
-- An override must capture a reason.
+- An override can optionally be paired with project notes, but notes are not required.
 - The UI must always indicate when a displayed project status is overridden instead of derived.
 
 Rollup details shown in the UI should include:
@@ -154,9 +154,11 @@ Rollup details shown in the UI should include:
 
 1. Admin uploads a Loop export or CSV.
 2. System validates required columns and previews the mapping.
-3. User confirms the import.
-4. Imported checklist items become tasks under their mapped project.
-5. Import results show successes, skipped rows, and validation failures.
+3. System fans newline-delimited checklist entries into separate staged tasks under the mapped project, while rows with an empty mapped checklist cell remain project-only.
+4. If imported assignees or extra multi-owner project contacts do not exist, preview offers local user creation when name and email are available.
+5. Preview shows per-row overlap decisions for existing projects and tasks so the admin can update, add, or ignore overlaps before commit.
+6. User confirms the import after resolving missing users that block commit.
+7. Import results show successes, skipped rows, and validation failures.
 
 ### 7.3 Export Current Workspace
 
@@ -164,7 +166,13 @@ Rollup details shown in the UI should include:
 2. User exports the current filtered workspace view as CSV, XLSX, or JSON, or selects the Loop export shape.
 3. Export respects the viewer's current access and filter state.
 
-### 7.4 Daily Review / Standup
+### 7.4 Reset Workspace Examples
+
+1. Admin opens the Import/Export panel and starts Reset all Projects/Tasks.
+2. Tavi requires the admin to re-enter the current local password before continuing.
+3. System deletes the current project/task workspace data and seeds a small example workspace without touching local accounts, saved views, or import history.
+
+### 7.5 Daily Review / Standup
 
 1. User opens a saved view or applies filters.
 2. User groups projects by owner, status, due date bucket, or label.
@@ -172,13 +180,13 @@ Rollup details shown in the UI should include:
 4. User updates task status and notes inline during the review.
 5. Project rollup updates immediately.
 
-### 7.5 Exception Handling
+### 7.6 Exception Handling
 
 1. User marks a task blocked and updates notes if context is needed.
 2. Project rollup reflects the change.
-3. If the derived project status does not match the team's desired summary, an editor or admin can apply a manual override and optionally update project notes.
+3. If the derived project status does not match the team's desired display state, an editor or admin can apply a manual override and optionally update project notes.
 
-### 7.6 Manage Local Accounts
+### 7.7 Manage Local Accounts
 
 1. Admin opens Settings and expands the Local Accounts panel.
 2. Admin can export local accounts as JSON for review or bulk editing. Exported JSON omits passwords.
@@ -193,7 +201,7 @@ Rollup details shown in the UI should include:
 - Production access uses enterprise SSO via OIDC or SAML.
 - Local development uses a simpler local auth mode.
 - Local auth must support admin-managed local accounts plus self-service password changes.
-- Admin local-account management must support JSON export, JSON import by email, and reset-to-default for the seeded `@tavi.local` accounts.
+- Admin local-account management must support JSON export, JSON or CSV import by email, duplicate handling during import, and reset-to-default for the seeded `@tavi.local` accounts.
 - The login screen must show the seeded local-user hint only when the backend confirms the default `@tavi.local` accounts still exist with their default password.
 - Authorization must enforce admin/editor/viewer roles.
 
@@ -218,7 +226,7 @@ Rollup details shown in the UI should include:
 - Settings must allow Auto Collapse so opening one project can collapse the others when the user wants a single-project focus mode.
 - Settings must allow Bulk Actions to be shown or hidden so task-selection checkboxes can stay out of the way when multi-select editing is not needed.
 - Settings must allow Full Width so the workspace can expand past the default centered reading width on large screens.
-- Search, grouping, and project-status controls should float left without a framed card.
+- Search, grouping, task-status, and assignee controls should float left without a framed card.
 - Compact toggle buttons for View, Import/Export, New Project, and Settings should float to the right on the same row when space allows.
 - Per-project Add Task UI should stay hidden behind a lightweight toggle until needed.
 
@@ -233,19 +241,19 @@ Rollup details shown in the UI should include:
 ### FR-06 Sorting, Filtering, and Regrouping
 
 - Users can sort, filter, and regroup by owner, assignee, status, due date, priority, and label.
-- Filters and grouping state should be shareable via URL and savable as named views.
+- Filters and grouping state should persist locally in the browser and be savable as named views.
 
 ### FR-07 Rollup and Summary Indicators
 
 - Project status is derived from tasks by default.
 - The UI must display rollup counts and completion progress alongside each project.
-- Project rows should show completion counts and completion percentage without requiring expansion.
+- Project rows should show completion percentage without requiring expansion.
 - Manual overrides must remain visible and auditable.
 
 ### FR-08 Saved Views
 
 - Users can save personal workspace views.
-- Milestone 4A views persist search, grouping, project-status filtering, and
+- Milestone 4A views persist search, grouping, task-status filtering, task-assignee filtering, and
   expanded/collapsed defaults.
 - Team/shared views and future display preferences remain out of scope for this
   pass.
@@ -260,7 +268,11 @@ Rollup details shown in the UI should include:
 - v1 must support CSV or export-based import from Loop.
 - Import must provide preview, validation, and error reporting.
 - Imported checklist items become tasks in the destination project.
+- Newline-delimited checklist cells in Loop exports must create one task per checklist entry.
+- Rows with a blank mapped checklist/task-title value must stay valid project-only rows, even when shared task mappings such as status or priority are present.
+- Missing imported assignees must be surfaced before commit, with an admin path to create local viewer accounts and generated passwords when email data is present.
 - The Import/Export panel must also provide CSV, XLSX, and JSON exports of the current filtered workspace view plus a Loop-oriented export shape.
+- The Import/Export panel must provide an admin-only Reset all Projects/Tasks action that requires current-password confirmation and reseeds a small example workspace.
 - Export must be available to all authenticated users for the data they can see.
 
 ### FR-11 Audit History
@@ -295,14 +307,14 @@ Rollup details shown in the UI should include:
 
 ### Visualization Requirements
 
-- Group headers must show counts and summary status.
-- Project rows must show rollup counts without requiring expansion.
+- Group headers must show counts and the active grouping context.
+- Project rows must show rollup progress without requiring expansion.
 - Task rows must be easy to scan with stable column alignment.
 - Users must be able to collapse unrelated content quickly to focus the discussion.
 
 ### Layout Requirements
 
-- Support sticky headers and stable columns for large lists.
+- Support sticky top controls and stable columns for large lists.
 - Preserve user column preferences where practical.
 - Keep filters and grouping controls compact and close to the data.
 
@@ -357,17 +369,17 @@ Rollup details shown in the UI should include:
 
 ## 12. Suggested Supporting Documents
 
-To reduce ambiguity before implementation, the following supporting docs are recommended after `docs/design.md` and `docs/architecture.md` are accepted:
+To reduce ambiguity before implementation, the following supporting docs are recommended after `docs/DESIGN.md` and `docs/ARCHITECTURE.md` are accepted:
 
-1. `docs/ux-flows.md` for annotated workflows and wireframes of the dense workspace, import flow, and inline editing states.
-2. `docs/api-contract.md` for concrete request/response shapes and error models.
-3. `docs/data-dictionary.md` for field definitions, enums, and validation rules.
-4. `docs/import-mapping.md` for the Loop export format, column mapping, and migration rules.
-5. `docs/export-formats.md` for CSV, XLSX, JSON, and Loop export shapes.
-6. `docs/local-auth-admin.md` for local account lifecycle rules and role-based settings behavior.
-7. `docs/ops-runbook.md` for deployment, rollback, and operational procedures.
+1. `docs/UX-FLOWS.md` for annotated workflows and wireframes of the dense workspace, import flow, and inline editing states.
+2. `docs/API-CONTRACT.md` for concrete request/response shapes and error models.
+3. `docs/DATA-DICTIONARY.md` for field definitions, enums, and validation rules.
+4. `docs/IMPORT-MAPPING.md` for the Loop export format, column mapping, and migration rules.
+5. `docs/EXPORT-FORMATS.md` for CSV, XLSX, JSON, and Loop export shapes.
+6. `docs/LOCAL-AUTH-ADMIN.md` for local account lifecycle rules and role-based settings behavior.
+7. `docs/OPS-RUNBOOK.md` for deployment, rollback, and operational procedures.
 8. `adr/` entries for major architectural decisions that may evolve during implementation.
-9. `docs/branding.md` for canonical naming, stylized display usage, and first-use product copy.
+9. `docs/BRANDING.md` for canonical naming, stylized display usage, and first-use product copy.
 
 ## 13. Reference Alignment
 

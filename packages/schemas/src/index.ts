@@ -4,6 +4,36 @@ const PROJECT_NOTES_MAX_LENGTH = 2_000;
 const TASK_NOTES_MAX_LENGTH = 2_000;
 const TRACKER_LINK_MAX_LENGTH = 2_048;
 
+export type AuditChangeValue = boolean | number | string | null;
+
+export type AuditChangeSet = {
+  field: string;
+  from: AuditChangeValue;
+  to: AuditChangeValue;
+};
+
+export function toAuditChangeValue(
+  value: Date | AuditChangeValue | undefined,
+): AuditChangeValue {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return value ?? null;
+}
+
+export function buildAuditChanges<T extends Record<string, AuditChangeValue>>(
+  changedFields: string[],
+  previous: T,
+  next: T,
+): AuditChangeSet[] {
+  return changedFields.map((field) => ({
+    field,
+    from: previous[field] ?? null,
+    to: next[field] ?? null,
+  }));
+}
+
 const trackerLinkUrlSchema = z
   .string()
   .trim()
@@ -19,6 +49,12 @@ const nullableTrackerLinkSchema = z.preprocess(
     typeof value === "string" && value.trim().length === 0 ? null : value,
   trackerLinkUrlSchema.nullable().optional(),
 );
+const nullableUserIdSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim().length === 0 ? null : value,
+  z.string().min(1).nullable().optional(),
+);
+const auditDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const roleSchema = z.enum(["admin", "editor", "viewer"]);
 export type Role = z.infer<typeof roleSchema>;
@@ -30,6 +66,18 @@ export const auditEntityTypeSchema = z.enum([
   "saved_view",
 ]);
 export type AuditEntityType = z.infer<typeof auditEntityTypeSchema>;
+
+export const auditLogRetentionWindowSchema = z.enum([
+  "one_day",
+  "one_week",
+  "one_month",
+  "three_months",
+  "six_months",
+  "one_year",
+]);
+export type AuditLogRetentionWindow = z.infer<
+  typeof auditLogRetentionWindowSchema
+>;
 
 export const taskStatusSchema = z.enum([
   "todo",
@@ -51,7 +99,21 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 export const prioritySchema = z.enum(["low", "medium", "high"]);
 export type Priority = z.infer<typeof prioritySchema>;
 
-export const groupBySchema = z.enum(["none", "owner", "status", "priority"]);
+export const projectSortFieldSchema = z.enum([
+  "title",
+  "progress",
+  "priority",
+  "dueDate",
+]);
+export type ProjectSortField = z.infer<typeof projectSortFieldSchema>;
+
+export const groupBySchema = z.enum([
+  "none",
+  "owner",
+  "status",
+  "priority",
+  "progress",
+]);
 export type GroupBy = z.infer<typeof groupBySchema>;
 
 export const emailAddressSchema = z
@@ -78,6 +140,8 @@ export const localAccountSchema = z.object({
   email: emailAddressSchema,
   name: localAccountNameSchema,
   role: roleSchema,
+  ownedProjectCount: z.number().int().nonnegative().optional(),
+  assignedTaskCount: z.number().int().nonnegative().optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 });
@@ -131,6 +195,14 @@ export type SetLocalAccountPasswordInput = z.infer<
 
 export const setOwnPasswordSchema = setLocalAccountPasswordSchema;
 export type SetOwnPasswordInput = z.infer<typeof setOwnPasswordSchema>;
+
+export const deleteLocalAccountSchema = z.object({
+  nextProjectOwnerUserId: nullableUserIdSchema,
+  nextTaskAssigneeUserId: nullableUserIdSchema,
+});
+export type DeleteLocalAccountInput = z.infer<
+  typeof deleteLocalAccountSchema
+>;
 
 export const localAccountImportSchema = z.object({
   email: emailAddressSchema,
@@ -215,17 +287,47 @@ export type DeleteLocalAccountResponse = z.infer<
   typeof deleteLocalAccountResponseSchema
 >;
 
+export const deleteProjectResponseSchema = z.object({
+  id: z.string().min(1),
+  archivedTaskCount: z.number().int().nonnegative(),
+});
+export type DeleteProjectResponse = z.infer<
+  typeof deleteProjectResponseSchema
+>;
+
+export const deleteTaskResponseSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+});
+export type DeleteTaskResponse = z.infer<typeof deleteTaskResponseSchema>;
+
 export const successResponseSchema = z.object({
   success: z.literal(true),
 });
 export type SuccessResponse = z.infer<typeof successResponseSchema>;
 
+export const resetWorkspaceExamplesSchema = z.object({
+  password: localPasswordSchema,
+});
+export type ResetWorkspaceExamplesInput = z.infer<
+  typeof resetWorkspaceExamplesSchema
+>;
+
+export const resetWorkspaceExamplesResponseSchema = z.object({
+  createdProjectCount: z.number().int().nonnegative(),
+  createdTaskCount: z.number().int().nonnegative(),
+  deletedProjectCount: z.number().int().nonnegative(),
+  deletedTaskCount: z.number().int().nonnegative(),
+});
+export type ResetWorkspaceExamplesResponse = z.infer<
+  typeof resetWorkspaceExamplesResponseSchema
+>;
+
 export const createProjectSchema = z.object({
   title: z.string().min(1).max(120),
-  summary: z.string().max(500).optional(),
   notes: z.string().max(PROJECT_NOTES_MAX_LENGTH).optional(),
   trackerLink: optionalTrackerLinkSchema,
-  ownerUserId: z.string().min(1),
+  ownerUserId: nullableUserIdSchema,
   dueDate: z.string().optional(),
   priority: prioritySchema.default("medium"),
 });
@@ -237,6 +339,19 @@ export const updateProjectSchema = createProjectSchema.partial().extend({
   trackerLink: nullableTrackerLinkSchema,
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
+
+export const convertProjectToTaskSchema = updateProjectSchema;
+export type ConvertProjectToTaskInput = z.infer<
+  typeof convertProjectToTaskSchema
+>;
+
+export const convertProjectToTaskResponseSchema = z.object({
+  projectId: z.string().min(1),
+  taskId: z.string().min(1),
+});
+export type ConvertProjectToTaskResponse = z.infer<
+  typeof convertProjectToTaskResponseSchema
+>;
 
 export const createTaskSchema = z.object({
   projectId: z.string().min(1),
@@ -250,9 +365,25 @@ export const createTaskSchema = z.object({
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
 export const updateTaskSchema = createTaskSchema.partial().extend({
+  assigneeUserId: z.string().min(1).nullable().optional(),
   notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional().nullable(),
 });
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
+export const convertTaskToProjectSchema = updateTaskSchema.omit({
+  projectId: true,
+});
+export type ConvertTaskToProjectInput = z.infer<
+  typeof convertTaskToProjectSchema
+>;
+
+export const convertTaskToProjectResponseSchema = z.object({
+  projectId: z.string().min(1),
+  taskId: z.string().min(1),
+});
+export type ConvertTaskToProjectResponse = z.infer<
+  typeof convertTaskToProjectResponseSchema
+>;
 
 export const bulkArchiveTasksSchema = z
   .object({
@@ -304,7 +435,12 @@ export type BulkUpdateTasksInput = z.infer<typeof bulkUpdateTasksSchema>;
 export const savedViewStateSchema = z.object({
   groupBy: groupBySchema.default("owner"),
   search: z.string().max(250).default(""),
-  statusFilter: projectStatusSchema.optional().nullable(),
+  sortBy: z
+    .array(projectSortFieldSchema)
+    .max(projectSortFieldSchema.options.length)
+    .default([]),
+  statusFilters: z.array(taskStatusSchema).max(10).default([]),
+  assigneeUserIds: z.array(z.string().min(1)).max(500).default([]),
   collapsedGroupKeys: z.array(z.string().min(1)).max(200).default([]),
   expandedProjectIds: z.array(z.string().min(1)).max(500).default([]),
 });
@@ -334,6 +470,51 @@ export const auditHistoryQuerySchema = z.object({
 });
 export type AuditHistoryQuery = z.infer<typeof auditHistoryQuerySchema>;
 
+export const auditChangesQuerySchema = z.object({
+  action: z.string().trim().min(1).max(80).optional(),
+  actorUserId: z.string().min(1).optional(),
+  fromDate: auditDateSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(5_000).default(250),
+  search: z.string().trim().max(250).default(""),
+  toDate: auditDateSchema.optional(),
+});
+export type AuditChangesQuery = z.infer<typeof auditChangesQuerySchema>;
+
+export const auditLoginsQuerySchema = z.object({
+  actorUserId: z.string().min(1).optional(),
+  fromDate: auditDateSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(5_000).default(250),
+  search: z.string().trim().max(250).default(""),
+  toDate: auditDateSchema.optional(),
+});
+export type AuditLoginsQuery = z.infer<typeof auditLoginsQuerySchema>;
+
+export const auditLogRetentionPolicySchema = z.object({
+  olderThan: auditLogRetentionWindowSchema.nullable(),
+});
+export type AuditLogRetentionPolicy = z.infer<
+  typeof auditLogRetentionPolicySchema
+>;
+
+export const setAuditLogRetentionSchema = z.object({
+  olderThan: auditLogRetentionWindowSchema,
+});
+export type SetAuditLogRetentionInput = z.infer<
+  typeof setAuditLogRetentionSchema
+>;
+
+export const purgeAuditLogsSchema = z.object({
+  olderThan: auditLogRetentionWindowSchema,
+});
+export type PurgeAuditLogsInput = z.infer<typeof purgeAuditLogsSchema>;
+
+export const purgeAuditLogsResponseSchema = z.object({
+  deletedCount: z.number().int().nonnegative(),
+});
+export type PurgeAuditLogsResponse = z.infer<
+  typeof purgeAuditLogsResponseSchema
+>;
+
 export const loopImportJobStatusSchema = z.enum([
   "queued_parse",
   "parsing",
@@ -357,7 +538,6 @@ export type ImportRowOutcome = z.infer<typeof importRowOutcomeSchema>;
 export const loopImportFieldSchema = z.enum([
   "projectExternalId",
   "projectTitle",
-  "projectSummary",
   "projectNotes",
   "projectOwner",
   "projectDueDate",
@@ -408,17 +588,11 @@ export const loopImportFieldDefinitions: ReadonlyArray<LoopImportFieldDefinition
       description: "Stable source identifier used for idempotent task updates.",
     },
     {
-      key: "projectSummary",
-      label: "Project summary",
-      required: false,
-      description: "Optional project summary or short description.",
-    },
-    {
       key: "projectNotes",
       label: "Project notes",
       required: false,
       description:
-        "Optional project notes. Manual override reasons from prior exports can map here.",
+        "Optional project notes. Project summary, description, or manual override reasons from prior exports can map here.",
     },
     {
       key: "projectOwner",
@@ -485,7 +659,6 @@ export type LoopImportMapping = Partial<Record<LoopImportField, string | null>>;
 export const loopImportMappingSchema = z.object({
   projectExternalId: z.string().trim().min(1).max(200).nullable().optional(),
   projectTitle: z.string().trim().min(1).max(200).nullable().optional(),
-  projectSummary: z.string().trim().min(1).max(200).nullable().optional(),
   projectNotes: z.string().trim().min(1).max(200).nullable().optional(),
   projectOwner: z.string().trim().min(1).max(200).nullable().optional(),
   projectDueDate: z.string().trim().min(1).max(200).nullable().optional(),
@@ -513,10 +686,71 @@ export type UpdateLoopImportMappingInput = z.infer<
   typeof updateLoopImportMappingSchema
 >;
 
+export const loopImportOverlapActionSchema = z.enum([
+  "update",
+  "add",
+  "ignore",
+]);
+export type LoopImportOverlapAction = z.infer<
+  typeof loopImportOverlapActionSchema
+>;
+
+export const updateLoopImportRowDecisionsSchema = z
+  .object({
+    projectAction: loopImportOverlapActionSchema.optional(),
+    taskAction: loopImportOverlapActionSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.projectAction === undefined && value.taskAction === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one overlap action must be provided",
+        path: ["projectAction"],
+      });
+    }
+  });
+export type UpdateLoopImportRowDecisionsInput = z.infer<
+  typeof updateLoopImportRowDecisionsSchema
+>;
+
 export type LoopImportUser = {
   id: string;
   email: string;
   name: string;
+};
+
+type LoopImportMissingAssigneeResolution = {
+  canCreate: boolean;
+  email: string | null;
+  label: string;
+  name: string;
+};
+
+export type LoopImportMissingAssignee = LoopImportMissingAssigneeResolution & {
+  rowCount: number;
+  rowNumbers: number[];
+};
+
+type LoopImportMissingUserResolution = {
+  blocksCommit: boolean;
+  canCreate: boolean;
+  email: string | null;
+  label: string;
+  name: string;
+  sourceLabels: string[];
+};
+
+export type LoopImportMissingUser = LoopImportMissingUserResolution & {
+  rowCount: number;
+  rowNumbers: number[];
+};
+
+export type LoopImportPreviewOverlap = {
+  action: LoopImportOverlapAction;
+  changedFields: string[];
+  existingId: string;
+  matchedBy: "natural_key" | "source_id";
+  title: string;
 };
 
 export type PreparedLoopImportEntity = {
@@ -528,8 +762,7 @@ export type PreparedLoopImportEntity = {
 
 export type PreparedLoopImportProject = PreparedLoopImportEntity & {
   notes: string | null;
-  ownerUserId: string;
-  summary: string | null;
+  ownerUserId: string | null;
   title: string | null;
 };
 
@@ -542,16 +775,27 @@ export type PreparedLoopImportTask = PreparedLoopImportEntity & {
 
 export type PreparedLoopImportRow = {
   errors: string[];
+  missingImportUsers: LoopImportMissingUserResolution[];
+  missingTaskAssignee: LoopImportMissingAssigneeResolution | null;
   project: PreparedLoopImportProject;
+  projectOverlap: LoopImportPreviewOverlap | null;
   rawRow: Record<string, string | null>;
   rowNumber: number;
   task: PreparedLoopImportTask;
+  taskOverlap: LoopImportPreviewOverlap | null;
   warnings: string[];
 };
 
 export type LoopImportPreview = {
+  blockingMissingUserRowCount: number;
   invalidRowCount: number;
+  missingUserRowCount: number;
+  missingUsers: LoopImportMissingUser[];
+  missingTaskAssigneeRowCount: number;
+  missingTaskAssignees: LoopImportMissingAssignee[];
   missingRequiredMappings: LoopImportField[];
+  overlappingProjectRowCount: number;
+  overlappingTaskRowCount: number;
   projectSourceIdRowCount: number;
   rows: PreparedLoopImportRow[];
   taskSourceIdRowCount: number;
@@ -565,9 +809,10 @@ const LOOP_IMPORT_REQUIRED_FIELDS = ["projectTitle", "taskTitle"] as const;
 const LOOP_IMPORT_FIELD_ALIASES: Record<LoopImportField, string[]> = {
   projectExternalId: ["project id", "project external id", "track id"],
   projectTitle: ["project title", "project", "track title", "track name"],
-  projectSummary: ["project summary", "project description"],
   projectNotes: [
     "project notes",
+    "project summary",
+    "project description",
     "manual status reason",
     "override reason",
     "project reason",
@@ -618,6 +863,37 @@ export function suggestLoopImportMapping(headers: string[]): LoopImportMapping {
   return mapping;
 }
 
+export function expandLoopImportRows({
+  mapping,
+  rawRows,
+}: {
+  mapping: LoopImportMapping;
+  rawRows: Array<Record<string, unknown>>;
+}) {
+  const taskTitleHeader = mapping.taskTitle;
+
+  if (!taskTitleHeader) {
+    return rawRows;
+  }
+
+  const taskExternalIdHeader = mapping.taskExternalId;
+
+  return rawRows.flatMap((rawRow) => {
+    const taskTitle = toImportString(rawRow[taskTitleHeader]);
+    const splitTaskTitles = splitChecklistTaskTitles(taskTitle);
+
+    if (splitTaskTitles.length <= 1) {
+      return [rawRow];
+    }
+
+    return splitTaskTitles.map((title) => ({
+      ...rawRow,
+      [taskTitleHeader]: title,
+      ...(taskExternalIdHeader ? { [taskExternalIdHeader]: null } : {}),
+    }));
+  });
+}
+
 export function prepareLoopImportRow({
   defaultUserId,
   mapping,
@@ -656,23 +932,22 @@ export function prepareLoopImportRow({
     normalizedRawRow,
     mapping.taskExternalId,
   );
-  const projectSummary = readMappedValue(
-    normalizedRawRow,
-    mapping.projectSummary,
-  );
   const projectNotes = readMappedValue(normalizedRawRow, mapping.projectNotes);
+  const taskAssigneeValue = readMappedValue(normalizedRawRow, mapping.taskAssignee);
+  const taskDueDateValue = readMappedValue(normalizedRawRow, mapping.taskDueDate);
   const taskNotes = readMappedValue(normalizedRawRow, mapping.taskNotes);
+  const taskPriorityValue = readMappedValue(
+    normalizedRawRow,
+    mapping.taskPriority,
+  );
   const taskBlockedReason = readMappedValue(
     normalizedRawRow,
     mapping.taskBlockedReason,
   );
+  const taskStatusValue = readMappedValue(normalizedRawRow, mapping.taskStatus);
 
   if (mapping.projectTitle && !projectTitle) {
     errors.push("Project title is required");
-  }
-
-  if (mapping.taskTitle && !taskTitle) {
-    errors.push("Task title is required");
   }
 
   const projectDueDate = normalizeImportDate(
@@ -681,7 +956,7 @@ export function prepareLoopImportRow({
     errors,
   );
   const taskDueDate = normalizeImportDate(
-    readMappedValue(normalizedRawRow, mapping.taskDueDate),
+    taskDueDateValue,
     "Task due date",
     errors,
   );
@@ -691,45 +966,98 @@ export function prepareLoopImportRow({
     errors,
   );
   const taskPriority = normalizeImportPriority(
-    readMappedValue(normalizedRawRow, mapping.taskPriority),
+    taskPriorityValue,
     "Task priority",
     errors,
   );
   const taskStatus = normalizeImportTaskStatus(
-    readMappedValue(normalizedRawRow, mapping.taskStatus),
+    taskStatusValue,
     errors,
   );
-  const projectOwnerUserId = resolveImportUser({
-    defaultUserId,
-    fieldLabel: "Project owner",
-    users,
-    value: readMappedValue(normalizedRawRow, mapping.projectOwner),
-    warnings,
-  });
-  const taskAssigneeUserId = resolveImportUser({
+  const projectOwnerCandidates = parseImportUserCandidates(
+    readMappedValue(normalizedRawRow, mapping.projectOwner),
+  );
+  const primaryProjectOwnerCandidate = projectOwnerCandidates[0] ?? null;
+  const additionalProjectOwnerCandidates = projectOwnerCandidates.slice(1);
+  const trackMissingProjectOwners = projectOwnerCandidates.length > 1;
+
+  if (projectOwnerCandidates.length > 1 && primaryProjectOwnerCandidate) {
+    warnings.push(
+      `Project owner lists multiple people. Tavi will use "${primaryProjectOwnerCandidate.label}" as the project owner and leave the others for manual task assignment.`,
+    );
+  }
+
+  const projectOwner = primaryProjectOwnerCandidate
+    ? resolveImportUserCandidate({
+        blocksCommit: false,
+        candidate: primaryProjectOwnerCandidate,
+        defaultUserId,
+        fieldLabel: "Project owner",
+        missingEmailHelpText:
+          "Create the account to use this person as the project owner.",
+        missingNoEmailHelpText:
+          "did not match a known user and does not include an email address.",
+        sourceLabel: "Project owner",
+        trackMissingUser: trackMissingProjectOwners,
+        useDefaultUserId: true,
+        users,
+        warnings,
+      })
+    : {
+        missingUser: null,
+        userId: null,
+      };
+  const additionalProjectOwners = additionalProjectOwnerCandidates.map(
+    (candidate) =>
+      resolveImportUserCandidate({
+        blocksCommit: false,
+        candidate,
+        defaultUserId,
+        fieldLabel: "Additional project owner",
+        missingEmailHelpText:
+          "Create the account if this person should be assigned to tasks after import.",
+        missingNoEmailHelpText:
+          "did not match a known user and does not include an email address.",
+        sourceLabel: "Additional project owner",
+        trackMissingUser: true,
+        useDefaultUserId: false,
+        users,
+        warnings,
+      }),
+  );
+  const taskAssignee = resolveImportUser({
     defaultUserId,
     fieldLabel: "Task assignee",
+    trackMissingAssignee: true,
     users,
-    value: readMappedValue(normalizedRawRow, mapping.taskAssignee),
+    value: taskAssigneeValue,
     warnings,
   });
 
   return {
     errors,
+    missingImportUsers: [
+      ...(projectOwner.missingUser ? [projectOwner.missingUser] : []),
+      ...additionalProjectOwners.flatMap((entry) =>
+        entry.missingUser ? [entry.missingUser] : [],
+      ),
+      ...taskAssignee.missingUsers,
+    ],
+    missingTaskAssignee: taskAssignee.missingAssignee,
     project: {
       dueDate: projectDueDate,
       externalId: projectExternalId,
       identityStrategy: projectExternalId ? "source_id" : "natural_key",
       notes: projectNotes,
-      ownerUserId: projectOwnerUserId,
+      ownerUserId: projectOwner.userId,
       priority: projectPriority,
-      summary: projectSummary,
       title: projectTitle,
     },
+    projectOverlap: null,
     rawRow: normalizedRawRow,
     rowNumber,
     task: {
-      assigneeUserId: taskAssigneeUserId,
+      assigneeUserId: taskAssignee.userId ?? defaultUserId,
       dueDate: taskDueDate,
       externalId: taskExternalId,
       identityStrategy: taskExternalId ? "source_id" : "natural_key",
@@ -738,6 +1066,7 @@ export function prepareLoopImportRow({
       status: taskStatus,
       title: taskTitle,
     },
+    taskOverlap: null,
     warnings,
   };
 }
@@ -764,12 +1093,96 @@ export function buildLoopImportPreview({
       users,
     }),
   );
+  const missingTaskAssigneesByKey = new Map<
+    string,
+    LoopImportMissingAssignee
+  >();
+  const missingUsersByKey = new Map<string, LoopImportMissingUser>();
+  let blockingMissingUserRowCount = 0;
+  let missingUserRowCount = 0;
+  let missingTaskAssigneeRowCount = 0;
+
+  for (const row of rows) {
+    if (!row.missingTaskAssignee) {
+      // Keep processing generic missing users below.
+    } else {
+      missingTaskAssigneeRowCount += 1;
+      const missingAssignee = row.missingTaskAssignee;
+      const key =
+        missingAssignee.email?.toLowerCase() ??
+        missingAssignee.label.toLowerCase();
+      const existing = missingTaskAssigneesByKey.get(key);
+
+      if (existing) {
+        existing.rowCount += 1;
+        existing.rowNumbers.push(row.rowNumber);
+      } else {
+        missingTaskAssigneesByKey.set(key, {
+          ...missingAssignee,
+          rowCount: 1,
+          rowNumbers: [row.rowNumber],
+        });
+      }
+    }
+
+    if (row.missingImportUsers.length === 0) {
+      continue;
+    }
+
+    missingUserRowCount += 1;
+
+    if (row.missingImportUsers.some((entry) => entry.blocksCommit)) {
+      blockingMissingUserRowCount += 1;
+    }
+
+    for (const missingUser of row.missingImportUsers) {
+      const key =
+        missingUser.email?.toLowerCase() ?? missingUser.label.toLowerCase();
+      const existing = missingUsersByKey.get(key);
+
+      if (existing) {
+        existing.blocksCommit ||= missingUser.blocksCommit;
+        existing.rowCount += 1;
+        existing.rowNumbers.push(row.rowNumber);
+        existing.sourceLabels = [
+          ...new Set([...existing.sourceLabels, ...missingUser.sourceLabels]),
+        ];
+        continue;
+      }
+
+      missingUsersByKey.set(key, {
+        ...missingUser,
+        rowCount: 1,
+        rowNumbers: [row.rowNumber],
+      });
+    }
+  }
 
   return {
+    blockingMissingUserRowCount,
     invalidRowCount: rows.filter((row) => row.errors.length > 0).length,
+    missingUserRowCount,
+    missingUsers: [...missingUsersByKey.values()].sort((left, right) => {
+      if (left.blocksCommit !== right.blocksCommit) {
+        return left.blocksCommit ? -1 : 1;
+      }
+
+      return (
+        left.name.localeCompare(right.name) ||
+        (left.email ?? "").localeCompare(right.email ?? "")
+      );
+    }),
+    missingTaskAssigneeRowCount,
+    missingTaskAssignees: [...missingTaskAssigneesByKey.values()].sort(
+      (left, right) =>
+        left.name.localeCompare(right.name) ||
+        (left.email ?? "").localeCompare(right.email ?? ""),
+    ),
     missingRequiredMappings: LOOP_IMPORT_REQUIRED_FIELDS.filter(
       (field) => !mapping[field],
     ),
+    overlappingProjectRowCount: 0,
+    overlappingTaskRowCount: 0,
     projectSourceIdRowCount: rows.filter(
       (row) => row.project.identityStrategy === "source_id",
     ).length,
@@ -904,35 +1317,55 @@ function normalizeImportTaskStatus(value: string | null, errors: string[]) {
 function resolveImportUser({
   defaultUserId,
   fieldLabel,
+  trackMissingAssignee,
   users,
   value,
   warnings,
 }: {
   defaultUserId: string;
   fieldLabel: string;
+  trackMissingAssignee: boolean;
   users: LoopImportUser[];
   value: string | null;
   warnings: string[];
 }) {
   if (!value) {
-    return defaultUserId;
+    return {
+      missingUsers: [],
+      missingAssignee: null,
+      userId: defaultUserId,
+    };
   }
 
-  const normalizedValue = value.trim().toLowerCase();
-  const matchedUser = users.find(
-    (user) =>
-      user.email.trim().toLowerCase() === normalizedValue ||
-      user.name.trim().toLowerCase() === normalizedValue,
-  );
+  const candidate = parseImportUserCandidate(value);
+  const resolved = resolveImportUserCandidate({
+    blocksCommit: true,
+    candidate,
+    defaultUserId,
+    fieldLabel,
+    missingEmailHelpText:
+      "Create the account or update the import before committing.",
+    missingNoEmailHelpText:
+      "did not match a known user and does not include an email address.",
+    sourceLabel: fieldLabel,
+    trackMissingUser: trackMissingAssignee,
+    useDefaultUserId: true,
+    users,
+    warnings,
+  });
 
-  if (matchedUser) {
-    return matchedUser.id;
-  }
-
-  warnings.push(
-    `${fieldLabel} "${value}" did not match a known user. Defaulted to the import creator.`,
-  );
-  return defaultUserId;
+  return {
+    missingAssignee: resolved.missingUser
+      ? {
+          canCreate: resolved.missingUser.canCreate,
+          email: resolved.missingUser.email,
+          label: resolved.missingUser.label,
+          name: resolved.missingUser.name,
+        }
+      : null,
+    missingUsers: resolved.missingUser ? [resolved.missingUser] : [],
+    userId: resolved.userId,
+  };
 }
 
 function mergeTaskNotes(notes: string | null, blockedReason: string | null) {
@@ -957,4 +1390,202 @@ function mergeTaskNotes(notes: string | null, blockedReason: string | null) {
 function normalizeOptionalImportText(value: string | null) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function splitChecklistTaskTitles(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  const taskTitles = value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return taskTitles.length > 1 ? taskTitles : [value];
+}
+
+function parseImportUserCandidates(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  const normalizedValue = value.trim().replace(/\s+/g, " ");
+  const structuredMatches = [
+    ...normalizedValue.matchAll(
+      /([^<;,]+?)\s*<([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})>/gi,
+    ),
+  ];
+
+  if (structuredMatches.length > 1) {
+    return structuredMatches.map((match) => {
+      const email = match[2]!.toLowerCase();
+      const name =
+        normalizeImportUserName(match[1] ?? "") ??
+        deriveImportUserNameFromEmail(email);
+
+      return {
+        email,
+        label: `${name} <${email}>`,
+        name,
+      };
+    });
+  }
+
+  return [parseImportUserCandidate(normalizedValue)];
+}
+
+function parseImportUserCandidate(value: string) {
+  const label = value.trim().replace(/\s+/g, " ");
+  const emailMatch = label.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+
+  if (!emailMatch) {
+    return {
+      email: null,
+      label,
+      name: label,
+    };
+  }
+
+  const email = emailMatch[0].toLowerCase();
+  const name = normalizeImportUserName(
+    label.replace(emailMatch[0], " ").replace(/[<>()]/g, " "),
+  );
+
+  return {
+    email,
+    label: name ? `${name} <${email}>` : email,
+    name: name || deriveImportUserNameFromEmail(email),
+  };
+}
+
+function resolveImportUserCandidate({
+  blocksCommit,
+  candidate,
+  defaultUserId,
+  fieldLabel,
+  missingEmailHelpText,
+  missingNoEmailHelpText,
+  sourceLabel,
+  trackMissingUser,
+  useDefaultUserId,
+  users,
+  warnings,
+}: {
+  blocksCommit: boolean;
+  candidate: ReturnType<typeof parseImportUserCandidate>;
+  defaultUserId: string;
+  fieldLabel: string;
+  missingEmailHelpText: string;
+  missingNoEmailHelpText: string;
+  sourceLabel: string;
+  trackMissingUser: boolean;
+  useDefaultUserId: boolean;
+  users: LoopImportUser[];
+  warnings: string[];
+}) {
+  const matchedUser = findMatchingImportUser(candidate, users);
+
+  if (matchedUser) {
+    return {
+      missingUser: null,
+      userId: matchedUser.id,
+    };
+  }
+
+  if (trackMissingUser) {
+    warnings.push(
+      candidate.email
+        ? `${fieldLabel} "${candidate.label}" did not match a known user. ${missingEmailHelpText}`
+        : `${fieldLabel} "${candidate.label}" ${missingNoEmailHelpText}`,
+    );
+
+    return {
+      missingUser: {
+        blocksCommit,
+        canCreate: candidate.email !== null,
+        email: candidate.email,
+        label: candidate.label,
+        name: candidate.name,
+        sourceLabels: [sourceLabel],
+      },
+      userId: useDefaultUserId ? defaultUserId : null,
+    };
+  }
+
+  warnings.push(
+    `${fieldLabel} "${candidate.label}" did not match a known user. Defaulted to the import creator.`,
+  );
+  return {
+    missingUser: null,
+    userId: defaultUserId,
+  };
+}
+
+function findMatchingImportUser(
+  candidate: ReturnType<typeof parseImportUserCandidate>,
+  users: LoopImportUser[],
+) {
+  return users.find(
+    (user) =>
+      user.email.trim().toLowerCase() === candidate.email ||
+      user.email.trim().toLowerCase() === candidate.name.toLowerCase() ||
+      user.name.trim().toLowerCase() === candidate.name.toLowerCase() ||
+      user.name.trim().toLowerCase() === candidate.label.toLowerCase(),
+  );
+}
+
+function normalizeImportUserName(value: string) {
+  const normalized = value
+    .replace(/\s[-|]+\s*/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  return normalized ? normalized : null;
+}
+
+function deriveImportUserNameFromEmail(email: string) {
+  const localPart = email.split("@")[0] ?? email;
+  const segments = localPart
+    .split(/[._-]+/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) {
+    return email;
+  }
+
+  return segments
+    .map((segment) => segment[0]!.toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+export function buildPreparedLoopImportProjectKey(
+  prepared: Pick<PreparedLoopImportRow, "project">,
+) {
+  if (prepared.project.externalId) {
+    return `external:${prepared.project.externalId}`;
+  }
+
+  return `natural:${normalizePreparedLoopImportKey(prepared.project.title)}:${prepared.project.ownerUserId ?? ""}:${prepared.project.dueDate ?? ""}`;
+}
+
+export function buildPreparedLoopImportTaskKey(
+  projectId: string,
+  prepared: Pick<PreparedLoopImportRow, "task">,
+) {
+  if (prepared.task.externalId) {
+    return `external:${prepared.task.externalId}`;
+  }
+
+  return `natural:${projectId}:${normalizePreparedLoopImportKey(prepared.task.title)}:${prepared.task.assigneeUserId}:${prepared.task.dueDate ?? ""}`;
+}
+
+export function hasPreparedLoopImportTask(
+  task: Pick<PreparedLoopImportTask, "title">,
+) {
+  return Boolean(task.title);
+}
+
+function normalizePreparedLoopImportKey(value: string | null) {
+  return value?.trim().toLowerCase() ?? "";
 }
