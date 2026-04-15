@@ -317,7 +317,7 @@
 
 .workspace-header p,
 .group-header p,
-.project-main span,
+.formatted-notes,
 .task-subtext {
   color: var(--text-muted);
 }
@@ -478,6 +478,28 @@
 
 .settings-link:hover {
   text-decoration: underline;
+}
+
+.settings-version {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.settings-version-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.settings-version-detail {
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 .settings-item-header {
@@ -672,6 +694,21 @@
   grid-column: 2 / -1;
 }
 
+.send-email-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.send-email-check input {
+  margin: 0;
+}
+
 .local-account-error-panel,
 .local-account-inline-error,
 .local-account-inline-note {
@@ -724,6 +761,13 @@
 
 .import-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: end;
+}
+
+.import-selection-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: end;
 }
 
@@ -973,12 +1017,22 @@ button:disabled {
   overflow: hidden;
 }
 
+.project-card--collapsed {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
 .project-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1.3fr) minmax(160px, 220px) 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
+}
+
+.project-card--collapsed .project-row {
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 
 .project-row--edit {
@@ -998,6 +1052,53 @@ button:disabled {
   color: var(--text-primary);
 }
 
+.formatted-notes {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.formatted-notes > * {
+  margin: 0;
+}
+
+.formatted-notes ul,
+.formatted-notes ol {
+  padding-left: 18px;
+}
+
+.formatted-notes li + li {
+  margin-top: 2px;
+}
+
+.formatted-notes a {
+  color: var(--brand-color);
+  text-decoration: none;
+}
+
+.formatted-notes a:hover {
+  text-decoration: underline;
+}
+
+.formatted-notes a:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--brand-color);
+  outline-offset: 2px;
+}
+
+.formatted-notes code {
+  padding: 1px 4px;
+  border-radius: 6px;
+  background: var(--card-bg-muted);
+  color: var(--text-primary);
+  font-size: 0.92em;
+}
+
+.formatted-notes--project {
+  font-size: 0.95rem;
+}
+
 .project-main .project-progress,
 .project-progress {
   font-size: 1rem;
@@ -1008,6 +1109,7 @@ button:disabled {
 .project-status {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .project-status--edit {
@@ -1020,9 +1122,12 @@ button:disabled {
 }
 
 .project-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 148px 80px 56px 92px;
+  align-items: center;
+  justify-content: start;
+  column-gap: 8px;
+  row-gap: 8px;
   color: var(--text-secondary);
   font-size: 0.85rem;
 }
@@ -1032,24 +1137,59 @@ button:disabled {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
-.project-tracker-link {
+.project-reference {
+  grid-column: 1 / -1;
+}
+
+.project-owner-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: var(--brand-color);
-  font-weight: 600;
-  text-decoration: none;
+  justify-content: flex-start;
+  width: 148px;
+  min-width: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.project-tracker-link:hover {
+.project-reference-link,
+.project-reference-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-reference-link {
+  color: var(--brand-color);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.project-reference-text {
+  color: var(--text-secondary);
+}
+
+.project-reference-link:hover {
   text-decoration: underline;
 }
 
-.project-tracker-link:focus-visible {
+.project-reference-link:focus-visible {
   border-radius: 6px;
   outline: 2px solid var(--brand-color);
   outline-offset: 2px;
+}
+
+.project-references-input {
+  grid-column: 1 / -1;
 }
 
 .project-row-actions {
@@ -1069,7 +1209,8 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 72px;
+  width: 80px;
+  min-width: 0;
   padding: 5px 10px;
   border-radius: 999px;
   font-size: 0.82rem;
@@ -1094,11 +1235,31 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 104px;
-  padding: 5px 10px;
+  width: 96px;
+  min-width: 0;
+  max-width: 96px;
+  padding: 5px 8px;
   border-radius: 999px;
   font-size: 0.82rem;
   text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-progress {
+  display: inline-flex;
+  width: 56px;
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-due-date {
+  display: inline-block;
+  width: 92px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .status-not_started,
@@ -1115,6 +1276,11 @@ button:disabled {
 .status-blocked {
   background: var(--danger-bg);
   color: var(--error-text);
+}
+
+.status-on_hold {
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 .status-done {
@@ -1328,6 +1494,32 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  .project-meta {
+    grid-template-columns: 136px 76px 52px 88px;
+    column-gap: 6px;
+  }
+
+  .project-owner-pill {
+    width: 136px;
+  }
+
+  .priority-pill {
+    width: 76px;
+  }
+
+  .status-pill {
+    width: 88px;
+    max-width: 88px;
+  }
+
+  .project-progress {
+    width: 52px;
+  }
+
+  .project-due-date {
+    width: 88px;
+  }
+
   .bulk-action-header,
   .audit-header {
     flex-direction: column;

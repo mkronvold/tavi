@@ -1,5 +1,5 @@
 import { appName, appVersion } from "@tavi/config";
-import type { GroupBy, ProjectSortField, TaskStatus } from "./types";
+import type { GroupBy, ProjectSortField, ProjectStatus } from "./types";
 import type { WorkspaceProject, WorkspaceTask } from "./types";
 
 type ExportContext = {
@@ -8,7 +8,7 @@ type ExportContext = {
   projects: WorkspaceProject[];
   search: string;
   sortBy: ProjectSortField[];
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
 };
 
 type ExportRow = Record<string, string>;

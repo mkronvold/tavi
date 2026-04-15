@@ -51,12 +51,6 @@ type ImportJobRecord = {
   updatedTaskCount: number;
 };
 
-const REMOVABLE_IMPORT_STATUSES = [
-  'queued_parse',
-  'awaiting_review',
-  'queued_commit',
-] as const;
-
 @Injectable()
 export class ImportsService {
   constructor(
@@ -211,37 +205,23 @@ export class ImportsService {
     };
   }
 
-  async cancelLoopImport(importId: string, actor: SessionUser) {
+  async removeLoopImport(importId: string, actor: SessionUser) {
     this.authService.requireAdminAccess(actor);
 
-    const deleted = await this.prisma.importJob.deleteMany({
-      where: {
-        id: importId,
-        status: {
-          in: [...REMOVABLE_IMPORT_STATUSES],
-        },
-      },
-    });
-
-    if (deleted.count > 0) {
-      return { id: importId };
-    }
-
-    const job = await this.prisma.importJob.findUnique({
+    const existingImport = await this.prisma.importJob.findUnique({
       where: { id: importId },
-      select: {
-        id: true,
-        status: true,
-      },
+      select: { id: true },
     });
 
-    if (!job) {
+    if (!existingImport) {
       throw new NotFoundException('Import not found');
     }
 
-    throw new BadRequestException(
-      'Only queued or staged imports can be canceled',
-    );
+    await this.prisma.importJob.delete({
+      where: { id: importId },
+    });
+
+    return { id: importId };
   }
 
   async updateLoopImportMapping(

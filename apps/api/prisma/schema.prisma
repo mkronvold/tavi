@@ -23,6 +23,7 @@ enum TaskStatus {
   todo
   in_progress
   blocked
+  on_hold
   done
   canceled
 }
@@ -31,7 +32,45 @@ enum ProjectStatus {
   not_started
   in_progress
   blocked
+  on_hold
   done
+}
+
+enum NotificationKind {
+  task_assigned
+  task_unassigned
+  task_updated
+  task_due_date_added
+  task_due_date_changed
+  task_blocked
+  task_unblocked
+  task_on_hold
+  task_resumed
+  task_reopened
+  task_completed
+  task_moved
+  project_updated
+  project_owner_assigned
+  project_owner_changed
+  project_owner_removed
+  project_blocked
+  project_on_hold
+  project_resumed
+  task_due_7_days
+  task_due_3_days
+  task_due_tomorrow
+  task_due_today
+  task_overdue
+  daily_task_summary
+  daily_project_summary
+}
+
+enum NotificationStatus {
+  queued
+  processing
+  sent
+  skipped
+  failed
 }
 
 enum ImportJobStatus {
@@ -85,6 +124,7 @@ model User {
   createdImports ImportJob[]     @relation("ImportCreator")
   savedViews     SavedView[]
   auditEvents    AuditEvent[]    @relation("AuditActor")
+  notifications  NotificationEvent[] @relation("NotificationRecipient")
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 }
@@ -102,7 +142,7 @@ model Project {
   id                  String         @id @default(cuid())
   title               String
   notes               String?
-  trackerLink         String?
+  references          String?
   ownerUserId         String?
   owner               User?          @relation("ProjectOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   dueDate             DateTime?
@@ -114,6 +154,7 @@ model Project {
   taskTodoCount       Int            @default(0)
   taskInProgressCount Int            @default(0)
   taskBlockedCount    Int            @default(0)
+  taskOnHoldCount     Int            @default(0)
   taskDoneCount       Int            @default(0)
   taskCanceledCount   Int            @default(0)
   taskOverdueCount    Int            @default(0)
@@ -245,4 +286,45 @@ model AuditLogRetention {
   olderThan AuditLogRetentionWindow
   createdAt DateTime                 @default(now())
   updatedAt DateTime                 @updatedAt
+}
+
+model EmailSettings {
+  id        String   @id @default("global")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model NotificationEvent {
+  id               String                      @id @default(cuid())
+  recipientUserId  String?
+  recipient        User?                       @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  kind             NotificationKind
+  dedupeKey        String?                     @unique
+  payload          Json
+  status           NotificationStatus          @default(queued)
+  attemptCount     Int                         @default(0)
+  lastError        String?
+  nextAttemptAt    DateTime                    @default(now())
+  sentAt           DateTime?
+  skippedAt        DateTime?
+  failedAt         DateTime?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  deliveryAttempts NotificationDeliveryAttempt[]
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([recipientUserId, createdAt])
+  @@index([kind, createdAt])
+}
+
+model NotificationDeliveryAttempt {
+  id             String             @id @default(cuid())
+  notificationId String
+  notification   NotificationEvent  @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  status         NotificationStatus
+  error          String?
+  createdAt      DateTime           @default(now())
+
+  @@index([notificationId, createdAt])
 }

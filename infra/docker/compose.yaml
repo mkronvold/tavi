@@ -39,6 +39,11 @@ services:
       LOCAL_GID: "${GID:-1000}"
       LOCAL_UID: "${UID:-1000}"
       PORT: 4000
+      SMTP_URL: "${SMTP_URL:-smtp://10.120.64.99:25}"
+      SMTP_FROM: "${SMTP_FROM:-noreply@tavi.local}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      TAVI_HOME_URL: "${TAVI_HOME_URL:-http://localhost:5173}"
     ports:
       - "4000:4000"
     volumes:
@@ -95,6 +100,7 @@ services:
       bash -lc "
       mkdir -p /workspace/node_modules &&
       chown -R $$LOCAL_UID:$$LOCAL_GID /workspace/node_modules &&
+      env HOME=/tmp COREPACK_HOME=/tmp/corepack setpriv --reuid=$$LOCAL_UID --regid=$$LOCAL_GID --clear-groups corepack pnpm --filter @tavi/api prisma:generate &&
       env HOME=/tmp COREPACK_HOME=/tmp/corepack setpriv --reuid=$$LOCAL_UID --regid=$$LOCAL_GID --clear-groups corepack pnpm --filter @tavi/worker dev
       "
     environment:

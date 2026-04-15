@@ -92,6 +92,35 @@ describe('SavedViewsService', () => {
     ]);
   });
 
+  it('maps legacy task-status filters in saved view JSON to project status filters', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findManyMock.mockResolvedValue([
+      {
+        id: 'view-legacy',
+        userId: actor.id,
+        name: 'Legacy todo view',
+        groupBy: 'owner',
+        search: '',
+        statusFilter: null,
+        filtersJson: {
+          statusFilters: ['todo', 'todo', 'in_progress', 'canceled'],
+        },
+        createdAt: new Date('2026-03-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-03-01T10:05:00.000Z'),
+      },
+    ]);
+
+    const result = await service.listSavedViews(actor);
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 'view-legacy',
+        statusFilters: ['not_started', 'in_progress'],
+      }),
+    ]);
+  });
+
   it('updates saved views with normalized layout state and accurate audit counts', async () => {
     const { mocks, service } = createService();
 

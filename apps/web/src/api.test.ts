@@ -85,4 +85,18 @@ describe("api error handling", () => {
       ),
     );
   });
+
+  it("shows the same friendly message when fetch fails before a response exists", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
+
+    await expect(updateProject("project-1", { title: "Retry me" })).rejects.toEqual(
+      new ApiError(
+        503,
+        "The Tavi API is unavailable and may be restarting. Please wait a moment and try again.",
+      ),
+    );
+  });
 });

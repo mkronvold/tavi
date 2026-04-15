@@ -195,7 +195,7 @@ describe('ImportsService', () => {
 
   const createService = () => {
     const createImportJobMock = jest.fn();
-    const deleteManyImportJobsMock = jest.fn();
+    const deleteImportJobMock = jest.fn();
     const findUniqueImportJobMock = jest.fn();
     const updateImportJobMock: jest.MockedFunction<
       (args: UpdateImportJobCall) => Promise<unknown>
@@ -213,7 +213,7 @@ describe('ImportsService', () => {
     const prisma = {
       importJob: {
         create: createImportJobMock,
-        deleteMany: deleteManyImportJobsMock,
+        delete: deleteImportJobMock,
         findUnique: findUniqueImportJobMock,
         update: updateImportJobMock,
       },
@@ -249,7 +249,7 @@ describe('ImportsService', () => {
       mocks: {
         createManyImportRowsMock,
         createImportJobMock,
-        deleteManyImportJobsMock,
+        deleteImportJobMock,
         deleteManyImportRowsMock,
         findManyImportRowsMock,
         findManyProjectsMock,
@@ -295,36 +295,38 @@ describe('ImportsService', () => {
     expect(mocks.createImportJobMock).not.toHaveBeenCalled();
   });
 
-  it('cancels queued or staged imports by deleting the import job', async () => {
+  it('removes imports by deleting the import job and cascading rows', async () => {
     const { mocks, service } = createService();
 
-    mocks.deleteManyImportJobsMock.mockResolvedValue({ count: 1 });
+    mocks.findUniqueImportJobMock.mockResolvedValue({
+      id: 'import-1',
+    });
+    mocks.deleteImportJobMock.mockResolvedValue({
+      id: 'import-1',
+    });
 
-    const result = await service.cancelLoopImport('import-1', actor);
+    const result = await service.removeLoopImport('import-1', actor);
 
     expect(mocks.requireAdminAccessMock).toHaveBeenCalledWith(actor);
-    expect(mocks.deleteManyImportJobsMock).toHaveBeenCalledWith({
+    expect(mocks.findUniqueImportJobMock).toHaveBeenCalledWith({
+      where: { id: 'import-1' },
+      select: { id: true },
+    });
+    expect(mocks.deleteImportJobMock).toHaveBeenCalledWith({
       where: {
         id: 'import-1',
-        status: {
-          in: ['queued_parse', 'awaiting_review', 'queued_commit'],
-        },
       },
     });
     expect(result).toEqual({ id: 'import-1' });
   });
 
-  it('rejects canceling imports that are already running or finished', async () => {
+  it('rejects removing an import that does not exist', async () => {
     const { mocks, service } = createService();
 
-    mocks.deleteManyImportJobsMock.mockResolvedValue({ count: 0 });
-    mocks.findUniqueImportJobMock.mockResolvedValue({
-      id: 'import-1',
-      status: 'committing',
-    });
+    mocks.findUniqueImportJobMock.mockResolvedValue(null);
 
-    await expect(service.cancelLoopImport('import-1', actor)).rejects.toThrow(
-      'Only queued or staged imports can be canceled',
+    await expect(service.removeLoopImport('import-1', actor)).rejects.toThrow(
+      'Import not found',
     );
   });
 

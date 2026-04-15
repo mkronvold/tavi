@@ -2,7 +2,7 @@ import { useState } from "react";
 import type {
   GroupBy,
   ProjectSortField,
-  TaskStatus,
+  ProjectStatus,
   WorkspaceProject,
 } from "./types";
 import {
@@ -18,7 +18,7 @@ type ExportPanelProps = {
   projects: WorkspaceProject[];
   search: string;
   sortBy: ProjectSortField[];
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
   assigneeUserIds: string[];
 };
 

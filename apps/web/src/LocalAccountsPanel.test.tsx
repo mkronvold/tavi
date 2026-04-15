@@ -187,7 +187,10 @@ describe("LocalAccountsPanel", () => {
           ],
         };
 
-        return createResponse({ account: listResponse.accounts[1] });
+        return createResponse({
+          account: listResponse.accounts[1],
+          notificationEmailSent: true,
+        });
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -235,7 +238,7 @@ describe("LocalAccountsPanel", () => {
     });
 
     expect(onNotice).toHaveBeenCalledWith(
-      "Updated local account for Viewer Updated.",
+      "Updated local account for Viewer Updated and sending notification email.",
     );
   });
 

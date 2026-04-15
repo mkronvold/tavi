@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const PROJECT_NOTES_MAX_LENGTH = 2_000;
 const TASK_NOTES_MAX_LENGTH = 2_000;
-const TRACKER_LINK_MAX_LENGTH = 2_048;
+const REFERENCES_MAX_LENGTH = 2_048;
 
 export type AuditChangeValue = boolean | number | string | null;
 
@@ -34,20 +34,16 @@ export function buildAuditChanges<T extends Record<string, AuditChangeValue>>(
   }));
 }
 
-const trackerLinkUrlSchema = z
-  .string()
-  .trim()
-  .max(TRACKER_LINK_MAX_LENGTH)
-  .url();
-const optionalTrackerLinkSchema = z.preprocess(
+const referencesTextSchema = z.string().trim().max(REFERENCES_MAX_LENGTH);
+const optionalReferencesSchema = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim().length === 0 ? undefined : value,
-  trackerLinkUrlSchema.optional(),
+  referencesTextSchema.optional(),
 );
-const nullableTrackerLinkSchema = z.preprocess(
+const nullableReferencesSchema = z.preprocess(
   (value) =>
     typeof value === "string" && value.trim().length === 0 ? null : value,
-  trackerLinkUrlSchema.nullable().optional(),
+  referencesTextSchema.nullable().optional(),
 );
 const nullableUserIdSchema = z.preprocess(
   (value) =>
@@ -83,6 +79,7 @@ export const taskStatusSchema = z.enum([
   "todo",
   "in_progress",
   "blocked",
+  "on_hold",
   "done",
   "canceled",
 ]);
@@ -92,6 +89,7 @@ export const projectStatusSchema = z.enum([
   "not_started",
   "in_progress",
   "blocked",
+  "on_hold",
   "done",
 ]);
 export type ProjectStatus = z.infer<typeof projectStatusSchema>;
@@ -104,6 +102,8 @@ export const projectSortFieldSchema = z.enum([
   "progress",
   "priority",
   "dueDate",
+  "age",
+  "lastUpdated",
 ]);
 export type ProjectSortField = z.infer<typeof projectSortFieldSchema>;
 
@@ -149,6 +149,7 @@ export type LocalAccount = z.infer<typeof localAccountSchema>;
 
 export const localAccountResponseSchema = z.object({
   account: localAccountSchema,
+  notificationEmailSent: z.boolean().optional(),
 });
 export type LocalAccountResponse = z.infer<typeof localAccountResponseSchema>;
 
@@ -162,6 +163,7 @@ export const createLocalAccountSchema = z.object({
   name: localAccountNameSchema,
   role: roleSchema,
   password: localPasswordSchema,
+  sendEmail: z.boolean().optional(),
 });
 export type CreateLocalAccountInput = z.infer<typeof createLocalAccountSchema>;
 
@@ -188,6 +190,7 @@ export type UpdateLocalAccountInput = z.infer<typeof updateLocalAccountSchema>;
 
 export const setLocalAccountPasswordSchema = z.object({
   password: localPasswordSchema,
+  sendEmail: z.boolean().optional(),
 });
 export type SetLocalAccountPasswordInput = z.infer<
   typeof setLocalAccountPasswordSchema
@@ -326,7 +329,7 @@ export type ResetWorkspaceExamplesResponse = z.infer<
 export const createProjectSchema = z.object({
   title: z.string().min(1).max(120),
   notes: z.string().max(PROJECT_NOTES_MAX_LENGTH).optional(),
-  trackerLink: optionalTrackerLinkSchema,
+  references: optionalReferencesSchema,
   ownerUserId: nullableUserIdSchema,
   dueDate: z.string().optional(),
   priority: prioritySchema.default("medium"),
@@ -336,7 +339,7 @@ export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export const updateProjectSchema = createProjectSchema.partial().extend({
   manualStatus: projectStatusSchema.optional().nullable(),
   notes: z.string().max(PROJECT_NOTES_MAX_LENGTH).optional().nullable(),
-  trackerLink: nullableTrackerLinkSchema,
+  references: nullableReferencesSchema,
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
@@ -400,11 +403,28 @@ export const bulkArchiveTasksSchema = z
   });
 export type BulkArchiveTasksInput = z.infer<typeof bulkArchiveTasksSchema>;
 
+export const bulkCopyTasksSchema = z
+  .object({
+    taskIds: z.array(z.string().min(1)).min(1).max(200),
+    targetProjectId: z.string().min(1),
+  })
+  .superRefine((value, context) => {
+    if (new Set(value.taskIds).size !== value.taskIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Duplicate task ids are not allowed",
+        path: ["taskIds"],
+      });
+    }
+  });
+export type BulkCopyTasksInput = z.infer<typeof bulkCopyTasksSchema>;
+
 export const bulkUpdateTasksSchema = z
   .object({
     taskIds: z.array(z.string().min(1)).min(1).max(200),
     assigneeUserId: z.string().min(1).optional(),
     dueDate: z.string().optional().nullable(),
+    notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional().nullable(),
     priority: prioritySchema.optional(),
     status: taskStatusSchema.optional(),
   })
@@ -412,6 +432,7 @@ export const bulkUpdateTasksSchema = z
     if (
       value.assigneeUserId === undefined &&
       value.dueDate === undefined &&
+      value.notes === undefined &&
       value.priority === undefined &&
       value.status === undefined
     ) {
@@ -439,7 +460,10 @@ export const savedViewStateSchema = z.object({
     .array(projectSortFieldSchema)
     .max(projectSortFieldSchema.options.length)
     .default([]),
-  statusFilters: z.array(taskStatusSchema).max(10).default([]),
+  statusFilters: z
+    .array(projectStatusSchema)
+    .max(projectStatusSchema.options.length)
+    .default([]),
   assigneeUserIds: z.array(z.string().min(1)).max(500).default([]),
   collapsedGroupKeys: z.array(z.string().min(1)).max(200).default([]),
   expandedProjectIds: z.array(z.string().min(1)).max(500).default([]),
@@ -1296,9 +1320,12 @@ function normalizeImportTaskStatus(value: string | null, errors: string[]) {
     case "active":
       return "in_progress";
     case "blocked":
-    case "on_hold":
     case "stuck":
       return "blocked";
+    case "on_hold":
+    case "paused":
+    case "hold":
+      return "on_hold";
     case "done":
     case "complete":
     case "completed":
@@ -1589,3 +1616,302 @@ export function hasPreparedLoopImportTask(
 function normalizePreparedLoopImportKey(value: string | null) {
   return value?.trim().toLowerCase() ?? "";
 }
+
+// ---------------------------------------------------------------------------
+// Non-admin notifications
+// ---------------------------------------------------------------------------
+
+export const notificationKindSchema = z.enum([
+  "task_assigned",
+  "task_unassigned",
+  "task_due_date_added",
+  "task_due_date_changed",
+  "task_blocked",
+  "task_unblocked",
+  "task_on_hold",
+  "task_resumed",
+  "task_reopened",
+  "task_completed",
+  "task_moved",
+  "project_owner_assigned",
+  "project_owner_changed",
+  "project_owner_removed",
+  "project_blocked",
+  "project_on_hold",
+  "project_resumed",
+  "task_due_7_days",
+  "task_due_3_days",
+  "task_due_tomorrow",
+  "task_due_today",
+  "task_overdue",
+  "daily_task_summary",
+  "daily_project_summary",
+]);
+export type NotificationKind = z.infer<typeof notificationKindSchema>;
+
+export const notificationStatusSchema = z.enum([
+  "queued",
+  "processing",
+  "sent",
+  "skipped",
+  "failed",
+]);
+export type NotificationStatus = z.infer<typeof notificationStatusSchema>;
+
+export type ImmediateNotificationInput = {
+  dedupeKey?: string;
+  kind: NotificationKind;
+  payload: Record<string, unknown>;
+  recipientUserId: string;
+};
+
+export type NotificationTaskSnapshot = {
+  assigneeUserId: string | null;
+  dueDate: string | null;
+  id: string;
+  projectId: string;
+  projectTitle: string;
+  status: TaskStatus;
+  title: string;
+};
+
+export type NotificationProjectSnapshot = {
+  id: string;
+  ownerUserId: string | null;
+  status: ProjectStatus;
+  title: string;
+};
+
+export function buildImmediateTaskNotifications(input: {
+  actorName: string;
+  nextTask: NotificationTaskSnapshot;
+  previousTask?: NotificationTaskSnapshot | null;
+}): ImmediateNotificationInput[] {
+  const { actorName, nextTask, previousTask = null } = input;
+  const notifications: ImmediateNotificationInput[] = [];
+
+  const queueForAssignee = (
+    kind: NotificationKind,
+    recipientUserId: string | null,
+    payload: Record<string, unknown> = {},
+  ) => {
+    if (!recipientUserId) {
+      return;
+    }
+
+    notifications.push({
+      kind,
+      payload: buildTaskNotificationPayload(actorName, previousTask, nextTask, payload),
+      recipientUserId,
+    });
+  };
+
+  if (previousTask === null) {
+    queueForAssignee("task_assigned", nextTask.assigneeUserId);
+
+    if (nextTask.dueDate) {
+      queueForAssignee("task_due_date_added", nextTask.assigneeUserId);
+    }
+
+    if (nextTask.status === "blocked") {
+      queueForAssignee("task_blocked", nextTask.assigneeUserId);
+    }
+
+    if (nextTask.status === "on_hold") {
+      queueForAssignee("task_on_hold", nextTask.assigneeUserId);
+    }
+
+    if (nextTask.status === "done") {
+      queueForAssignee("task_completed", nextTask.assigneeUserId);
+    }
+
+    return notifications;
+  }
+
+  if (previousTask.assigneeUserId !== nextTask.assigneeUserId) {
+    queueForAssignee("task_unassigned", previousTask.assigneeUserId, {
+      nextAssigneeUserId: nextTask.assigneeUserId,
+    });
+
+    queueForAssignee(
+      previousTask.assigneeUserId === null
+        ? "task_assigned"
+        : "task_assigned",
+      nextTask.assigneeUserId,
+      {
+        previousAssigneeUserId: previousTask.assigneeUserId,
+      },
+    );
+  }
+
+  if (previousTask.dueDate === null && nextTask.dueDate !== null) {
+    queueForAssignee("task_due_date_added", nextTask.assigneeUserId);
+  } else if (
+    previousTask.dueDate !== null &&
+    nextTask.dueDate !== null &&
+    previousTask.dueDate !== nextTask.dueDate
+  ) {
+    queueForAssignee("task_due_date_changed", nextTask.assigneeUserId);
+  }
+
+  if (previousTask.status !== "blocked" && nextTask.status === "blocked") {
+    queueForAssignee("task_blocked", nextTask.assigneeUserId);
+  } else if (
+    previousTask.status === "blocked" &&
+    nextTask.status !== "blocked" &&
+    nextTask.status !== "on_hold"
+  ) {
+    queueForAssignee("task_unblocked", nextTask.assigneeUserId);
+  }
+
+  if (previousTask.status !== "on_hold" && nextTask.status === "on_hold") {
+    queueForAssignee("task_on_hold", nextTask.assigneeUserId);
+  } else if (
+    previousTask.status === "on_hold" &&
+    (nextTask.status === "todo" || nextTask.status === "in_progress")
+  ) {
+    queueForAssignee("task_resumed", nextTask.assigneeUserId);
+  }
+
+  if (
+    previousTask.status === "done" &&
+    nextTask.status !== "done" &&
+    nextTask.status !== "canceled"
+  ) {
+    queueForAssignee("task_reopened", nextTask.assigneeUserId);
+  }
+
+  if (previousTask.status !== "done" && nextTask.status === "done") {
+    queueForAssignee("task_completed", nextTask.assigneeUserId);
+  }
+
+  if (previousTask.projectId !== nextTask.projectId) {
+    queueForAssignee("task_moved", nextTask.assigneeUserId);
+  }
+
+  return notifications;
+}
+
+export function buildImmediateProjectNotifications(input: {
+  actorName: string;
+  nextProject: NotificationProjectSnapshot;
+  previousProject?: NotificationProjectSnapshot | null;
+}): ImmediateNotificationInput[] {
+  const { actorName, nextProject, previousProject = null } = input;
+  const notifications: ImmediateNotificationInput[] = [];
+
+  const queueForOwner = (
+    kind: NotificationKind,
+    recipientUserId: string | null,
+    payload: Record<string, unknown> = {},
+  ) => {
+    if (!recipientUserId) {
+      return;
+    }
+
+    notifications.push({
+      kind,
+      payload: {
+        actorName,
+        nextOwnerUserId: nextProject.ownerUserId,
+        previousOwnerUserId: previousProject?.ownerUserId ?? null,
+        previousStatus: previousProject?.status ?? null,
+        projectId: nextProject.id,
+        projectTitle: nextProject.title,
+        status: nextProject.status,
+        ...payload,
+      },
+      recipientUserId,
+    });
+  };
+
+  if (previousProject === null) {
+    queueForOwner("project_owner_assigned", nextProject.ownerUserId);
+
+    if (nextProject.status === "blocked") {
+      queueForOwner("project_blocked", nextProject.ownerUserId);
+    }
+
+    if (nextProject.status === "on_hold") {
+      queueForOwner("project_on_hold", nextProject.ownerUserId);
+    }
+
+    return notifications;
+  }
+
+  if (previousProject.ownerUserId !== nextProject.ownerUserId) {
+    queueForOwner("project_owner_removed", previousProject.ownerUserId);
+
+    queueForOwner(
+      previousProject.ownerUserId === null
+        ? "project_owner_assigned"
+        : "project_owner_changed",
+      nextProject.ownerUserId,
+    );
+  }
+
+  if (previousProject.status !== "blocked" && nextProject.status === "blocked") {
+    queueForOwner("project_blocked", nextProject.ownerUserId);
+  }
+
+  if (previousProject.status !== "on_hold" && nextProject.status === "on_hold") {
+    queueForOwner("project_on_hold", nextProject.ownerUserId);
+  } else if (
+    previousProject.status === "on_hold" &&
+    nextProject.status !== "on_hold" &&
+    nextProject.status !== "blocked"
+  ) {
+    queueForOwner("project_resumed", nextProject.ownerUserId);
+  }
+
+  return notifications;
+}
+
+function buildTaskNotificationPayload(
+  actorName: string,
+  previousTask: NotificationTaskSnapshot | null,
+  nextTask: NotificationTaskSnapshot,
+  payload: Record<string, unknown>,
+) {
+  return {
+    actorName,
+    dueDate: nextTask.dueDate,
+    previousAssigneeUserId: previousTask?.assigneeUserId ?? null,
+    previousDueDate: previousTask?.dueDate ?? null,
+    previousProjectId: previousTask?.projectId ?? null,
+    previousProjectTitle: previousTask?.projectTitle ?? null,
+    previousStatus: previousTask?.status ?? null,
+    projectId: nextTask.projectId,
+    projectTitle: nextTask.projectTitle,
+    status: nextTask.status,
+    taskId: nextTask.id,
+    taskTitle: nextTask.title,
+    ...payload,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Email settings and SMTP status
+// ---------------------------------------------------------------------------
+
+export const emailSettingsSchema = z.object({
+  enabled: z.boolean(),
+});
+export type EmailSettings = z.infer<typeof emailSettingsSchema>;
+
+export const updateEmailSettingsSchema = z.object({
+  enabled: z.boolean(),
+});
+export type UpdateEmailSettingsInput = z.infer<
+  typeof updateEmailSettingsSchema
+>;
+
+export const smtpStatusSchema = z.object({
+  enabled: z.boolean(),
+  configured: z.boolean(),
+  host: z.string().nullable(),
+  port: z.number().int().nullable(),
+  secure: z.boolean(),
+  fromAddress: z.string(),
+});
+export type SmtpStatus = z.infer<typeof smtpStatusSchema>;

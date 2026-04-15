@@ -21,9 +21,9 @@ export type WorkspaceExampleProject = {
   notes: string | null;
   ownerUserId: string;
   priority: Priority;
+  references: string | null;
   tasks: WorkspaceExampleTask[];
   title: string;
-  trackerLink: string | null;
 };
 
 const buildDueDate = (
@@ -53,7 +53,7 @@ export const buildWorkspaceResetExamples = (
       title: 'Roadmap refresh',
       notes:
         'Manual status stays blocked until finance approves the sequence.\n\nSummary: Align the next quarter roadmap with the release review.',
-      trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+      references: 'https://tracker.example.com/projects/roadmap-refresh',
       ownerUserId: participantAt(0).id,
       dueDate: buildDueDate(baseDate, 10),
       priority: 'high',
@@ -90,7 +90,7 @@ export const buildWorkspaceResetExamples = (
       title: 'Kubernetes production rollout',
       notes:
         'Coordinate the cutover window with platform and support teams.\n\nSummary: Prepare the production deployment cutover and rollback plan.',
-      trackerLink: 'https://tracker.example.com/projects/k8s-rollout',
+      references: 'https://tracker.example.com/projects/k8s-rollout',
       ownerUserId: participantAt(1).id,
       dueDate: buildDueDate(baseDate, 14),
       priority: 'high',
@@ -127,7 +127,7 @@ export const buildWorkspaceResetExamples = (
       title: 'Accessibility polish',
       notes:
         'Good candidate for a short design and frontend pairing session.\n\nSummary: Close the remaining accessibility issues in the dense workspace.',
-      trackerLink: 'https://tracker.example.com/projects/accessibility-polish',
+      references: 'https://tracker.example.com/projects/accessibility-polish',
       ownerUserId: participantAt(2).id,
       dueDate: buildDueDate(baseDate, 9),
       priority: 'medium',
@@ -157,7 +157,7 @@ export const buildWorkspaceResetExamples = (
       title: 'Loop migration cleanup',
       notes:
         'A completed example project for the default workspace view.\n\nSummary: Finish the post-migration cleanup tasks after the import rollout.',
-      trackerLink:
+      references:
         'https://tracker.example.com/projects/loop-migration-cleanup',
       ownerUserId: participantAt(0).id,
       dueDate: buildDueDate(baseDate, 1),

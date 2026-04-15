@@ -70,6 +70,33 @@ spec:
                 secretKeyRef:
                   name: tavi-secrets
                   key: COOKIE_SECRET
+            - name: SMTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: SMTP_URL
+            - name: SMTP_FROM
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: SMTP_FROM
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: tavi-secrets
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: tavi-secrets
+                  key: SMTP_PASS
+                  optional: true
+            - name: TAVI_HOME_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: TAVI_HOME_URL
           readinessProbe:
             httpGet:
               path: /api/health

@@ -64,11 +64,15 @@ If the import matches an existing project or task, each preview row shows the ov
 
 Project overlap choices propagate across checklist-split rows for the same imported project so the staged tasks stay grouped together.
 
-## Cancel a pending import
+## Remove a recent import
 
-The `Cancel import` button appears only while the selected import is still removable. Use it to delete the pending import job and its staged rows before the worker finishes the flow.
+The `Remove import` button appears for any selected recent import. Use it to delete the import history entry and clean up its staged or recorded result rows.
 
-Completed and actively running imports stay in history.
+Important rules:
+
+1. Removing an import does not undo any projects or tasks that were already created or updated by that import.
+2. Removing an active import also removes its tracked history, even if worker cleanup is still in flight.
+3. Removing a staged import clears its staged rows the same way the old cancel flow did.
 
 ## Reset all Projects/Tasks
 
@@ -97,4 +101,4 @@ Blank checklist cells keep the project row in preview and import it without crea
 1. Import is generic CSV staging in the UI, but the `Loop` export button still produces a Loop-oriented CSV shape.
 2. A blank mapped checklist or task-title value creates a valid project-only row, even when project and task mappings share source columns such as status or priority.
 3. `Commit valid rows` stays disabled when there are blocking missing users or zero valid rows.
-4. Canceling an import removes the pending job; it does not undo a completed commit.
+4. Removing an import clears its history entry; it does not undo any completed import changes.

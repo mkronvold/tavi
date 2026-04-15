@@ -14,6 +14,7 @@ import type { Prisma } from '@prisma/client';
 import { buildAuditChanges } from './audit-change';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import { NotificationEventsService } from './notification-events.service';
 import { deriveProjectRollup } from './project-rollup';
 import { PrismaService } from './prisma.service';
 
@@ -24,7 +25,7 @@ const normalizeOptionalNotes = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
-const normalizeOptionalTrackerLink = (value?: string | null) => {
+const normalizeOptionalReferences = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
@@ -36,39 +37,50 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
+    private readonly notificationEventsService: NotificationEventsService,
   ) {}
 
   async createProject(input: CreateProjectInput, actor: SessionUser) {
     this.authService.requireEditAccess(actor);
 
-    const project = await this.prisma.project.create({
-      data: {
-        title: input.title,
-        notes: normalizeOptionalNotes(input.notes),
-        trackerLink: normalizeOptionalTrackerLink(input.trackerLink),
-        ownerUserId: input.ownerUserId ?? null,
-        dueDate: toOptionalDate(input.dueDate),
-        priority: input.priority,
-        derivedStatus: 'not_started',
-        displayStatus: 'not_started',
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const project = await tx.project.create({
+        data: {
+          title: input.title,
+          notes: normalizeOptionalNotes(input.notes),
+          references: normalizeOptionalReferences(input.references),
+          ownerUserId: input.ownerUserId ?? null,
+          dueDate: toOptionalDate(input.dueDate),
+          priority: input.priority,
+          derivedStatus: 'not_started',
+          displayStatus: 'not_started',
+        },
+      });
+
+      await this.authService.recordAudit(
+        actor,
+        'project',
+        project.id,
+        'create',
+        buildProjectAuditMetadata(project, getCreatedProjectFields(project), {
+          changes: buildProjectAuditChanges(
+            null,
+            project,
+            getCreatedProjectFields(project),
+          ),
+        }),
+        tx,
+      );
+      await this.notificationEventsService.queueProjectChange(
+        {
+          actor,
+          nextProject: toProjectNotificationSnapshot(project),
+        },
+        tx,
+      );
+
+      return project;
     });
-
-    await this.authService.recordAudit(
-      actor,
-      'project',
-      project.id,
-      'create',
-      buildProjectAuditMetadata(project, getCreatedProjectFields(project), {
-        changes: buildProjectAuditChanges(
-          null,
-          project,
-          getCreatedProjectFields(project),
-        ),
-      }),
-    );
-
-    return project;
   }
 
   async updateProject(
@@ -90,10 +102,10 @@ export class ProjectsService {
       input.notes === undefined
         ? existing.notes
         : normalizeOptionalNotes(input.notes);
-    const nextTrackerLink =
-      input.trackerLink === undefined
-        ? existing.trackerLink
-        : normalizeOptionalTrackerLink(input.trackerLink);
+    const nextReferences =
+      input.references === undefined
+        ? existing.references
+        : normalizeOptionalReferences(input.references);
     const nextDueDate =
       input.dueDate === undefined
         ? existing.dueDate
@@ -118,10 +130,10 @@ export class ProjectsService {
     }
 
     if (
-      input.trackerLink !== undefined &&
-      nextTrackerLink !== existing.trackerLink
+      input.references !== undefined &&
+      nextReferences !== existing.references
     ) {
-      changedFields.push('trackerLink');
+      changedFields.push('references');
     }
 
     if (
@@ -144,10 +156,11 @@ export class ProjectsService {
 
     const metadataChanged = changedFields.length > 0;
     const overrideChanged = nextManualStatus !== existing.manualStatus;
+    const clearingManualStatus = overrideChanged && nextManualStatus === null;
     const projectUpdateData: Prisma.ProjectUncheckedUpdateInput = {
       title: input.title ?? existing.title,
       notes: nextNotes,
-      trackerLink: nextTrackerLink,
+      references: nextReferences,
       ownerUserId: nextOwnerUserId,
       dueDate: nextDueDate,
       priority: input.priority ?? existing.priority,
@@ -156,71 +169,93 @@ export class ProjectsService {
     if (input.manualStatus !== undefined) {
       projectUpdateData.manualStatus =
         nextManualStatus as Prisma.ProjectUncheckedUpdateInput['manualStatus'];
-      projectUpdateData.displayStatus =
-        nextDisplayStatus as Prisma.ProjectUncheckedUpdateInput['displayStatus'];
+      if (!clearingManualStatus) {
+        projectUpdateData.displayStatus =
+          nextDisplayStatus as Prisma.ProjectUncheckedUpdateInput['displayStatus'];
+      }
     }
 
-    const updated = await this.prisma.project.update({
-      where: { id: projectId },
-      data: projectUpdateData,
+    return this.prisma.$transaction(async (tx) => {
+      let updated = await tx.project.update({
+        where: { id: projectId },
+        data: projectUpdateData,
+      });
+
+      if (clearingManualStatus) {
+        await this.recalculateProject(projectId, tx);
+        updated = (await tx.project.findUnique({
+          where: { id: projectId },
+        })) ?? updated;
+      }
+
+      if (metadataChanged) {
+        await this.authService.recordAudit(
+          actor,
+          'project',
+          projectId,
+          'update',
+          buildProjectAuditMetadata(updated, changedFields, {
+            changes: buildProjectAuditChanges(existing, updated, changedFields),
+          }),
+          tx,
+        );
+      }
+
+      if (overrideChanged) {
+        await this.authService.recordAudit(
+          actor,
+          'project',
+          projectId,
+          nextManualStatus === null
+            ? 'status_override_clear'
+            : 'status_override_set',
+          nextManualStatus === null
+            ? {
+                previousManualStatus: existing.manualStatus,
+                previousNotes: existing.notes,
+                derivedStatus: updated.derivedStatus,
+                changes: buildAuditChanges(
+                  ['manualStatus'],
+                  {
+                    manualStatus: existing.manualStatus,
+                  },
+                  {
+                    manualStatus: nextManualStatus,
+                  },
+                ),
+                ...(nextNotes ? { notes: nextNotes } : {}),
+              }
+            : {
+                manualStatus: nextManualStatus,
+                ...(nextNotes ? { notes: nextNotes } : {}),
+                previousManualStatus: existing.manualStatus,
+                previousNotes: existing.notes,
+                derivedStatus: existing.derivedStatus,
+                changes: buildAuditChanges(
+                  ['manualStatus'],
+                  {
+                    manualStatus: existing.manualStatus,
+                  },
+                  {
+                    manualStatus: nextManualStatus,
+                  },
+                ),
+              },
+          tx,
+        );
+      }
+
+      await this.notificationEventsService.queueProjectChange(
+        {
+          actor,
+          nextProject: toProjectNotificationSnapshot(updated),
+          previousProject: toProjectNotificationSnapshot(existing),
+        },
+        tx,
+      );
+
+      return updated;
     });
-
-    if (metadataChanged) {
-      await this.authService.recordAudit(
-        actor,
-        'project',
-        projectId,
-        'update',
-        buildProjectAuditMetadata(updated, changedFields, {
-          changes: buildProjectAuditChanges(existing, updated, changedFields),
-        }),
-      );
-    }
-
-    if (overrideChanged) {
-      await this.authService.recordAudit(
-        actor,
-        'project',
-        projectId,
-        nextManualStatus === null
-          ? 'status_override_clear'
-          : 'status_override_set',
-        nextManualStatus === null
-          ? {
-              previousManualStatus: existing.manualStatus,
-              previousNotes: existing.notes,
-              derivedStatus: existing.derivedStatus,
-              changes: buildAuditChanges(
-                ['manualStatus'],
-                {
-                  manualStatus: existing.manualStatus,
-                },
-                {
-                  manualStatus: nextManualStatus,
-                },
-              ),
-              ...(nextNotes ? { notes: nextNotes } : {}),
-            }
-          : {
-              manualStatus: nextManualStatus,
-              ...(nextNotes ? { notes: nextNotes } : {}),
-              previousManualStatus: existing.manualStatus,
-              previousNotes: existing.notes,
-              derivedStatus: existing.derivedStatus,
-              changes: buildAuditChanges(
-                ['manualStatus'],
-                {
-                  manualStatus: existing.manualStatus,
-                },
-                {
-                  manualStatus: nextManualStatus,
-                },
-              ),
-            },
-      );
-    }
-
-    return updated;
   }
 
   async convertProjectToTask(
@@ -256,10 +291,10 @@ export class ProjectsService {
       input.notes === undefined
         ? existing.notes
         : normalizeOptionalNotes(input.notes);
-    const nextTrackerLink =
-      input.trackerLink === undefined
-        ? existing.trackerLink
-        : normalizeOptionalTrackerLink(input.trackerLink);
+    const nextReferences =
+      input.references === undefined
+        ? existing.references
+        : normalizeOptionalReferences(input.references);
     const nextDueDate =
       input.dueDate === undefined
         ? existing.dueDate
@@ -283,8 +318,8 @@ export class ProjectsService {
       changedFields.push('notes');
     }
 
-    if (nextTrackerLink !== existing.trackerLink) {
-      changedFields.push('trackerLink');
+    if (nextReferences !== existing.references) {
+      changedFields.push('references');
     }
 
     if (nextOwnerUserId !== existing.ownerUserId) {
@@ -323,7 +358,7 @@ export class ProjectsService {
           data: {
             title: UNASSIGNED_PROJECT_TITLE,
             notes: null,
-            trackerLink: null,
+            references: null,
             ownerUserId: nextOwnerUserId,
             dueDate: null,
             priority: 'medium',
@@ -355,7 +390,7 @@ export class ProjectsService {
         data: {
           title: nextTitle,
           notes: nextNotes,
-          trackerLink: nextTrackerLink,
+          references: nextReferences,
           ownerUserId: nextOwnerUserId,
           dueDate: nextDueDate,
           priority: nextPriority,
@@ -526,6 +561,8 @@ function toTaskStatus(status: ProjectStatus): CreateTaskInput['status'] {
   switch (status) {
     case 'blocked':
       return 'blocked';
+    case 'on_hold':
+      return 'on_hold';
     case 'done':
       return 'done';
     case 'in_progress':
@@ -542,7 +579,7 @@ function getCreatedProjectFields(project: {
   ownerUserId: string | null;
   priority: string;
   title: string;
-  trackerLink: string | null;
+  references: string | null;
 }) {
   return [
     'title',
@@ -550,7 +587,7 @@ function getCreatedProjectFields(project: {
     'ownerUserId',
     'priority',
     'dueDate',
-    'trackerLink',
+    'references',
   ].filter((field) => {
     switch (field) {
       case 'notes':
@@ -559,8 +596,8 @@ function getCreatedProjectFields(project: {
         return project.ownerUserId !== null;
       case 'dueDate':
         return project.dueDate !== null;
-      case 'trackerLink':
-        return project.trackerLink !== null;
+      case 'references':
+        return project.references !== null;
       default:
         return true;
     }
@@ -575,7 +612,7 @@ function buildProjectAuditMetadata(
     ownerUserId: string | null;
     priority: string;
     title: string;
-    trackerLink: string | null;
+    references: string | null;
   },
   changedFields: string[] = [],
   extra: Record<string, unknown> = {},
@@ -589,7 +626,7 @@ function buildProjectAuditMetadata(
     ...(project.manualStatus !== undefined
       ? { manualStatus: project.manualStatus }
       : {}),
-    trackerLink: project.trackerLink,
+    references: project.references,
     ...(changedFields.length > 0 ? { changedFields } : {}),
     ...extra,
   };
@@ -603,7 +640,7 @@ function buildProjectAuditChanges(
     ownerUserId: string | null;
     priority: string;
     title: string;
-    trackerLink: string | null;
+    references: string | null;
   } | null,
   nextProject: {
     dueDate: Date | null;
@@ -612,7 +649,7 @@ function buildProjectAuditChanges(
     ownerUserId: string | null;
     priority: string;
     title: string;
-    trackerLink: string | null;
+    references: string | null;
   },
   changedFields: string[],
   options: {
@@ -643,7 +680,7 @@ function buildProjectAuditSnapshot(
     ownerUserId: string | null;
     priority: string;
     title: string;
-    trackerLink: string | null;
+    references: string | null;
   } | null,
   options: {
     archivedAt?: Date | null;
@@ -657,6 +694,28 @@ function buildProjectAuditSnapshot(
     ownerUserId: project?.ownerUserId ?? null,
     priority: project?.priority ?? null,
     title: project?.title ?? null,
-    trackerLink: project?.trackerLink ?? null,
+    references: project?.references ?? null,
+  };
+}
+
+function toProjectNotificationSnapshot(project: {
+  dueDate: Date | null;
+  displayStatus: ProjectStatus;
+  id: string;
+  notes: string | null;
+  ownerUserId: string | null;
+  priority: CreateProjectInput['priority'];
+  references: string | null;
+  title: string;
+}) {
+  return {
+    dueDate: toAuditDate(project.dueDate),
+    id: project.id,
+    notes: project.notes,
+    ownerUserId: project.ownerUserId,
+    priority: project.priority,
+    references: project.references,
+    status: project.displayStatus,
+    title: project.title,
   };
 }

@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  isValidElement,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appName, appRepositoryUrl, appVersion } from "@tavi/config";
 import type {
@@ -7,9 +15,13 @@ import type {
   ProjectStatus,
   TaskStatus,
 } from "@tavi/schemas";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import "./App.css";
 import {
   ApiError,
+  bulkCopyTasks,
   bulkDeleteTasks,
   bulkUpdateTasks,
   convertProjectToTask,
@@ -23,7 +35,9 @@ import {
   getAuditHistory,
   getAuditLogRetention,
   getLocalLoginHint,
+  getSmtpStatus,
   getWorkspace,
+  isApiUnavailableError,
   listAuditChanges,
   listAuditLogins,
   login,
@@ -31,6 +45,7 @@ import {
   purgeAuditLogs,
   renameSavedView,
   setAuditLogRetention,
+  updateEmailSettings,
   updateProject,
   updateSavedView,
   updateTask,
@@ -55,6 +70,7 @@ import type {
   LoginPayload,
   ProjectSortField,
   SavedView,
+  SmtpStatus,
   WorkspaceUser,
   UpdateProjectPayload,
   UpdateTaskPayload,
@@ -79,23 +95,25 @@ const PROJECT_SORT_OPTIONS: Array<{
   { label: "Progress", value: "progress" },
   { label: "Priority", value: "priority" },
   { label: "Due Date", value: "dueDate" },
+  { label: "Age", value: "age" },
+  { label: "Last Updated", value: "lastUpdated" },
 ];
 
-const TASK_STATUS_FILTER_OPTIONS: Array<{
+const PROJECT_STATUS_FILTER_OPTIONS: Array<{
   label: string;
-  value: TaskStatus;
+  value: ProjectStatus;
 }> = [
-  { label: "Todo", value: "todo" },
+  { label: "Not started", value: "not_started" },
   { label: "In progress", value: "in_progress" },
   { label: "Blocked", value: "blocked" },
+  { label: "On hold", value: "on_hold" },
   { label: "Done", value: "done" },
-  { label: "Canceled", value: "canceled" },
 ];
 
 const EMPTY_PROJECT_FORM: CreateProjectPayload = {
   title: "",
   notes: "",
-  trackerLink: "",
+  references: "",
   ownerUserId: null,
   dueDate: "",
   priority: "medium",
@@ -109,6 +127,7 @@ const EMPTY_LOGIN_FORM: LoginPayload = {
 const BRAND_MARK = "ᴛᴀᴠi";
 const EDITOR_SCROLL_TOP_MARGIN = 132;
 const EDITOR_SCROLL_BOTTOM_MARGIN = 24;
+const MAX_DISPLAY_LINK_LABEL_LENGTH = 35;
 const EDITOR_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 const ROW_EDIT_INTERACTIVE_SELECTOR =
@@ -127,7 +146,7 @@ type WorkspaceFilterState = {
   assigneeUserIds: string[];
   groupBy: GroupBy;
   sortBy: ProjectSortField[];
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
 };
 
 type WorkspaceCollapsedGroups = Partial<Record<GroupBy, Record<string, boolean>>>;
@@ -148,8 +167,10 @@ type WorkspacePreferences = {
 
 type BulkTaskDraft = {
   assigneeUserId: string;
+  copyTargetProjectId: string;
   dueDate: string;
   dueDateMode: "keep" | "set" | "clear";
+  notesMode: "keep" | "clear";
   priority: Priority | "";
   status: TaskStatus | "";
 };
@@ -169,6 +190,7 @@ const AUDIT_CHANGE_ACTION_OPTIONS = [
   { label: "Create", value: "create" },
   { label: "Update", value: "update" },
   { label: "Delete", value: "delete" },
+  { label: "Bulk copy", value: "bulk_copy" },
   { label: "Bulk update", value: "bulk_update" },
   { label: "Bulk delete", value: "bulk_delete" },
   { label: "Converted to project", value: "convert_to_project" },
@@ -196,8 +218,10 @@ const DEFAULT_AUDIT_LOG_RETENTION_WINDOW: AuditLogRetentionWindow = "one_month";
 
 const createEmptyBulkTaskDraft = (): BulkTaskDraft => ({
   assigneeUserId: "",
+  copyTargetProjectId: "",
   dueDate: "",
   dueDateMode: "keep",
+  notesMode: "keep",
   priority: "",
   status: "",
 });
@@ -223,10 +247,24 @@ const FILTER_STORAGE_KEY = "workspace.filters";
 const COLLAPSED_GROUPS_STORAGE_KEY = "workspace.collapsedGroups";
 const NOTE_EDITOR_HEIGHTS_STORAGE_KEY = "workspace.noteEditorHeights";
 const UNASSIGNED_PROJECT_TITLE = "Unassigned";
+const UNASSIGNED_FILTER_VALUE = "__unassigned__";
 const CONVERT_TASK_TO_PROJECT_VALUE = "__convert-task-to-project__";
 const NO_TASK_ASSIGNEE_LABEL = "None";
 const NO_PROJECT_OWNER_LABEL = "None";
 const NO_PROJECT_OWNER_GROUP = "No owner";
+const FIBONACCI_BACKOFF_MS = [
+  1_000, 1_000, 2_000, 3_000, 5_000, 8_000, 13_000, 21_000, 34_000, 55_000,
+] as const;
+
+function getFibonacciBackoffMs(attempt: number) {
+  if (attempt <= 1) {
+    return FIBONACCI_BACKOFF_MS[0];
+  }
+
+  return (
+    FIBONACCI_BACKOFF_MS[Math.min(attempt - 1, FIBONACCI_BACKOFF_MS.length - 1)]
+  );
+}
 
 function App() {
   const queryClient = useQueryClient();
@@ -271,6 +309,11 @@ function App() {
   const workspaceQuery = useQuery({
     queryKey: ["workspace"],
     queryFn: getWorkspace,
+    refetchInterval: (query) =>
+      isApiUnavailableError(query.state.error)
+        ? getFibonacciBackoffMs(query.state.fetchFailureCount)
+        : false,
+    refetchIntervalInBackground: true,
     retry: false,
   });
 
@@ -499,8 +542,9 @@ function WorkspaceScreen({
   );
   const effectiveAssigneeFilterUserIds = useMemo(
     () =>
-      assigneeFilterUserIds.filter((userId) =>
-        validAssigneeUserIds.has(userId),
+      assigneeFilterUserIds.filter(
+        (userId) =>
+          userId === UNASSIGNED_FILTER_VALUE || validAssigneeUserIds.has(userId),
       ),
     [assigneeFilterUserIds, validAssigneeUserIds],
   );
@@ -516,7 +560,7 @@ function WorkspaceScreen({
   const [projectDraft, setProjectDraft] = useState<UpdateProjectPayload>({
     title: "",
     notes: "",
-    trackerLink: "",
+    references: "",
     ownerUserId: null,
     dueDate: "",
     priority: "medium",
@@ -588,7 +632,7 @@ function WorkspaceScreen({
           },
     );
   };
-  const setStatusFilters = (nextStatusFilters: TaskStatus[]) => {
+  const setStatusFilters = (nextStatusFilters: ProjectStatus[]) => {
     setWorkspaceFilters((current) =>
       sameStringArray(current.statusFilters, nextStatusFilters)
         ? current
@@ -729,7 +773,7 @@ function WorkspaceScreen({
     writeTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY, noteEditorHeights);
   }, [noteEditorHeights]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editingProjectId) {
       return;
     }
@@ -737,7 +781,7 @@ function WorkspaceScreen({
     revealEditor(projectEditFormRef.current);
   }, [editingProjectId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editingTaskId) {
       return;
     }
@@ -890,7 +934,7 @@ function WorkspaceScreen({
     setProjectDraft({
       title: project.title,
       notes: project.notes ?? "",
-      trackerLink: project.trackerLink ?? "",
+      references: project.references ?? "",
       ownerUserId: project.ownerUserId,
       dueDate: toDateInput(project.dueDate),
       priority: project.priority,
@@ -1165,6 +1209,30 @@ function WorkspaceScreen({
       );
     },
   });
+  const bulkCopyTaskMutation = useMutation({
+    mutationFn: bulkCopyTasks,
+    onSuccess: async (result, variables) => {
+      const targetProject = data.projects.find(
+        (project) => project.id === variables.targetProjectId,
+      );
+
+      setBulkTaskError(null);
+      setSelectedTasks({});
+      setBulkTaskDraft(createEmptyBulkTaskDraft());
+      setWorkspaceNotice(
+        targetProject
+          ? `Copied ${result.copiedCount.toString()} task${result.copiedCount === 1 ? "" : "s"} to "${targetProject.title}".`
+          : `Copied ${result.copiedCount.toString()} task${result.copiedCount === 1 ? "" : "s"} to the selected project.`,
+      );
+      await invalidateWorkspaceAndAudit();
+    },
+    onError: (error) => {
+      setWorkspaceNotice(null);
+      setBulkTaskError(
+        error instanceof ApiError ? error.message : "Unable to copy tasks",
+      );
+    },
+  });
   const bulkDeleteTaskMutation = useMutation({
     mutationFn: bulkDeleteTasks,
     onSuccess: async (result) => {
@@ -1310,16 +1378,23 @@ function WorkspaceScreen({
     [data.users],
   );
   const assigneeFilterOptions = useMemo(
-    () => data.users.map((user) => ({ label: user.name, value: user.id })),
+    () => [
+      { label: "Unassigned", value: UNASSIGNED_FILTER_VALUE },
+      ...data.users.map((user) => ({ label: user.name, value: user.id })),
+    ],
     [data.users],
   );
   const hasBulkChanges =
     bulkTaskDraft.assigneeUserId !== "" ||
     bulkTaskDraft.dueDateMode !== "keep" ||
+    bulkTaskDraft.notesMode !== "keep" ||
     bulkTaskDraft.priority !== "" ||
     bulkTaskDraft.status !== "";
+  const hasBulkCopyTarget = bulkTaskDraft.copyTargetProjectId !== "";
   const bulkTaskActionPending =
-    bulkUpdateTaskMutation.isPending || bulkDeleteTaskMutation.isPending;
+    bulkUpdateTaskMutation.isPending ||
+    bulkCopyTaskMutation.isPending ||
+    bulkDeleteTaskMutation.isPending;
   const stickyBulkActionsVisible =
     canSelectTasks && selectedTaskItems.length > 0;
   const auditHistoryQuery = useQuery({
@@ -1448,6 +1523,24 @@ function WorkspaceScreen({
     });
   };
 
+  const copySelectedTasks = () => {
+    if (selectedTaskIds.length === 0) {
+      return;
+    }
+
+    if (!bulkTaskDraft.copyTargetProjectId) {
+      setBulkTaskError("Choose a project to copy into");
+      return;
+    }
+
+    setWorkspaceNotice(null);
+    setBulkTaskError(null);
+    bulkCopyTaskMutation.mutate({
+      targetProjectId: bulkTaskDraft.copyTargetProjectId,
+      taskIds: selectedTaskIds,
+    });
+  };
+
   return (
     <main
       className={`workspace-shell${fullWidth ? " workspace-shell--full-width" : ""}`}
@@ -1503,10 +1596,10 @@ function WorkspaceScreen({
 
             <MultiSelectFilter
               label="Status"
-              options={TASK_STATUS_FILTER_OPTIONS}
+              options={PROJECT_STATUS_FILTER_OPTIONS}
               selectedValues={statusFilters}
               onChange={(nextValues) =>
-                setStatusFilters(nextValues.filter(isTaskStatus))
+                setStatusFilters(nextValues.filter(isProjectStatus))
               }
             />
 
@@ -1744,6 +1837,16 @@ function WorkspaceScreen({
 
           {panelState.importExport ? (
             <>
+              <ExportPanel
+                assigneeUserIds={effectiveAssigneeFilterUserIds}
+                groupBy={groupBy}
+                onNotice={setWorkspaceNotice}
+                projects={orderedProjects}
+                search={search}
+                sortBy={sortBy}
+                statusFilters={statusFilters}
+              />
+
               {data.currentUser.role === "admin" ? (
                 <ImportPanel
                   isAdmin={data.currentUser.role === "admin"}
@@ -1766,16 +1869,6 @@ function WorkspaceScreen({
                   </p>
                 </section>
               )}
-
-              <ExportPanel
-                assigneeUserIds={effectiveAssigneeFilterUserIds}
-                groupBy={groupBy}
-                onNotice={setWorkspaceNotice}
-                projects={orderedProjects}
-                search={search}
-                sortBy={sortBy}
-                statusFilters={statusFilters}
-              />
             </>
           ) : null}
 
@@ -1819,17 +1912,17 @@ function WorkspaceScreen({
                   placeholder="Notes"
                   rows={2}
                 />
-                <input
-                  type="url"
-                  autoComplete="url"
-                  value={projectForm.trackerLink ?? ""}
+                <textarea
+                  value={projectForm.references ?? ""}
                   onChange={(event) =>
                     setProjectForm((current) => ({
                       ...current,
-                      trackerLink: event.target.value,
+                      references: event.target.value,
                     }))
                   }
-                  placeholder="Tracker link"
+                  className="resizable-notes"
+                  placeholder="References (one per line)"
+                  rows={2}
                 />
                 <select
                   value={projectForm.ownerUserId ?? ""}
@@ -1941,6 +2034,13 @@ function WorkspaceScreen({
               </button>
               <button
                 type="button"
+                onClick={copySelectedTasks}
+                disabled={!hasBulkCopyTarget || bulkTaskActionPending}
+              >
+                {bulkCopyTaskMutation.isPending ? "Copying..." : "Copy"}
+              </button>
+              <button
+                type="button"
                 disabled={!hasBulkChanges || bulkTaskActionPending}
                 onClick={applyBulkTaskChanges}
               >
@@ -1968,6 +2068,7 @@ function WorkspaceScreen({
                 <option value="todo">Todo</option>
                 <option value="in_progress">In progress</option>
                 <option value="blocked">Blocked</option>
+                <option value="on_hold">On hold</option>
                 <option value="done">Done</option>
                 <option value="canceled">Canceled</option>
               </select>
@@ -2027,6 +2128,44 @@ function WorkspaceScreen({
                   setBulkTaskError(null);
                 }}
               />
+            </label>
+
+            <label>
+              Notes
+              <select
+                value={bulkTaskDraft.notesMode}
+                onChange={(event) => {
+                  setBulkTaskDraft((current) => ({
+                    ...current,
+                    notesMode: event.target.value as "keep" | "clear",
+                  }));
+                  setBulkTaskError(null);
+                }}
+              >
+                <option value="keep">No change</option>
+                <option value="clear">Clear notes</option>
+              </select>
+            </label>
+
+            <label>
+              Copy to project
+              <select
+                value={bulkTaskDraft.copyTargetProjectId}
+                onChange={(event) => {
+                  setBulkTaskDraft((current) => ({
+                    ...current,
+                    copyTargetProjectId: event.target.value,
+                  }));
+                  setBulkTaskError(null);
+                }}
+              >
+                <option value="">Select project</option>
+                {data.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.title}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <div className="bulk-date-actions">
@@ -2119,8 +2258,14 @@ function WorkspaceScreen({
                   projectTaskIds.length > 0 &&
                   selectedProjectTaskCount === projectTaskIds.length;
 
+                const projectCardClassName = `project-card${
+                  expanded || editingProjectId === project.id || addTaskOpen
+                    ? ""
+                    : " project-card--collapsed"
+                }`;
+
                 return (
-                  <article className="project-card" key={project.id}>
+                  <article className={projectCardClassName} key={project.id}>
                     <div
                       className="project-row"
                       onClick={(event) => {
@@ -2149,28 +2294,42 @@ function WorkspaceScreen({
 
                       <div className="project-main">
                         <strong>{project.title}</strong>
-                        <span>{project.notes?.trim() || "No notes"}</span>
+                        <NotesMarkdown
+                          className="formatted-notes formatted-notes--project"
+                          emptyLabel="No notes"
+                          value={project.notes}
+                        />
                       </div>
 
                       <div className="project-status">
                         <span
                           className={`status-pill status-${project.displayStatus}`}
+                          title={formatProjectStatusPillLabel(
+                            project.displayStatus,
+                            project.manualStatus,
+                          )}
                         >
-                          {project.manualStatus ? "Override · " : ""}
-                          {formatStatusLabel(project.displayStatus)}
+                          {formatProjectStatusPillLabel(
+                            project.displayStatus,
+                            project.manualStatus,
+                          )}
                         </span>
                         {project.manualStatus ? (
                           <>
-                            <span className="status-note">
-                              Derived:{" "}
-                              {formatStatusLabel(project.derivedStatus)}
+                            <span
+                              className="status-note"
+                            >
+                              Derived: {formatStatusLabel(project.derivedStatus)}
                             </span>
                           </>
                         ) : null}
                       </div>
 
                       <div className="project-meta">
-                        <span>
+                        <span
+                          className="project-owner-pill"
+                          title={formatProjectOwnerLabel(project.ownerName)}
+                        >
                           {formatProjectOwnerLabel(project.ownerName)}
                         </span>
                         <span
@@ -2184,18 +2343,38 @@ function WorkspaceScreen({
                             project.taskTotalCount,
                           )}
                         </span>
-                        <span>{formatDate(project.dueDate)}</span>
-                        {project.trackerLink ? (
-                          <a
-                            className="project-tracker-link"
-                            href={project.trackerLink}
-                            rel="noopener noreferrer"
-                            target="_blank"
-                            title={project.trackerLink}
-                          >
-                            Tracker Link ↗
-                          </a>
-                        ) : null}
+                        <span className="project-due-date">
+                          {formatDate(project.dueDate)}
+                        </span>
+                        {parseProjectReferences(project.references).map(
+                          (reference, index) => {
+                            const referenceHref =
+                              toProjectReferenceHref(reference);
+                            const referenceLabel =
+                              formatProjectReferenceLabel(reference);
+
+                            return referenceHref ? (
+                              <a
+                                key={`${project.id}-reference-${index.toString()}`}
+                                className="project-reference project-reference-link"
+                                href={referenceHref}
+                                rel="noopener noreferrer"
+                                target="_blank"
+                                title={reference}
+                              >
+                                {referenceLabel} ↗
+                              </a>
+                            ) : (
+                              <span
+                                key={`${project.id}-reference-${index.toString()}`}
+                                className="project-reference project-reference-text"
+                                title={reference}
+                              >
+                                {reference}
+                              </span>
+                            );
+                          },
+                        )}
                       </div>
 
                       <div className="project-row-actions">
@@ -2331,6 +2510,7 @@ function WorkspaceScreen({
                             <option value="not_started">Not started</option>
                             <option value="in_progress">In progress</option>
                             <option value="blocked">Blocked</option>
+                            <option value="on_hold">On hold</option>
                             <option value="done">Done</option>
                           </select>
                         </div>
@@ -2374,17 +2554,17 @@ function WorkspaceScreen({
                               }))
                             }
                           />
-                          <input
-                            type="url"
-                            autoComplete="url"
-                            value={projectDraft.trackerLink ?? ""}
+                          <textarea
+                            value={projectDraft.references ?? ""}
                             onChange={(event) =>
                               setProjectDraft((current) => ({
                                 ...current,
-                                trackerLink: event.target.value,
+                                references: event.target.value,
                               }))
                             }
-                            placeholder="Tracker link"
+                            className="resizable-notes project-references-input"
+                            placeholder="References (one per line)"
+                            rows={2}
                           />
                         </div>
                         <div className="project-row-actions">
@@ -2395,6 +2575,10 @@ function WorkspaceScreen({
                             disabled={
                               !canConvertProjectToTask(project, projectDraft) ||
                               convertProjectToTaskMutation.isPending
+                            }
+                            title={
+                              projectConvertToTaskNote(project, projectDraft) ??
+                              undefined
                             }
                             onClick={() =>
                               convertProjectToTaskMutation.mutate({
@@ -2440,13 +2624,6 @@ function WorkspaceScreen({
                           </button>
                         </div>
                       </form>
-                    ) : null}
-                    {canEditWorkspace &&
-                    editingProjectId === project.id &&
-                    projectConvertToTaskNote(project, projectDraft) ? (
-                      <p className="status-note nested-note">
-                        {projectConvertToTaskNote(project, projectDraft)}
-                      </p>
                     ) : null}
                     {canEditWorkspace &&
                     editingProjectId === project.id &&
@@ -2565,6 +2742,7 @@ function WorkspaceScreen({
                                       In progress
                                     </option>
                                     <option value="blocked">Blocked</option>
+                                    <option value="on_hold">On hold</option>
                                     <option value="done">Done</option>
                                     <option value="canceled">Canceled</option>
                                   </select>
@@ -2881,6 +3059,7 @@ function TaskRow({
             <option value="todo">Todo</option>
             <option value="in_progress">In progress</option>
             <option value="blocked">Blocked</option>
+            <option value="on_hold">On hold</option>
             <option value="done">Done</option>
             <option value="canceled">Canceled</option>
           </select>
@@ -2983,7 +3162,11 @@ function TaskRow({
       ) : null}
       <td>
         <strong>{task.title}</strong>
-        <div className="task-subtext">{task.notes ?? "No notes"}</div>
+        <NotesMarkdown
+          className="formatted-notes formatted-notes--task task-subtext"
+          emptyLabel="No notes"
+          value={task.notes}
+        />
       </td>
       <td>{task.assigneeName ?? NO_TASK_ASSIGNEE_LABEL}</td>
       <td>
@@ -3051,6 +3234,57 @@ function SettingsPanel({
   const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
   const [adminAuditPanel, setAdminAuditPanel] =
     useState<AdminAuditReportType | null>(null);
+  const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+  const smtpStatusQuery = useQuery({
+    enabled: isAdmin,
+    queryFn: getSmtpStatus,
+    queryKey: ["smtp-status"],
+    staleTime: 60_000,
+  });
+  const smtpServer =
+    smtpStatusQuery.data?.host && smtpStatusQuery.data?.port != null
+      ? `${smtpStatusQuery.data.secure ? "smtps" : "smtp"}://${smtpStatusQuery.data.host}:${smtpStatusQuery.data.port}`
+      : null;
+  const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
+
+  const emailSettingsMutation = useMutation({
+    mutationFn: updateEmailSettings,
+    onMutate: async (variables) => {
+      setEmailPrefError(null);
+      const previous = queryClient.getQueryData<SmtpStatus>(["smtp-status"]);
+      queryClient.setQueryData<SmtpStatus>(["smtp-status"], (current) =>
+        current
+          ? {
+              ...current,
+              enabled: variables.enabled,
+            }
+          : current,
+      );
+      return { previous };
+    },
+    onSuccess: (status) => {
+      queryClient.setQueryData(["smtp-status"], status);
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["smtp-status"], context.previous);
+      }
+      setEmailPrefError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update email notifications.",
+      );
+    },
+  });
+  const toggleEmailNotifications = () => {
+    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+      return;
+    }
+
+    emailSettingsMutation.mutate({ enabled: !smtpStatusQuery.data.enabled });
+  };
 
   return (
     <section className="workspace-panel-card">
@@ -3061,6 +3295,27 @@ function SettingsPanel({
             Browser-local preferences, audit access, and local account entry
             points.
           </span>
+        </div>
+        <div className="settings-version">
+          <div className="settings-version-row">
+            <span>{`${appName} v${appVersion}`}</span>
+            <a
+              className="settings-link"
+              href={appRepositoryUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              github
+            </a>
+          </div>
+          {isAdmin && smtpServer ? (
+            <span className="settings-version-detail">{smtpServer}</span>
+          ) : null}
+          {isAdmin && smtpStatusQuery.data?.fromAddress ? (
+            <span className="settings-version-detail">
+              {smtpStatusQuery.data.fromAddress}
+            </span>
+          ) : null}
         </div>
       </header>
 
@@ -3177,18 +3432,37 @@ function SettingsPanel({
           </label>
         </div>
 
-        <div className="settings-item">
-          <span className="settings-label">Version</span>
-          <strong>{`${appName} v${appVersion}`}</strong>
-          <a
-            className="settings-link"
-            href={appRepositoryUrl}
-            rel="noreferrer"
-            target="_blank"
+        {isAdmin ? (
+          <div
+            className="settings-item settings-item-toggle"
+            onClick={toggleEmailNotifications}
           >
-            github
-          </a>
-        </div>
+            <div className="settings-item-header">
+              <strong>Email Notifications</strong>
+              <span>{emailEnabled ? "On" : "Off"}</span>
+            </div>
+            <p className="toolbar-hint">
+              Enable or disable all Tavi email delivery for every user.
+            </p>
+            {emailPrefError ? (
+              <p className="error-banner">{emailPrefError}</p>
+            ) : null}
+            <label
+              className="settings-switch"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className="settings-switch-label">Email Notifications</span>
+              <input
+                aria-label="Email Notifications"
+                checked={emailEnabled}
+                className="settings-switch-input"
+                onChange={toggleEmailNotifications}
+                role="switch"
+                type="checkbox"
+              />
+            </label>
+          </div>
+        ) : null}
 
         <div className="settings-item">
           <div className="settings-item-header">
@@ -3301,11 +3575,13 @@ function SettingsPanel({
       {localAccountsOpen ? (
         <LocalAccountsPanel
           currentUser={currentUser}
-          isAdmin={isAdmin}
-          onClose={() => setLocalAccountsOpen(false)}
-          onNotice={onNotice}
-        />
-      ) : null}
+              isAdmin={isAdmin}
+              onClose={() => setLocalAccountsOpen(false)}
+              onNotice={onNotice}
+              emailEnabled={smtpStatusQuery.data?.enabled ?? true}
+              smtpConfigured={smtpStatusQuery.data?.configured ?? false}
+            />
+          ) : null}
 
       {isAdmin && adminAuditPanel ? (
         <AdminAuditReportPanel
@@ -3802,6 +4078,7 @@ function buildBulkTaskPayload(draft: BulkTaskDraft) {
     ...(draft.assigneeUserId ? { assigneeUserId: draft.assigneeUserId } : {}),
     ...(draft.priority ? { priority: draft.priority } : {}),
     ...(draft.status ? { status: draft.status } : {}),
+    ...(draft.notesMode === "clear" ? { notes: null } : {}),
     ...(draft.dueDateMode === "set"
       ? { dueDate: draft.dueDate }
       : draft.dueDateMode === "clear"
@@ -3886,10 +4163,11 @@ function summarizeAuditMetadata(
     isProjectSortField,
   );
   const statusFilters = readMetadataStringArray(metadata.statusFilters).filter(
-    isTaskStatus,
+    isProjectStatus,
   );
   const assigneeUserIds = readMetadataStringArray(metadata.assigneeUserIds);
   const role = readMetadataString(metadata.role);
+  const copiedFromProjectTitle = readMetadataString(metadata.copiedFromProjectTitle);
   const ownerUserId =
     "ownerUserId" in metadata
       ? readMetadataNullableString(metadata.ownerUserId)
@@ -3899,6 +4177,10 @@ function summarizeAuditMetadata(
     summary.push(title);
   } else if (name) {
     summary.push(name);
+  }
+
+  if (copiedFromProjectTitle) {
+    summary.push(`Copied from project ${copiedFromProjectTitle}`);
   }
 
   if (changedFields.length > 0) {
@@ -4178,6 +4460,8 @@ function readMetadataStringArray(value: unknown) {
 
 function formatAuditActionLabel(action: string) {
   switch (action) {
+    case "bulk_copy":
+      return "bulk copy";
     case "bulk_delete":
       return "bulk delete";
     case "bulk_update":
@@ -4237,7 +4521,8 @@ function formatAuditField(value: string) {
     case "ownerUserId":
       return "owner";
     case "trackerLink":
-      return "tracker link";
+    case "references":
+      return "references";
     case "assigneeUserIds":
       return "assignee filter";
     case "statusFilter":
@@ -4275,28 +4560,36 @@ function filterProjects({
   assigneeUserIds: string[];
   projects: WorkspaceProject[];
   search: string;
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
 }) {
   const normalizedSearch = search.trim().toLowerCase();
-  const hasTaskFilters = statusFilters.length > 0 || assigneeUserIds.length > 0;
+  const hasAssigneeFilter = assigneeUserIds.length > 0;
 
   return projects.flatMap((project) => {
-    const tasksAfterFilters = project.tasks.filter((task) => {
-      const matchesStatus =
-        statusFilters.length === 0 || statusFilters.includes(task.status);
-      const matchesAssignee =
-        assigneeUserIds.length === 0 ||
-        (task.assigneeUserId !== null &&
-          assigneeUserIds.includes(task.assigneeUserId));
-
-      return matchesStatus && matchesAssignee;
-    });
-
-    if (hasTaskFilters && tasksAfterFilters.length === 0) {
+    if (
+      statusFilters.length > 0 &&
+      !statusFilters.includes(project.displayStatus)
+    ) {
       return [];
     }
 
-    const candidateTasks = hasTaskFilters ? tasksAfterFilters : project.tasks;
+    const tasksAfterAssigneeFilter = project.tasks.filter((task) => {
+      const matchesAssignee =
+        assigneeUserIds.length === 0 ||
+        (task.assigneeUserId === null
+          ? assigneeUserIds.includes(UNASSIGNED_FILTER_VALUE)
+          : assigneeUserIds.includes(task.assigneeUserId));
+
+      return matchesAssignee;
+    });
+
+    if (hasAssigneeFilter && tasksAfterAssigneeFilter.length === 0) {
+      return [];
+    }
+
+    const candidateTasks = hasAssigneeFilter
+      ? tasksAfterAssigneeFilter
+      : project.tasks;
 
     if (!normalizedSearch) {
       return [{ ...project, tasks: candidateTasks }];
@@ -4304,7 +4597,7 @@ function filterProjects({
 
     const projectMatchesSearch =
       project.title.toLowerCase().includes(normalizedSearch) ||
-      (project.trackerLink ?? "").toLowerCase().includes(normalizedSearch) ||
+      (project.references ?? "").toLowerCase().includes(normalizedSearch) ||
       (project.notes ?? "").toLowerCase().includes(normalizedSearch);
     const matchingTasks = candidateTasks.filter(
       (task) =>
@@ -4406,6 +4699,16 @@ function compareProjectsByField(
   switch (field) {
     case "dueDate":
       return compareNullableDateValues(left.dueDate, right.dueDate);
+    case "age":
+      return compareNullableDateValues(
+        left.createdAt ?? null,
+        right.createdAt ?? null,
+      );
+    case "lastUpdated":
+      return compareNullableDateValues(
+        latestProjectActivity(right),
+        latestProjectActivity(left),
+      );
     case "priority":
       return prioritySortRank(left.priority) - prioritySortRank(right.priority);
     case "progress":
@@ -4431,6 +4734,19 @@ function compareNullableDateValues(left: string | null, right: string | null) {
   }
 
   return left.localeCompare(right);
+}
+
+function latestProjectActivity(project: WorkspaceProject) {
+  return project.tasks.reduce<string | null>(
+    (latest, task) => {
+      const taskUpdatedAt = task.updatedAt ?? null;
+
+      return compareNullableDateValues(taskUpdatedAt, latest) > 0
+        ? taskUpdatedAt
+        : latest;
+    },
+    project.updatedAt ?? null,
+  );
 }
 
 function prioritySortRank(value: Priority) {
@@ -4473,17 +4789,63 @@ function defaultTaskPayload(currentUserId: string): CreateTaskPayload {
   };
 }
 
+function NotesMarkdown({
+  className,
+  emptyLabel,
+  value,
+}: {
+  className?: string;
+  emptyLabel: string;
+  value: string | null | undefined;
+}) {
+  const normalizedValue = normalizeMarkdownDisplayValue(value);
+
+  if (!normalizedValue) {
+    return <div className={className}>{emptyLabel}</div>;
+  }
+
+  return (
+    <div className={className}>
+      <ReactMarkdown
+        components={{
+          a: ({ href, children }) => {
+            const externalHref = isExternalHref(href);
+            const displayChildren =
+              externalHref && typeof href === "string"
+                ? formatMarkdownLinkChildren(href, children)
+                : children;
+
+            return (
+              <a
+                href={href}
+                rel={externalHref ? "noopener noreferrer" : undefined}
+                target={externalHref ? "_blank" : undefined}
+                title={externalHref ? href : undefined}
+              >
+                {displayChildren}
+              </a>
+            );
+          },
+        }}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+      >
+        {normalizedValue}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function normalizeCreateProjectPayload(
   project: CreateProjectPayload,
 ): CreateProjectPayload {
   const trimmedNotes = project.notes.trim();
-  const trimmedTrackerLink = project.trackerLink.trim();
+  const normalizedReferences = normalizeProjectReferences(project.references);
 
   return {
     ...project,
     notes: trimmedNotes,
     ownerUserId: project.ownerUserId === "" ? null : project.ownerUserId,
-    trackerLink: trimmedTrackerLink,
+    references: normalizedReferences,
   };
 }
 
@@ -4491,7 +4853,9 @@ function normalizeProjectDraftPayload(
   projectDraft: UpdateProjectPayload,
 ): UpdateProjectPayload {
   const trimmedNotes = projectDraft.notes?.trim() ?? "";
-  const trimmedTrackerLink = projectDraft.trackerLink?.trim() ?? "";
+  const normalizedReferences = normalizeProjectReferences(
+    projectDraft.references ?? "",
+  );
 
   return {
     ...projectDraft,
@@ -4506,8 +4870,135 @@ function normalizeProjectDraftPayload(
         : projectDraft.ownerUserId === ""
           ? null
           : projectDraft.ownerUserId,
-    trackerLink: trimmedTrackerLink ? trimmedTrackerLink : null,
+    references: normalizedReferences ? normalizedReferences : null,
   };
+}
+
+function normalizeProjectReferences(value: string) {
+  return parseProjectReferences(value).join("\n");
+}
+
+function normalizeMarkdownDisplayValue(value: string | null | undefined) {
+  const trimmedValue = value?.trim();
+
+  return trimmedValue ? trimmedValue.replace(/\r\n?/gu, "\n") : null;
+}
+
+function parseProjectReferences(value: string | null) {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(/\r?\n/u)
+    .map((reference) => reference.trim())
+    .filter((reference) => reference.length > 0);
+}
+
+function toProjectReferenceHref(reference: string) {
+  if (!/^https?:\/\//i.test(reference)) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(reference);
+
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? reference
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatProjectReferenceLabel(reference: string) {
+  const referenceHref = toProjectReferenceHref(reference);
+
+  if (!referenceHref) {
+    return truncateDisplayLinkLabel(reference);
+  }
+
+  const fileName = extractUrlFilename(referenceHref);
+
+  if (fileName) {
+    return truncateDisplayLinkLabel(fileName);
+  }
+
+  const parsed = new URL(referenceHref);
+  const normalizedPath = parsed.pathname.replace(/\/+$/u, "");
+
+  return truncateDisplayLinkLabel(
+    normalizedPath ? `${parsed.host}${normalizedPath}` : parsed.host,
+  );
+}
+
+function isExternalHref(value: string | undefined) {
+  return typeof value === "string" && /^https?:\/\//iu.test(value);
+}
+
+function formatMarkdownLinkChildren(href: string, children: ReactNode) {
+  const childText = flattenTextContent(children);
+
+  if (childText !== href) {
+    return children;
+  }
+
+  return truncateDisplayLinkLabel(extractUrlFilename(href) ?? childText);
+}
+
+function flattenTextContent(value: ReactNode): string {
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => flattenTextContent(item)).join("");
+  }
+
+  if (isValidElement<{ children?: ReactNode }>(value)) {
+    return flattenTextContent(value.props.children);
+  }
+
+  return "";
+}
+
+function extractUrlFilename(value: string) {
+  if (!isExternalHref(value)) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    const normalizedPath = parsed.pathname.replace(/\/+$/u, "");
+    const segments = normalizedPath.split("/").filter((segment) => segment.length > 0);
+    const lastSegment = segments.at(-1);
+
+    if (!lastSegment) {
+      return null;
+    }
+
+    const decodedSegment = decodeUrlPathSegment(lastSegment);
+
+    return /^[^./][^/]*\.[^./]+$/u.test(decodedSegment) ? decodedSegment : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeUrlPathSegment(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function truncateDisplayLinkLabel(value: string) {
+  if (value.length <= MAX_DISPLAY_LINK_LABEL_LENGTH) {
+    return value;
+  }
+
+  return `${value.slice(0, MAX_DISPLAY_LINK_LABEL_LENGTH - 3)}...`;
 }
 
 function normalizeTaskDraftPayload(
@@ -4529,6 +5020,13 @@ function normalizeTaskDraftPayload(
 
 function formatProjectOwnerLabel(ownerName: string | null) {
   return ownerName ?? NO_PROJECT_OWNER_LABEL;
+}
+
+function formatProjectStatusPillLabel(
+  status: ProjectStatus,
+  manualStatus: ProjectStatus | null,
+) {
+  return `${manualStatus ? "Override · " : ""}${formatStatusLabel(status)}`;
 }
 
 function formatProjectOwnerGroupLabel(ownerName: string | null) {
@@ -4576,7 +5074,7 @@ function buildSavedViewPayload({
   groupBy: GroupBy;
   search: string;
   sortBy: ProjectSortField[];
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
   collapsedGroups: Record<string, boolean>;
   expandedProjects: Record<string, boolean>;
 }) {
@@ -4614,6 +5112,10 @@ function formatProjectSortFieldLabel(value: ProjectSortField) {
   switch (value) {
     case "dueDate":
       return "Due date";
+    case "age":
+      return "Age";
+    case "lastUpdated":
+      return "Last updated";
     case "progress":
       return "Progress";
     case "priority":
@@ -4655,7 +5157,7 @@ function normalizeWorkspaceFilterState(
     groupBy: isGroupBy(value.groupBy) ? value.groupBy : "owner",
     sortBy: normalizeProjectSortBy(value.sortBy ?? []),
     statusFilters: uniqueStringArray(
-      (value.statusFilters ?? []).filter(isTaskStatus),
+      (value.statusFilters ?? []).filter(isProjectStatus),
     ),
   };
 }
@@ -4830,8 +5332,8 @@ function isProjectSortField(value: string): value is ProjectSortField {
   return PROJECT_SORT_OPTIONS.some((option) => option.value === value);
 }
 
-function isTaskStatus(value: string): value is TaskStatus {
-  return TASK_STATUS_FILTER_OPTIONS.some((option) => option.value === value);
+function isProjectStatus(value: string): value is ProjectStatus {
+  return PROJECT_STATUS_FILTER_OPTIONS.some((option) => option.value === value);
 }
 
 type WorkspaceMenuOption<Value extends string> = {

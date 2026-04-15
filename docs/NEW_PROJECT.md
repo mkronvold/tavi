@@ -7,7 +7,7 @@ Use the `New Project` panel when you need to add work without leaving the worksp
 1. Open `New Project`.
 2. Enter the project title.
 3. Add notes if the project needs extra context in the workspace row.
-4. Add a tracker link if you want a quick jump back to a source system or reference page.
+4. Add one or more references if you want quick jumps back to source systems or visible text notes on the project row.
 5. Choose the owner.
 6. Set priority and due date.
 7. Select `Add project`.
@@ -18,7 +18,7 @@ Use the `New Project` panel when you need to add work without leaving the worksp
 | --- | --- |
 | Title | Required. Keep it specific enough to survive regrouping and export |
 | Notes | Optional context shown directly under the project title and available during inline editing |
-| Tracker link | Optional URL shown as a row shortcut after save |
+| References | Optional newline-delimited links or reference text. URL lines show as shortened row shortcuts; plain-text lines stay visible as project metadata |
 | Owner | Primary project owner shown in grouping and rollups |
 | Priority | `Low`, `Medium`, or `High` |
 | Due date | Optional calendar target for the project |

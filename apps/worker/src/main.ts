@@ -1,6 +1,7 @@
 import { defaultPorts } from "@tavi/config";
 import { PrismaClient } from "@prisma/client";
 import { LoopImportWorker } from "./loop-import-worker.js";
+import { NotificationWorker } from "./notification-worker.js";
 import { WorkerObservability } from "./worker-observability.js";
 
 const prisma = new PrismaClient();
@@ -8,6 +9,7 @@ const port = Number(process.env.PORT ?? defaultPorts.worker);
 const controller = new AbortController();
 const observability = new WorkerObservability(port);
 const worker = new LoopImportWorker(prisma, observability);
+const notificationWorker = new NotificationWorker(prisma, observability);
 
 const shutdown = (signal: string) => {
   if (controller.signal.aborted) {
@@ -33,7 +35,10 @@ void (async () => {
     await prisma.$connect();
     observability.markReady(true);
     observability.logger.info("worker.ready", { port });
-    await worker.run(controller.signal);
+    await Promise.all([
+      worker.run(controller.signal),
+      notificationWorker.run(controller.signal),
+    ]);
     observability.logger.info("worker.stopped");
   } catch (error) {
     process.exitCode = 1;

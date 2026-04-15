@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   CreateSavedViewInput,
+  ProjectStatus,
   RenameSavedViewInput,
   UpdateSavedViewInput,
 } from '@tavi/schemas';
@@ -254,14 +255,16 @@ function sameStringArray(left: string[], right: string[]) {
   );
 }
 
-function normalizeLegacyStatusFilter(statusFilter: string | null) {
+function normalizeLegacyStatusFilter(statusFilter: string | null): ProjectStatus[] {
   switch (statusFilter) {
     case 'not_started':
-      return ['todo'];
+      return ['not_started'];
     case 'in_progress':
       return ['in_progress'];
     case 'blocked':
       return ['blocked'];
+    case 'on_hold':
+      return ['on_hold'];
     case 'done':
       return ['done'];
     default:
@@ -277,7 +280,7 @@ function toSavedViewLayoutState(
     sortBy?: CreateSavedViewInput['sortBy'];
     assigneeUserIds?: string[];
     statusFilter?: string | null;
-    statusFilters?: string[];
+    statusFilters?: ProjectStatus[];
   },
 ) {
   return parseSavedViewLayoutState(

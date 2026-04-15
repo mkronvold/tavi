@@ -21,6 +21,7 @@ import { Role } from '@prisma/client';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
 import { DEFAULT_LOCAL_USERS } from './default-local-users';
+import { EmailService } from './email.service';
 import { PrismaService } from './prisma.service';
 
 type LocalAccountRecord = {
@@ -47,6 +48,7 @@ export class LocalAccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
+    private readonly emailService: EmailService,
   ) {}
 
   async listAccounts(actor: SessionUser): Promise<LocalAccount[]> {
@@ -414,6 +416,13 @@ export class LocalAccountsService {
       return user;
     });
 
+    if (input.sendEmail) {
+      await this.emailService.sendPasswordEmail(
+        { email: created.email, name: created.name },
+        input.password,
+      );
+    }
+
     return this.toLocalAccount(created);
   }
 
@@ -421,7 +430,7 @@ export class LocalAccountsService {
     userId: string,
     input: UpdateLocalAccountInput,
     actor: SessionUser,
-  ): Promise<LocalAccount> {
+  ): Promise<{ account: LocalAccount; notificationEmailSent: boolean }> {
     this.authService.requireLocalAuthMode();
     this.authService.requireAdminAccess(
       actor,
@@ -453,7 +462,10 @@ export class LocalAccountsService {
     }
 
     if (changedFields.length === 0) {
-      return this.toLocalAccount(existing);
+      return {
+        account: this.toLocalAccount(existing),
+        notificationEmailSent: false,
+      };
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -496,7 +508,16 @@ export class LocalAccountsService {
       return user;
     });
 
-    return this.toLocalAccount(updated);
+    const notificationEmailSent =
+      await this.emailService.sendAccountUpdateEmail(
+        { email: updated.email, name: updated.name },
+        changedFields,
+      );
+
+    return {
+      account: this.toLocalAccount(updated),
+      notificationEmailSent,
+    };
   }
 
   async deleteAccount(
@@ -599,6 +620,18 @@ export class LocalAccountsService {
     await this.updatePassword(userId, input.password, actor, 'password_set', {
       scope: 'admin',
     });
+
+    if (input.sendEmail) {
+      const user = await this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { email: true, name: true },
+      });
+
+      await this.emailService.sendPasswordEmail(
+        { email: user.email, name: user.name },
+        input.password,
+      );
+    }
   }
 
   async setOwnPassword(input: SetOwnPasswordInput, actor: SessionUser) {

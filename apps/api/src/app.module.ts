@@ -5,10 +5,12 @@ import { AuditController } from './audit.controller';
 import { AuditService } from './audit.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { EmailService } from './email.service';
 import { HealthController } from './health.controller';
 import { ImportsController } from './imports.controller';
 import { MetricsController } from './metrics.controller';
 import { ImportsService } from './imports.service';
+import { NotificationEventsService } from './notification-events.service';
 import { LocalAccountsController } from './local-accounts.controller';
 import { LocalAccountsService } from './local-accounts.service';
 import { PrismaService } from './prisma.service';
@@ -41,9 +43,11 @@ import { WorkspaceService } from './workspace.service';
     AppLogger,
     AuditService,
     AuthService,
+    EmailService,
     PrismaService,
     ImportsService,
     LocalAccountsService,
+    NotificationEventsService,
     ProjectsService,
     SavedViewsService,
     SessionGuard,

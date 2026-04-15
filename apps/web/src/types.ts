@@ -19,6 +19,7 @@ import type {
   TaskStatus,
   UpdateLocalAccountInput,
   UpdateLoopImportRowDecisionsInput,
+  UpdateEmailSettingsInput,
 } from "@tavi/schemas";
 
 export type {
@@ -33,6 +34,7 @@ export type {
   DeleteLocalAccountResponse,
   DeleteProjectResponse,
   DeleteTaskResponse,
+  EmailSettings,
   ExportLocalAccountsResponse,
   GroupBy,
   ImportLocalAccountsResponse,
@@ -55,6 +57,7 @@ export type {
   Role,
   ResetDefaultLocalAccountsResponse,
   SetAuditLogRetentionInput as SetAuditLogRetentionPayload,
+  SmtpStatus,
   SuccessResponse,
   TaskStatus,
 } from "@tavi/schemas";
@@ -78,13 +81,15 @@ export type WorkspaceTask = {
   status: TaskStatus;
   sortOrder: number;
   completedAt: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type WorkspaceProject = {
   id: string;
   title: string;
   notes: string | null;
-  trackerLink: string | null;
+  references: string | null;
   ownerUserId: string | null;
   ownerName: string | null;
   dueDate: string | null;
@@ -99,6 +104,8 @@ export type WorkspaceProject = {
   taskDoneCount: number;
   taskCanceledCount: number;
   taskOverdueCount: number;
+  createdAt?: string;
+  updatedAt?: string;
   tasks: WorkspaceTask[];
 };
 
@@ -108,7 +115,7 @@ export type SavedView = {
   groupBy: GroupBy;
   search: string;
   sortBy: ProjectSortField[];
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
   assigneeUserIds: string[];
   collapsedGroupKeys: string[];
   expandedProjectIds: string[];
@@ -160,7 +167,7 @@ export type ResetWorkspaceExamplesPayload = ResetWorkspaceExamplesInput;
 export type CreateProjectPayload = {
   title: string;
   notes: string;
-  trackerLink: string;
+  references: string;
   ownerUserId: string | null;
   dueDate: string;
   priority: Priority;
@@ -168,11 +175,11 @@ export type CreateProjectPayload = {
 
 export type UpdateProjectPayload = Omit<
   Partial<CreateProjectPayload>,
-  "notes" | "trackerLink"
+  "notes" | "references"
 > & {
   manualStatus?: ProjectStatus | null;
   notes?: string | null;
-  trackerLink?: string | null;
+  references?: string | null;
 };
 
 export type CreateTaskPayload = {
@@ -197,6 +204,7 @@ export type BulkUpdateTasksPayload = {
   taskIds: string[];
   assigneeUserId?: string;
   dueDate?: string | null;
+  notes?: string | null;
   priority?: Priority;
   status?: TaskStatus;
 };
@@ -205,12 +213,17 @@ export type BulkDeleteTasksPayload = {
   taskIds: string[];
 };
 
+export type BulkCopyTasksPayload = {
+  targetProjectId: string;
+  taskIds: string[];
+};
+
 export type SavedViewPayload = {
   name: string;
   groupBy: GroupBy;
   search: string;
   sortBy: ProjectSortField[];
-  statusFilters: TaskStatus[];
+  statusFilters: ProjectStatus[];
   assigneeUserIds: string[];
   collapsedGroupKeys: string[];
   expandedProjectIds: string[];
@@ -333,3 +346,5 @@ export type UpdateLoopImportMappingPayload = {
 
 export type UpdateLoopImportRowDecisionsPayload =
   UpdateLoopImportRowDecisionsInput;
+
+export type UpdateEmailSettingsPayload = UpdateEmailSettingsInput;

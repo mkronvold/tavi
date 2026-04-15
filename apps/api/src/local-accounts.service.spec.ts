@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
 import { DEFAULT_LOCAL_USERS } from './default-local-users';
+import { EmailService } from './email.service';
 import { LocalAccountsService } from './local-accounts.service';
 import { PrismaService } from './prisma.service';
 
@@ -139,6 +140,12 @@ describe('LocalAccountsService', () => {
       },
     } as unknown as PrismaService;
     const authService = new AuthService(prisma);
+    const sendAccountUpdateEmailMock = jest.fn(() => Promise.resolve(false));
+    const sendPasswordEmailMock = jest.fn(() => Promise.resolve());
+    const emailService = {
+      sendAccountUpdateEmail: sendAccountUpdateEmailMock,
+      sendPasswordEmail: sendPasswordEmailMock,
+    } as unknown as EmailService;
 
     return {
       mocks: {
@@ -148,13 +155,15 @@ describe('LocalAccountsService', () => {
         deleteUserMock,
         findManyUsersMock,
         findUniqueUserMock,
+        sendAccountUpdateEmailMock,
+        sendPasswordEmailMock,
         transactionMock,
         tx,
         updateManyProjectMock,
         updateManyTaskMock,
         updateUserMock,
       },
-      service: new LocalAccountsService(prisma, authService),
+      service: new LocalAccountsService(prisma, authService, emailService),
     };
   };
 
@@ -647,6 +656,7 @@ describe('LocalAccountsService', () => {
     mocks.findUniqueUserMock
       .mockResolvedValueOnce(existing)
       .mockResolvedValueOnce(null);
+    mocks.sendAccountUpdateEmailMock.mockResolvedValue(true);
     mocks.updateUserMock.mockResolvedValue(
       createUserFixture({
         ...existing,
@@ -687,7 +697,15 @@ describe('LocalAccountsService', () => {
       include: { roleAssignment: true },
     });
     expect(mocks.createAuditEventTxMock).toHaveBeenCalledTimes(1);
-    expect(result.role).toBe('viewer');
+    expect(mocks.sendAccountUpdateEmailMock).toHaveBeenCalledWith(
+      {
+        email: 'editor.renamed@tavi.local',
+        name: 'Updated Editor',
+      },
+      ['email', 'name', 'role'],
+    );
+    expect(result.account.role).toBe('viewer');
+    expect(result.notificationEmailSent).toBe(true);
   });
 
   it('prevents demoting the last admin account', async () => {

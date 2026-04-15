@@ -1,5 +1,6 @@
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import { NotificationEventsService } from './notification-events.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsService } from './projects.service';
 import { TasksService } from './tasks.service';
@@ -20,6 +21,9 @@ describe('TasksService', () => {
   type CreateProjectCall = {
     data: Record<string, unknown>;
   };
+  type CreateTaskCall = {
+    data: Record<string, unknown>;
+  };
   type UpdateTaskCall = {
     data: Record<string, unknown>;
     where: { id: string };
@@ -36,21 +40,24 @@ describe('TasksService', () => {
     const createProjectMock: jest.MockedFunction<
       (args: CreateProjectCall) => Promise<unknown>
     > = jest.fn();
+    const createTaskMock: jest.MockedFunction<
+      (args: CreateTaskCall) => Promise<unknown>
+    > = jest.fn();
     const findManyMock = jest.fn();
     const findFirstTaskMock = jest.fn();
     const findUniqueProjectMock = jest.fn();
     const findUniqueTaskMock = jest.fn();
-    const updateSingleTaskMock: jest.MockedFunction<
-      (args: UpdateTaskCall) => Promise<unknown>
-    > = jest.fn();
     const updateTaskMock: jest.MockedFunction<
       (args: UpdateTaskCall) => Promise<unknown>
     > = jest.fn();
+    const updateSingleTaskMock = updateTaskMock;
     const tx = {
       project: {
         create: createProjectMock,
       },
       task: {
+        create: createTaskMock,
+        findFirst: findFirstTaskMock,
         update: updateTaskMock,
       },
     };
@@ -74,7 +81,7 @@ describe('TasksService', () => {
         findFirst: findFirstTaskMock,
         findMany: findManyMock,
         findUnique: findUniqueTaskMock,
-        update: updateSingleTaskMock,
+        update: updateTaskMock,
       },
       $transaction: transactionMock,
     } as unknown as PrismaService;
@@ -82,6 +89,9 @@ describe('TasksService', () => {
       requireEditAccess: requireEditAccessMock,
       recordAudit: recordAuditMock,
     } as unknown as AuthService;
+    const notificationEventsService = {
+      queueTaskChange: jest.fn(() => Promise.resolve()),
+    } as unknown as NotificationEventsService;
     const projectsService = {
       recalculateProject: recalculateProjectMock,
     } as unknown as ProjectsService;
@@ -93,6 +103,7 @@ describe('TasksService', () => {
         findUniqueProjectMock,
         findUniqueTaskMock,
         createProjectMock,
+        createTaskMock,
         recalculateProjectMock,
         recordAuditCalls,
         recordAuditMock,
@@ -102,7 +113,12 @@ describe('TasksService', () => {
         updateSingleTaskMock,
         updateTaskMock,
       },
-      service: new TasksService(prisma, authService, projectsService),
+      service: new TasksService(
+        prisma,
+        authService,
+        notificationEventsService,
+        projectsService,
+      ),
     };
   };
 
@@ -324,6 +340,149 @@ describe('TasksService', () => {
     });
   });
 
+  it('bulk copies tasks into another project in the selected order and recalculates the target project', async () => {
+    const { mocks, service } = createService();
+    const completedAt = new Date('2026-02-03T09:30:00.000Z');
+
+    mocks.findUniqueProjectMock.mockResolvedValue({
+      id: 'project-2',
+      archivedAt: null,
+      title: 'Operations uplift',
+    });
+    mocks.findManyMock.mockResolvedValue([
+      {
+        id: 'task-1',
+        projectId: 'project-1',
+        title: 'Done task',
+        notes: 'Keep evidence',
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'high',
+        status: 'done',
+        completedAt,
+        project: {
+          title: 'Roadmap refresh',
+        },
+      },
+      {
+        id: 'task-2',
+        projectId: 'project-1',
+        title: 'Todo task',
+        notes: null,
+        assigneeUserId: 'user-2',
+        dueDate: null,
+        priority: 'medium',
+        status: 'todo',
+        completedAt: null,
+        project: {
+          title: 'Roadmap refresh',
+        },
+      },
+    ]);
+    mocks.findFirstTaskMock.mockResolvedValue({
+      sortOrder: 4,
+    });
+    mocks.createTaskMock
+      .mockResolvedValueOnce({
+        id: 'copy-2',
+        projectId: 'project-2',
+        title: 'Todo task',
+        notes: null,
+        assigneeUserId: 'user-2',
+        dueDate: null,
+        priority: 'medium',
+        status: 'todo',
+        completedAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'copy-1',
+        projectId: 'project-2',
+        title: 'Done task',
+        notes: 'Keep evidence',
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'high',
+        status: 'done',
+        completedAt,
+      });
+
+    const result = await service.bulkCopyTasks(
+      {
+        taskIds: ['task-2', 'task-1'],
+        targetProjectId: 'project-2',
+      },
+      actor,
+    );
+
+    expect(mocks.requireEditAccessMock).toHaveBeenCalledWith(actor);
+    expect(mocks.findFirstTaskMock).toHaveBeenCalledWith({
+      where: { projectId: 'project-2' },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
+    expect(mocks.createTaskMock).toHaveBeenNthCalledWith(1, {
+      data: {
+        projectId: 'project-2',
+        title: 'Todo task',
+        notes: null,
+        assigneeUserId: 'user-2',
+        dueDate: null,
+        priority: 'medium',
+        status: 'todo',
+        sortOrder: 5,
+        completedAt: null,
+      },
+    });
+    expect(mocks.createTaskMock).toHaveBeenNthCalledWith(2, {
+      data: {
+        projectId: 'project-2',
+        title: 'Done task',
+        notes: 'Keep evidence',
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'high',
+        status: 'done',
+        sortOrder: 6,
+        completedAt,
+      },
+    });
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledTimes(1);
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith(
+      'project-2',
+      mocks.tx,
+    );
+
+    const firstAuditCall = mocks.recordAuditCalls[0];
+    const firstAuditMetadata = firstAuditCall[4] ?? {};
+    const firstAuditChangedFields = Array.isArray(
+      firstAuditMetadata['changedFields'],
+    )
+      ? firstAuditMetadata['changedFields'].filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [];
+
+    expect(firstAuditCall[3]).toBe('bulk_copy');
+    expect(firstAuditChangedFields).toEqual(
+      expect.arrayContaining([
+        'projectId',
+        'title',
+        'assigneeUserId',
+        'priority',
+        'status',
+      ]),
+    );
+    expect(firstAuditMetadata['copiedFromProjectTitle']).toBe(
+      'Roadmap refresh',
+    );
+    expect(firstAuditMetadata['selectionSize']).toBe(2);
+    expect(result).toEqual({
+      copiedCount: 2,
+      copiedTaskIds: ['copy-2', 'copy-1'],
+      targetProjectId: 'project-2',
+    });
+  });
+
   it('updates only the selected tasks that actually change', async () => {
     const { mocks, service } = createService();
     const existingTasks: TaskFixture[] = [
@@ -442,6 +601,52 @@ describe('TasksService', () => {
     expect(changedFields).toEqual(['status', 'completedAt']);
   });
 
+  it('clears task notes through bulk updates when requested', async () => {
+    const { mocks, service } = createService();
+    const existingTasks: TaskFixture[] = [
+      {
+        id: 'task-1',
+        projectId: 'project-1',
+        title: 'Document rollout',
+        notes: 'Confirm with the platform team',
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        status: 'todo',
+        completedAt: null,
+      },
+    ];
+
+    mocks.findManyMock.mockResolvedValue(existingTasks);
+    mocks.updateTaskMock.mockResolvedValueOnce({
+      ...existingTasks[0],
+      notes: null,
+    });
+
+    const result = await service.bulkUpdateTasks(
+      {
+        taskIds: ['task-1'],
+        notes: null,
+      },
+      actor,
+    );
+
+    const updateCall = mocks.updateTaskMock.mock.calls[0]?.[0];
+    const auditMetadata = mocks.recordAuditCalls[0]?.[4] ?? {};
+    const changedFields = Array.isArray(auditMetadata['changedFields'])
+      ? auditMetadata['changedFields'].filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [];
+
+    expect(updateCall?.data).toMatchObject({ notes: null });
+    expect(changedFields).toEqual(['notes']);
+    expect(result).toEqual({
+      updatedCount: 1,
+      updatedTaskIds: ['task-1'],
+    });
+  });
+
   it('preserves task notes on direct updates and audits completion changes', async () => {
     const { mocks, service } = createService();
     const existingTask = {
@@ -486,7 +691,10 @@ describe('TasksService', () => {
       status: 'done',
     });
     expect(updateCall.data['completedAt']).toBeInstanceOf(Date);
-    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-1');
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith(
+      'project-1',
+      mocks.tx,
+    );
 
     const auditMetadata = mocks.recordAuditCalls[0]?.[4] ?? {};
     const changedFields = Array.isArray(auditMetadata['changedFields'])
@@ -546,7 +754,7 @@ describe('TasksService', () => {
 
     expect(mocks.findUniqueProjectMock).toHaveBeenCalledWith({
       where: { id: 'project-2' },
-      select: { archivedAt: true, id: true },
+      select: { archivedAt: true, id: true, title: true },
     });
     expect(mocks.findFirstTaskMock).toHaveBeenCalledWith({
       where: { projectId: 'project-2' },
@@ -557,8 +765,14 @@ describe('TasksService', () => {
       projectId: 'project-2',
       sortOrder: 3,
     });
-    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-1');
-    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-2');
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith(
+      'project-1',
+      mocks.tx,
+    );
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith(
+      'project-2',
+      mocks.tx,
+    );
 
     const auditMetadata = mocks.recordAuditCalls[0]?.[4] ?? {};
     const changedFields = Array.isArray(auditMetadata['changedFields'])
@@ -598,7 +812,7 @@ describe('TasksService', () => {
       dueDate,
       priority: 'high',
       title: 'Resolve blocker project',
-      trackerLink: null,
+      references: null,
     });
     mocks.updateTaskMock.mockResolvedValue({
       ...existingTask,
@@ -620,7 +834,7 @@ describe('TasksService', () => {
       data: {
         title: 'Resolve blocker project',
         notes: 'Waiting on a cross-team dependency',
-        trackerLink: null,
+        references: null,
         ownerUserId: 'user-2',
         dueDate,
         priority: 'high',

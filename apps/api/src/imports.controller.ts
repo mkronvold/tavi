@@ -48,11 +48,11 @@ export class ImportsController {
   }
 
   @Delete(':importId')
-  cancelLoopImport(
+  removeLoopImport(
     @Param('importId') importId: string,
     @Req() request: AuthenticatedRequest,
   ) {
-    return this.importsService.cancelLoopImport(importId, request.user!);
+    return this.importsService.removeLoopImport(importId, request.user!);
   }
 
   @Patch(':importId/mapping')

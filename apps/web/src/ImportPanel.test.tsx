@@ -115,6 +115,7 @@ const createDetail = (
 describe("ImportPanel", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -254,7 +255,7 @@ describe("ImportPanel", () => {
     });
   });
 
-  it("cancels a pending import and removes it from the recent list", async () => {
+  it("removes a pending import from the recent list", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -262,6 +263,7 @@ describe("ImportPanel", () => {
         },
       },
     });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     let imports = [createSummary()];
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -296,13 +298,93 @@ describe("ImportPanel", () => {
     renderImportPanel(queryClient);
 
     await waitFor(() => {
-      expect(screen.getByText("Cancel import")).toBeInTheDocument();
+      expect(screen.getByText("Remove import")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel import" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove import" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Remove recent import for loop.csv?\n\nThis deletes the import history entry and any staged or result rows. It does not undo any project or task changes from the import.",
+    );
 
     await waitFor(() => {
-      expect(screen.queryByText("Cancel import")).not.toBeInTheDocument();
+      expect(screen.queryByText("Remove import")).not.toBeInTheDocument();
+      expect(
+        screen.getByText("No imports yet. Upload a CSV export to stage the first job."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("removes a completed import from recent history", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let imports = [createSummary({ status: "completed" })];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/imports") && (!init || init.method === undefined)) {
+          return createResponse(imports);
+        }
+
+        if (
+          url.endsWith("/imports/import-1") &&
+          (!init || init.method === undefined)
+        ) {
+          return createResponse(
+            createDetail({
+              status: "completed",
+              completedAt: "2026-03-01T10:01:00.000Z",
+              createdProjectCount: 1,
+              createdRowCount: 1,
+              createdTaskCount: 1,
+              results: [
+                {
+                  message: "Project created, task created",
+                  projectId: "project-1",
+                  projectOutcome: "created",
+                  rowNumber: 1,
+                  rowOutcome: "created",
+                  taskId: "task-1",
+                  taskOutcome: "created",
+                  validationErrors: [],
+                },
+              ],
+            }),
+          );
+        }
+
+        if (url.endsWith("/imports/import-1") && init?.method === "DELETE") {
+          imports = [];
+          return createResponse({ id: "import-1" });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderImportPanel(queryClient);
+
+    await waitFor(() => {
+      expect(screen.getByText("Project created, task created")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove import" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Remove recent import for loop.csv?\n\nThis deletes the import history entry and any staged or result rows. It does not undo any project or task changes from the import.",
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Remove import")).not.toBeInTheDocument();
       expect(
         screen.getByText("No imports yet. Upload a CSV export to stage the first job."),
       ).toBeInTheDocument();

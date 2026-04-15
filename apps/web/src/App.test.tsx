@@ -50,7 +50,7 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
       id: "project-1",
       title: "Roadmap refresh",
       notes: "Awaiting dependency",
-      trackerLink: "https://tracker.example.com/projects/roadmap-refresh",
+      references: "https://tracker.example.com/projects/roadmap-refresh",
       ownerUserId: "user-1",
       ownerName: "Tavi Editor",
       dueDate: null,
@@ -65,6 +65,8 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
       taskDoneCount: 0,
       taskCanceledCount: 0,
       taskOverdueCount: 0,
+      createdAt: "2026-04-01T09:00:00.000Z",
+      updatedAt: "2026-04-02T10:00:00.000Z",
       tasks: [
         {
           id: "task-1",
@@ -78,6 +80,8 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
           status: "todo",
           sortOrder: 0,
           completedAt: null,
+          createdAt: "2026-04-01T11:00:00.000Z",
+          updatedAt: "2026-04-02T11:00:00.000Z",
         },
         {
           id: "task-2",
@@ -91,6 +95,8 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
           status: "in_progress",
           sortOrder: 1,
           completedAt: null,
+          createdAt: "2026-04-01T12:00:00.000Z",
+          updatedAt: "2026-04-02T12:00:00.000Z",
         },
       ],
     },
@@ -135,7 +141,7 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
       id: "project-1",
       title: "Roadmap refresh",
       notes: "Awaiting dependency",
-      trackerLink: "https://tracker.example.com/projects/roadmap-refresh",
+      references: "https://tracker.example.com/projects/roadmap-refresh",
       ownerUserId: "user-1",
       ownerName: "Tavi Editor",
       dueDate: null,
@@ -150,6 +156,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
       taskDoneCount: 0,
       taskCanceledCount: 0,
       taskOverdueCount: 0,
+      createdAt: "2026-01-15T09:00:00.000Z",
+      updatedAt: "2026-04-02T10:00:00.000Z",
       tasks: [
         {
           id: "task-1",
@@ -163,6 +171,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           status: "todo",
           sortOrder: 0,
           completedAt: null,
+          createdAt: "2026-01-16T09:00:00.000Z",
+          updatedAt: "2026-04-03T10:00:00.000Z",
         },
         {
           id: "task-2",
@@ -176,6 +186,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           status: "in_progress",
           sortOrder: 1,
           completedAt: null,
+          createdAt: "2026-01-17T09:00:00.000Z",
+          updatedAt: "2026-04-07T11:00:00.000Z",
         },
       ],
     },
@@ -183,7 +195,7 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
       id: "project-2",
       title: "Beta rollout",
       notes: "Track launch blockers",
-      trackerLink: null,
+      references: null,
       ownerUserId: "user-2",
       ownerName: "Tavi Viewer",
       dueDate: "2026-04-10T00:00:00.000Z",
@@ -198,6 +210,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
       taskDoneCount: 1,
       taskCanceledCount: 0,
       taskOverdueCount: 0,
+      createdAt: "2026-02-01T09:00:00.000Z",
+      updatedAt: "2026-04-06T08:00:00.000Z",
       tasks: [
         {
           id: "task-3",
@@ -211,6 +225,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           status: "done",
           sortOrder: 0,
           completedAt: "2026-04-01T12:00:00.000Z",
+          createdAt: "2026-02-02T09:00:00.000Z",
+          updatedAt: "2026-04-06T08:00:00.000Z",
         },
         {
           id: "task-4",
@@ -224,6 +240,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           status: "todo",
           sortOrder: 1,
           completedAt: null,
+          createdAt: "2026-02-03T09:00:00.000Z",
+          updatedAt: "2026-04-05T09:00:00.000Z",
         },
       ],
     },
@@ -231,7 +249,7 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
       id: "project-3",
       title: "Alpha planning",
       notes: "Prep the next cycle",
-      trackerLink: null,
+      references: null,
       ownerUserId: null,
       ownerName: null,
       dueDate: "2026-04-05T00:00:00.000Z",
@@ -246,6 +264,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
       taskDoneCount: 2,
       taskCanceledCount: 0,
       taskOverdueCount: 0,
+      createdAt: "2026-03-01T09:00:00.000Z",
+      updatedAt: "2026-04-01T07:00:00.000Z",
       tasks: [
         {
           id: "task-5",
@@ -259,6 +279,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           status: "done",
           sortOrder: 0,
           completedAt: "2026-03-30T09:00:00.000Z",
+          createdAt: "2026-03-02T09:00:00.000Z",
+          updatedAt: "2026-04-01T07:00:00.000Z",
         },
         {
           id: "task-6",
@@ -272,6 +294,8 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           status: "done",
           sortOrder: 1,
           completedAt: "2026-03-31T11:00:00.000Z",
+          createdAt: "2026-03-03T09:00:00.000Z",
+          updatedAt: "2026-04-02T06:00:00.000Z",
         },
       ],
     },
@@ -298,7 +322,13 @@ describe("App", () => {
     );
 
   const toggleProjectByTitle = (title: string) => {
-    const projectCard = screen.getByText(title).closest("article");
+    const projectHeading = screen
+      .getAllByText(title)
+      .find((element) => element.closest("article"));
+
+    expect(projectHeading).toBeDefined();
+
+    const projectCard = projectHeading?.closest("article");
 
     expect(projectCard).not.toBeNull();
 
@@ -348,6 +378,7 @@ describe("App", () => {
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
     }
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -401,6 +432,70 @@ describe("App", () => {
 
     expect(screen.queryByText("Local dev users")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("retries workspace loading with fibonacci backoff while the API is unavailable", async () => {
+    vi.useFakeTimers();
+    const workspacePayload = createWorkspacePayload();
+    let workspaceRequests = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (!url.endsWith("/workspace")) {
+          throw new Error(`Unexpected fetch: ${url}`);
+        }
+
+        workspaceRequests += 1;
+
+        if (workspaceRequests < 4) {
+          return createResponse("Bad Gateway", 502);
+        }
+
+        return createResponse(workspacePayload);
+      }),
+    );
+
+    renderApp();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(
+      screen.getByText(
+        "The Tavi API is unavailable and may be restarting. Please wait a moment and try again.",
+      ),
+    ).toBeInTheDocument();
+    expect(workspaceRequests).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(998);
+    });
+    expect(workspaceRequests).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2);
+    });
+    expect(workspaceRequests).toBe(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(998);
+    });
+    expect(workspaceRequests).toBe(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2);
+    });
+    expect(workspaceRequests).toBe(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    expect(workspaceRequests).toBe(4);
   });
 
   it("shows the compact workspace header without the workspace title", async () => {
@@ -521,7 +616,7 @@ describe("App", () => {
     });
   });
 
-  it("applies task filters only when the green checkmark is used", async () => {
+  it("applies project status filters only when the green checkmark is used", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -544,7 +639,7 @@ describe("App", () => {
 
     const statusMenu = screen.getByRole("dialog", { name: "Status" });
     fireEvent.click(
-      within(statusMenu).getByRole("checkbox", { name: "In progress" }),
+      within(statusMenu).getByRole("checkbox", { name: "Blocked" }),
     );
 
     expect(screen.getByText("Kickoff")).toBeInTheDocument();
@@ -555,10 +650,10 @@ describe("App", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("Kickoff")).not.toBeInTheDocument();
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
       expect(screen.getByText("Review plan")).toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "Status: In progress" }),
+        screen.getByRole("button", { name: "Status: Blocked" }),
       ).toBeInTheDocument();
     });
   });
@@ -631,6 +726,74 @@ describe("App", () => {
     ]);
   });
 
+  it("sorts projects by age using project creation time", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createSortedWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha planning")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "none" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sort by: Default" }));
+
+    const sortMenu = screen.getByRole("dialog", { name: "Sort by" });
+    fireEvent.click(
+      within(sortMenu).getByRole("button", {
+        name: "Age not included in the current sort",
+      }),
+    );
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => {
+      expect(getVisibleProjectTitles()).toEqual([
+        "Roadmap refresh",
+        "Beta rollout",
+        "Alpha planning",
+      ]);
+    });
+  });
+
+  it("sorts projects by the latest project or task update", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createSortedWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha planning")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "none" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sort by: Default" }));
+
+    const sortMenu = screen.getByRole("dialog", { name: "Sort by" });
+    fireEvent.click(
+      within(sortMenu).getByRole("button", {
+        name: "Last Updated not included in the current sort",
+      }),
+    );
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => {
+      expect(getVisibleProjectTitles()).toEqual([
+        "Roadmap refresh",
+        "Beta rollout",
+        "Alpha planning",
+      ]);
+    });
+  });
+
   it("shows completion percentages in project rows", async () => {
     const workspacePayload = createWorkspacePayload();
     const dueDate = "2026-05-01T00:00:00.000Z";
@@ -672,15 +835,20 @@ describe("App", () => {
       "Medium",
       "0%",
       new Date(dueDate).toLocaleDateString(),
-      "Tracker Link ↗",
+      "tracker.example.com/projects/roa... ↗",
     ]);
   });
 
-  it("renders tracker links as safe external links", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => createResponse(createWorkspacePayload())),
-    );
+  it("renders project notes as markdown with CRLF line breaks and linked URLs", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      notes:
+        "Blocked on **approvals**\r\nhttps://docs.example.com/spec\r\n- confirm legal",
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
 
     renderApp();
 
@@ -688,19 +856,156 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    const trackerLink = screen.getByRole("link", { name: /tracker link/i });
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
 
-    expect(trackerLink).toHaveAttribute(
-      "href",
-      "https://tracker.example.com/projects/roadmap-refresh",
-    );
-    expect(trackerLink).toHaveAttribute("target", "_blank");
-    expect(trackerLink.getAttribute("rel")).toContain("noopener");
-    expect(trackerLink.getAttribute("rel")).toContain("noreferrer");
+    expect(projectCard).not.toBeNull();
+    expect(
+      within(projectCard!).getByText("approvals", { selector: "strong" }),
+    ).toBeInTheDocument();
+    expect(within(projectCard!).getByText("confirm legal")).toBeInTheDocument();
+
+    const link = within(projectCard!).getByRole("link", {
+      name: "https://docs.example.com/spec",
+    });
+
+    expect(link).toHaveAttribute("href", "https://docs.example.com/spec");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
   });
 
-  it("includes tracker links when creating projects", async () => {
+  it("renders task notes as markdown with CRLF line breaks and linked URLs", async () => {
     const workspacePayload = createWorkspacePayload();
+    const fileUrl =
+      "https://wisetechglobal-my.sharepoint.com/:x:/r/personal/michael_kronvold_wisetechglobal_com/Documents/Documents/KPE/Very%20Long%20Maintenance%20Workbook%202026%20Final%20Review.xlsx?d=wb762eb1726a84dcaa6cab3df556a0cfb&csf=1&web=1&e=rhQ0Pg";
+
+    workspacePayload.projects[0].tasks[0] = {
+      ...workspacePayload.projects[0].tasks[0],
+      notes: `Review **scope**\r\n${fileUrl}\r\n- confirm owner`,
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    expect(
+      within(kickoffRow!).getByText("scope", { selector: "strong" }),
+    ).toBeInTheDocument();
+    expect(within(kickoffRow!).getByText("confirm owner")).toBeInTheDocument();
+
+    const link = within(kickoffRow!).getByRole("link", {
+      name: "Very Long Maintenance Workbook 2...",
+    });
+
+    expect(link).toHaveAttribute("href", fileUrl);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("renders URL references as safe external links with shortened labels", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      references:
+        "https://tracker.example.com/projects/roadmap-refresh?tab=board#milestones",
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const references = screen.getByRole("link", {
+      name: "tracker.example.com/projects/roa... ↗",
+    });
+
+    expect(references).toHaveAttribute(
+      "href",
+      "https://tracker.example.com/projects/roadmap-refresh?tab=board#milestones",
+    );
+    expect(references).toHaveAttribute("target", "_blank");
+    expect(references.getAttribute("rel")).toContain("noopener");
+    expect(references.getAttribute("rel")).toContain("noreferrer");
+  });
+
+  it("renders filename references using only the decoded filename label", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fileUrl =
+      "https://wisetechglobal-my.sharepoint.com/:x:/r/personal/michael_kronvold_wisetechglobal_com/Documents/Documents/KPE/Very%20Long%20Maintenance%20Workbook%202026%20Final%20Review.xlsx?d=wb762eb1726a84dcaa6cab3df556a0cfb&csf=1&web=1&e=rhQ0Pg";
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      references: fileUrl,
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const reference = screen.getByRole("link", {
+      name: "Very Long Maintenance Workbook 2... ↗",
+    });
+
+    expect(reference).toHaveAttribute("href", fileUrl);
+    expect(reference).toHaveAttribute("target", "_blank");
+    expect(reference.getAttribute("rel")).toContain("noopener");
+    expect(reference.getAttribute("rel")).toContain("noreferrer");
+  });
+
+  it("renders multiple references one per line with URLs and plain text", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      references:
+        "https://tracker.example.com/projects/roadmap-refresh?tab=board#milestones\nLoop board - roadmap refresh",
+    };
+
+    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    expect(
+      within(projectCard!).getByText("Loop board - roadmap refresh"),
+    ).toBeInTheDocument();
+    expect(
+      within(projectCard!).getByRole("link", {
+        name: "tracker.example.com/projects/roa... ↗",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("includes multiline references when creating projects", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const references =
+      "Loop board - launch planning\nhttps://tracker.example.com/projects/launch-planning?view=board";
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.toString();
@@ -714,8 +1019,7 @@ describe("App", () => {
             JSON.stringify({
               title: "Launch planning",
               notes: "",
-              trackerLink:
-                "https://tracker.example.com/projects/launch-planning",
+              references: references,
               ownerUserId: "user-1",
               dueDate: "",
               priority: "medium",
@@ -726,7 +1030,7 @@ describe("App", () => {
             id: "project-2",
             title: "Launch planning",
             notes: null,
-            trackerLink: "https://tracker.example.com/projects/launch-planning",
+            references: references,
             ownerUserId: "user-1",
             ownerName: "Tavi Editor",
             dueDate: null,
@@ -762,15 +1066,17 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Tracker link")).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText("References (one per line)"),
+      ).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByPlaceholderText("New project title"), {
       target: { value: "Launch planning" },
     });
-    fireEvent.change(screen.getByPlaceholderText("Tracker link"), {
+    fireEvent.change(screen.getByPlaceholderText("References (one per line)"), {
       target: {
-        value: "https://tracker.example.com/projects/launch-planning",
+        value: references,
       },
     });
 
@@ -783,7 +1089,7 @@ describe("App", () => {
           body: JSON.stringify({
             title: "Launch planning",
             notes: "",
-            trackerLink: "https://tracker.example.com/projects/launch-planning",
+            references: references,
             ownerUserId: "user-1",
             dueDate: "",
             priority: "medium",
@@ -794,8 +1100,10 @@ describe("App", () => {
     });
   });
 
-  it("includes tracker links when editing projects", async () => {
+  it("includes multiline references when editing projects and uses a textarea", async () => {
     const workspacePayload = createWorkspacePayload();
+    const references =
+      "Loop board - roadmap v2\nhttps://tracker.example.com/projects/roadmap-v2?tab=overview";
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.toString();
@@ -809,7 +1117,7 @@ describe("App", () => {
             JSON.stringify({
               title: "Roadmap refresh",
               notes: "Awaiting dependency",
-              trackerLink: "https://tracker.example.com/projects/roadmap-v2",
+              references: references,
               ownerUserId: "user-1",
               dueDate: "",
               priority: "medium",
@@ -819,7 +1127,7 @@ describe("App", () => {
 
           workspacePayload.projects[0] = {
             ...workspacePayload.projects[0],
-            trackerLink: "https://tracker.example.com/projects/roadmap-v2",
+            references: references,
           };
 
           return createResponse(workspacePayload.projects[0]);
@@ -842,12 +1150,15 @@ describe("App", () => {
     expect(projectCard).not.toBeNull();
     fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
 
-    const trackerLinkInput = within(projectCard!).getByDisplayValue(
+    const referencesInput = within(projectCard!).getByDisplayValue(
       "https://tracker.example.com/projects/roadmap-refresh",
     );
 
-    fireEvent.change(trackerLinkInput, {
-      target: { value: "https://tracker.example.com/projects/roadmap-v2" },
+    expect(referencesInput.tagName).toBe("TEXTAREA");
+    expect(referencesInput).toHaveClass("resizable-notes");
+
+    fireEvent.change(referencesInput, {
+      target: { value: references },
     });
     fireEvent.click(within(projectCard!).getByRole("button", { name: "Save" }));
 
@@ -858,7 +1169,7 @@ describe("App", () => {
           body: JSON.stringify({
             title: "Roadmap refresh",
             notes: "Awaiting dependency",
-            trackerLink: "https://tracker.example.com/projects/roadmap-v2",
+            references: references,
             ownerUserId: "user-1",
             dueDate: "",
             priority: "medium",
@@ -868,6 +1179,47 @@ describe("App", () => {
         }),
       );
     });
+  });
+
+  it("keeps convert guidance off the main project edit form", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
+
+    const convertButton = within(projectCard!).getByRole("button", {
+      name: "Convert to Task",
+    });
+
+    expect(convertButton).toBeDisabled();
+    expect(convertButton).toHaveAttribute(
+      "title",
+      "Move or delete this project's 2 active tasks before converting it into a task.",
+    );
+    expect(
+      within(projectCard!).queryByText(
+        "Move or delete this project's 2 active tasks before converting it into a task.",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("opens project edit mode on control-click", async () => {
@@ -1048,14 +1400,20 @@ describe("App", () => {
     expect(projectCard).not.toBeNull();
     fireEvent.click(within(projectCard!).getByRole("button", { name: "Edit" }));
 
+    const convertButton = within(projectCard!).getByRole("button", {
+      name: "Convert to Task",
+    });
+
+    expect(convertButton).toBeDisabled();
+    expect(convertButton).toHaveAttribute(
+      "title",
+      "Move or delete this project's 2 active tasks before converting it into a task.",
+    );
     expect(
-      within(projectCard!).getByRole("button", { name: "Convert to Task" }),
-    ).toBeDisabled();
-    expect(
-      within(projectCard!).getByText(
+      within(projectCard!).queryByText(
         "Move or delete this project's 2 active tasks before converting it into a task.",
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
   });
 
   it("converts a taskless project into a task inside Unassigned", async () => {
@@ -1091,7 +1449,7 @@ describe("App", () => {
               id: "project-unassigned",
               title: "Unassigned",
               notes: null,
-              trackerLink: null,
+              references: null,
               ownerUserId: "user-1",
               ownerName: "Tavi Editor",
               dueDate: null,
@@ -1163,7 +1521,7 @@ describe("App", () => {
     expect(JSON.parse(convertBody ?? "{}")).toEqual({
       title: "Roadmap refresh",
       notes: "Awaiting dependency",
-      trackerLink: "https://tracker.example.com/projects/roadmap-refresh",
+      references: "https://tracker.example.com/projects/roadmap-refresh",
       ownerUserId: "user-1",
       dueDate: "",
       priority: "medium",
@@ -1382,10 +1740,112 @@ describe("App", () => {
     expect(screen.getByRole("main")).toHaveClass("workspace-shell--full-width");
   });
 
+  it("keeps the global email notifications toggle in sync after saving", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    let emailSettingsRequestBody: string | null = null;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse({
+            configured: true,
+            enabled: true,
+            fromAddress: "noreply@tavi.local",
+            host: "10.120.64.99",
+            port: 25,
+            secure: false,
+          });
+        }
+
+        if (url.endsWith("/auth/email/settings") && init?.method === "PUT") {
+          emailSettingsRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse({
+            configured: true,
+            enabled: false,
+            fromAddress: "noreply@tavi.local",
+            host: "10.120.64.99",
+            port: 25,
+            secure: false,
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("smtp://10.120.64.99:25")).toBeInTheDocument();
+    });
+
+    const emailNotificationsSwitch = screen.getByRole("switch", {
+      name: "Email Notifications",
+    });
+
+    expect(emailNotificationsSwitch).toBeChecked();
+
+    fireEvent.click(emailNotificationsSwitch);
+
+    await waitFor(() => {
+      expect(emailSettingsRequestBody).toBe(JSON.stringify({ enabled: false }));
+      expect(emailNotificationsSwitch).not.toBeChecked();
+    });
+  });
+
+  it("hides the email notifications toggle for non-admins", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(
+      screen.queryByRole("switch", { name: "Email Notifications" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows settings cards in the requested order and links the version tile to the repo", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => createResponse(createAdminWorkspacePayload())),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse({
+            configured: true,
+            enabled: true,
+            fromAddress: "noreply@tavi.local",
+            host: "10.120.64.99",
+            port: 25,
+            secure: false,
+          });
+        }
+
+        return createResponse(createAdminWorkspacePayload());
+      }),
     );
 
     const { container } = renderApp();
@@ -1406,7 +1866,7 @@ describe("App", () => {
     expect(settingsItems[1]?.textContent).toContain("Auto Collapse");
     expect(settingsItems[2]?.textContent).toContain("Bulk Actions");
     expect(settingsItems[3]?.textContent).toContain("Full Width");
-    expect(settingsItems[4]?.textContent).toContain("Version");
+    expect(settingsItems[4]?.textContent).toContain("Email Notifications");
     expect(settingsItems[5]?.textContent).toContain("Local Accounts");
     expect(settingsItems[6]?.textContent).toContain("My Auth History");
     expect(settingsItems[7]?.textContent).toContain("Audit logins");
@@ -1416,6 +1876,10 @@ describe("App", () => {
       "href",
       appRepositoryUrl,
     );
+    await waitFor(() => {
+      expect(screen.getByText("smtp://10.120.64.99:25")).toBeInTheDocument();
+      expect(screen.getByText("noreply@tavi.local")).toBeInTheDocument();
+    });
   });
 
   it("closes the local accounts panel from its header button", async () => {
@@ -1837,7 +2301,7 @@ describe("App", () => {
       id: "project-2",
       title: "Beta rollout",
       notes: null,
-      trackerLink: null,
+      references: null,
       ownerUserId: "user-2",
       ownerName: "Tavi Viewer",
       dueDate: null,
@@ -1925,17 +2389,24 @@ describe("App", () => {
     );
 
     await waitFor(() => {
-      const destinationProject = screen
-        .getByText("Beta rollout")
-        .closest("article");
+      expect(
+        within(sourceProject).queryByText("Kickoff"),
+      ).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      const destinationHeading = screen
+        .getAllByText("Beta rollout")
+        .find((element) => element.closest("article"));
+
+      expect(destinationHeading).toBeDefined();
+
+      const destinationProject = destinationHeading?.closest("article");
 
       expect(destinationProject).not.toBeNull();
       expect(
         within(destinationProject!).getByText("Kickoff"),
       ).toBeInTheDocument();
-      expect(
-        within(sourceProject).queryByText("Kickoff"),
-      ).not.toBeInTheDocument();
     });
 
     expect(patchBody).toBe(
@@ -2011,10 +2482,16 @@ describe("App", () => {
     fireEvent.click(within(projectActions).getByRole("button", { name: "Edit" }));
 
     expect(
-      within(projectCard).getByText(
+      within(projectCard).getByRole("button", { name: "Convert to Task" }),
+    ).toHaveAttribute(
+      "title",
+      "Move or delete this project's 2 active tasks before converting it into a task.",
+    );
+    expect(
+      within(projectCard).queryByText(
         "Move or delete this project's 2 active tasks before converting it into a task.",
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
 
     const kickoffRow = screen.getByText("Kickoff").closest("tr");
 
@@ -2127,7 +2604,7 @@ describe("App", () => {
             id: "project-2",
             title: "Kickoff project",
             notes: "Confirm milestone scope",
-            trackerLink: null,
+            references: null,
             ownerUserId: "user-1",
             ownerName: "Tavi Editor",
             dueDate: null,
@@ -2615,7 +3092,7 @@ describe("App", () => {
       id: "project-2",
       title: "Beta rollout",
       notes: null,
-      trackerLink: null,
+      references: null,
       ownerUserId: "user-2",
       ownerName: "Tavi Viewer",
       dueDate: null,
@@ -2683,6 +3160,33 @@ describe("App", () => {
     });
   });
 
+  it("uses tighter card spacing only while a project is collapsed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const collapsedProjectCard = screen
+      .getByText("Roadmap refresh")
+      .closest("article");
+
+    expect(collapsedProjectCard).not.toBeNull();
+    expect(collapsedProjectCard).toHaveClass("project-card--collapsed");
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(collapsedProjectCard).not.toHaveClass("project-card--collapsed");
+    });
+  });
+
   it("clears selected tasks for a collapsed project without affecting other open projects", async () => {
     const workspacePayload = createWorkspacePayload();
 
@@ -2690,7 +3194,7 @@ describe("App", () => {
       id: "project-2",
       title: "Beta rollout",
       notes: null,
-      trackerLink: null,
+      references: null,
       ownerUserId: "user-2",
       ownerName: "Tavi Viewer",
       dueDate: null,
@@ -3025,6 +3529,190 @@ describe("App", () => {
     });
   });
 
+  it("clears task notes through bulk task actions", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      if (url.endsWith("/tasks/bulk") && init?.method === "PATCH") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            notes: null,
+            taskIds: ["task-1", "task-2"],
+          }),
+        );
+
+        workspacePayload.projects[0] = {
+          ...workspacePayload.projects[0],
+          tasks: workspacePayload.projects[0].tasks.map((task) => ({
+            ...task,
+            notes: null,
+          })),
+        };
+
+        return createResponse({
+          updatedCount: 2,
+          updatedTaskIds: ["task-1", "task-2"],
+        });
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    if (!screen.queryByText("Kickoff")) {
+      toggleProjectByTitle("Roadmap refresh");
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Select task Kickoff"));
+    fireEvent.click(screen.getByLabelText("Select task Review plan"));
+
+    const bulkCard = screen.getByText("2 selected tasks").closest("section");
+
+    expect(bulkCard).not.toBeNull();
+    fireEvent.change(within(bulkCard!).getByLabelText("Notes"), {
+      target: { value: "clear" },
+    });
+    fireEvent.click(within(bulkCard!).getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
+    });
+  });
+
+  it("copies selected tasks to another project through bulk task actions", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects.push({
+      id: "project-2",
+      title: "Operations uplift",
+      notes: null,
+      references: null,
+      ownerUserId: null,
+      ownerName: null,
+      dueDate: null,
+      priority: "low",
+      derivedStatus: "not_started",
+      displayStatus: "not_started",
+      manualStatus: null,
+      taskTotalCount: 0,
+      taskTodoCount: 0,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      createdAt: "2026-04-03T09:00:00.000Z",
+      updatedAt: "2026-04-03T10:00:00.000Z",
+      tasks: [],
+    });
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/bulk/copy") && init?.method === "POST") {
+          expect(init.body).toBe(
+            JSON.stringify({
+              targetProjectId: "project-2",
+              taskIds: ["task-1", "task-2"],
+            }),
+          );
+
+          workspacePayload.projects[1] = {
+            ...workspacePayload.projects[1],
+            derivedStatus: "in_progress",
+            displayStatus: "in_progress",
+            taskTotalCount: 2,
+            taskTodoCount: 1,
+            taskInProgressCount: 1,
+            updatedAt: "2026-04-03T11:00:00.000Z",
+            tasks: [
+              {
+                ...workspacePayload.projects[0].tasks[0],
+                id: "task-3",
+                projectId: "project-2",
+                sortOrder: 0,
+                createdAt: "2026-04-03T11:00:00.000Z",
+                updatedAt: "2026-04-03T11:00:00.000Z",
+              },
+              {
+                ...workspacePayload.projects[0].tasks[1],
+                id: "task-4",
+                projectId: "project-2",
+                sortOrder: 1,
+                createdAt: "2026-04-03T11:00:01.000Z",
+                updatedAt: "2026-04-03T11:00:01.000Z",
+              },
+            ],
+          };
+
+          return createResponse({
+            copiedCount: 2,
+            copiedTaskIds: ["task-3", "task-4"],
+            targetProjectId: "project-2",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+      expect(screen.getByText("Operations uplift")).toBeInTheDocument();
+    });
+
+    if (!screen.queryByText("Kickoff")) {
+      toggleProjectByTitle("Roadmap refresh");
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Select task Kickoff"));
+    fireEvent.click(screen.getByLabelText("Select task Review plan"));
+
+    const bulkCard = screen.getByText("2 selected tasks").closest("section");
+
+    expect(bulkCard).not.toBeNull();
+    fireEvent.change(within(bulkCard!).getByLabelText("Copy to project"), {
+      target: { value: "project-2" },
+    });
+    fireEvent.click(within(bulkCard!).getByRole("button", { name: "Copy" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
+      expect(
+        screen.getByText('Copied 2 tasks to "Operations uplift".'),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("shows Delete between Clear and Apply and archives selected tasks", async () => {
     const workspacePayload = createWorkspacePayload();
     const fetchMock = vi.fn(
@@ -3096,7 +3784,7 @@ describe("App", () => {
       within(bulkActionButtons as HTMLElement)
         .getAllByRole("button")
         .map((button) => button.textContent),
-    ).toEqual(["Clear", "Delete", "Apply"]);
+    ).toEqual(["Clear", "Delete", "Copy", "Apply"]);
 
     fireEvent.click(
       within(bulkActionButtons as HTMLElement).getByRole("button", {

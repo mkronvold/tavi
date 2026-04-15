@@ -25,9 +25,11 @@ import type {
 
 type LocalAccountsPanelProps = {
   currentUser: WorkspaceUser;
+  emailEnabled?: boolean;
   isAdmin: boolean;
   onClose: () => void;
   onNotice: (message: string) => void;
+  smtpConfigured?: boolean;
 };
 
 type PanelMode =
@@ -64,9 +66,11 @@ const NONE_LOCAL_ACCOUNT_REASSIGN_VALUE = "__none__";
 
 export function LocalAccountsPanel({
   currentUser,
+  emailEnabled = true,
   isAdmin,
   onClose,
   onNotice,
+  smtpConfigured = false,
 }: LocalAccountsPanelProps) {
   const queryClient = useQueryClient();
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -91,6 +95,8 @@ export function LocalAccountsPanel({
   );
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [sendEmail, setSendEmail] = useState(false);
+  const emailDeliveryAvailable = smtpConfigured && emailEnabled;
 
   const accountsQuery = useQuery({
     queryKey: ["localAccounts"],
@@ -223,11 +229,15 @@ export function LocalAccountsPanel({
       payload: Omit<CreateLocalAccountPayload, "password">;
       userId: string;
     }) => updateLocalAccount(userId, payload),
-    onSuccess: async ({ account }) => {
+    onSuccess: async ({ account, notificationEmailSent }) => {
       setError(null);
       resetEditorState();
       await refreshAccountData();
-      onNotice(`Updated local account for ${account.name}.`);
+      onNotice(
+        notificationEmailSent
+          ? `Updated local account for ${account.name} and sending notification email.`
+          : `Updated local account for ${account.name}.`,
+      );
     },
     onError: (mutationError) => {
       setError(
@@ -267,8 +277,19 @@ export function LocalAccountsPanel({
   });
 
   const setAccountPasswordMutation = useMutation({
-    mutationFn: ({ password, userId }: { password: string; userId: string }) =>
-      setLocalAccountPassword(userId, { password }),
+    mutationFn: ({
+      password,
+      userId,
+      sendEmail: notify,
+    }: {
+      password: string;
+      userId: string;
+      sendEmail?: boolean;
+    }) =>
+      setLocalAccountPassword(userId, {
+        password,
+        ...(notify ? { sendEmail: true } : {}),
+      }),
     onSuccess: async (_, variables) => {
       setError(null);
       resetEditorState();
@@ -292,12 +313,17 @@ export function LocalAccountsPanel({
     mutationFn: ({
       accounts,
       password,
+      sendEmail: notify,
     }: {
       accounts: LocalAccount[];
       password: string;
+      sendEmail?: boolean;
     }) =>
       runBulkLocalAccountAction(accounts, (account) =>
-        setLocalAccountPassword(account.id, { password }),
+        setLocalAccountPassword(account.id, {
+          password,
+          ...(notify ? { sendEmail: true } : {}),
+        }),
       ),
     onSuccess: async (result) => {
       await finishBulkAction({
@@ -365,6 +391,7 @@ export function LocalAccountsPanel({
   const resetPasswordDrafts = () => {
     setPasswordDraft("");
     setPasswordConfirmation("");
+    setSendEmail(false);
   };
   const resetDeleteDraft = () => {
     setDeleteProjectOwnerUserId(NONE_LOCAL_ACCOUNT_REASSIGN_VALUE);
@@ -460,6 +487,7 @@ export function LocalAccountsPanel({
     bulkSetPasswordMutation.mutate({
       accounts: selectedAccounts,
       password: passwordDraft,
+      sendEmail: emailDeliveryAvailable && sendEmail,
     });
   };
   const submitBulkRoleChange = () => {
@@ -662,6 +690,7 @@ export function LocalAccountsPanel({
       setAccountPasswordMutation.mutate({
         password: passwordDraft,
         userId: targetAccount.id,
+        sendEmail: emailDeliveryAvailable && sendEmail,
       });
       return;
     }
@@ -894,6 +923,18 @@ export function LocalAccountsPanel({
                   >
                     Generate
                   </button>
+                   {emailDeliveryAvailable ? (
+                     <label className="send-email-check">
+                      <input
+                        checked={sendEmail}
+                        onChange={(event) =>
+                          setSendEmail(event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      Send each user their password via email
+                    </label>
+                  ) : null}
                   <div className="settings-actions">
                     <button
                       type="submit"
@@ -968,7 +1009,12 @@ export function LocalAccountsPanel({
               className="inline-form local-account-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                createAccountMutation.mutate(accountDraft);
+                createAccountMutation.mutate({
+                  ...accountDraft,
+                  ...(emailDeliveryAvailable && sendEmail
+                    ? { sendEmail: true }
+                    : {}),
+                });
               }}
             >
               <input
@@ -1026,6 +1072,16 @@ export function LocalAccountsPanel({
                   Generate
                 </button>
               </div>
+               {emailDeliveryAvailable ? (
+                 <label className="send-email-check">
+                  <input
+                    checked={sendEmail}
+                    onChange={(event) => setSendEmail(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Send password via email
+                </label>
+              ) : null}
               <div className="settings-actions">
                 <button
                   type="submit"
@@ -1247,6 +1303,18 @@ export function LocalAccountsPanel({
                           }
                           placeholder="Confirm password"
                         />
+                         {emailDeliveryAvailable ? (
+                           <label className="send-email-check">
+                            <input
+                              checked={sendEmail}
+                              onChange={(event) =>
+                                setSendEmail(event.target.checked)
+                              }
+                              type="checkbox"
+                            />
+                            Send password via email
+                          </label>
+                        ) : null}
                         <div className="settings-actions">
                           <button
                             type="button"

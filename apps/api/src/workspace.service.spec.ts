@@ -103,7 +103,7 @@ describe('WorkspaceService', () => {
         id: 'project-1',
         title: 'Roadmap refresh',
         notes: null,
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
         ownerUserId: 'user-1',
         owner: {
           name: 'Tavi Editor',
@@ -131,7 +131,7 @@ describe('WorkspaceService', () => {
     expect(result.projects).toEqual([
       expect.objectContaining({
         id: 'project-1',
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
       }),
     ]);
   });

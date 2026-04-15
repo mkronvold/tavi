@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   bulkArchiveTasksSchema,
+  bulkCopyTasksSchema,
   bulkUpdateTasksSchema,
   convertTaskToProjectSchema,
   createTaskSchema,
@@ -46,6 +47,12 @@ export class TasksController {
   ) {
     const input = parseInput(bulkArchiveTasksSchema, body);
     return this.tasksService.bulkArchiveTasks(input, request.user!);
+  }
+
+  @Post('tasks/bulk/copy')
+  bulkCopyTasks(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    const input = parseInput(bulkCopyTasksSchema, body);
+    return this.tasksService.bulkCopyTasks(input, request.user!);
   }
 
   @Patch('tasks/bulk')

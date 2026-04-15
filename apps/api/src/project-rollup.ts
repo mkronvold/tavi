@@ -13,6 +13,7 @@ export type ProjectRollup = {
   taskTodoCount: number;
   taskInProgressCount: number;
   taskBlockedCount: number;
+  taskOnHoldCount: number;
   taskDoneCount: number;
   taskCanceledCount: number;
   taskOverdueCount: number;
@@ -29,6 +30,7 @@ export const deriveProjectRollup = (
     todo: 0,
     in_progress: 0,
     blocked: 0,
+    on_hold: 0,
     done: 0,
     canceled: 0,
     overdue: 0,
@@ -41,13 +43,17 @@ export const deriveProjectRollup = (
       task.dueDate !== null &&
       task.dueDate < now &&
       task.status !== 'done' &&
-      task.status !== 'canceled'
+      task.status !== 'canceled' &&
+      task.status !== 'on_hold'
     ) {
       counts.overdue += 1;
     }
   }
 
   const openTasks = activeTasks.filter((task) => task.status !== 'canceled');
+  const actionableTasks = activeTasks.filter(
+    (task) => task.status !== 'done' && task.status !== 'canceled',
+  );
 
   let derivedStatus: ProjectStatus = 'not_started';
 
@@ -56,9 +62,22 @@ export const deriveProjectRollup = (
     openTasks.every((task) => task.status === 'done')
   ) {
     derivedStatus = 'done';
-  } else if (openTasks.some((task) => task.status === 'blocked')) {
+  } else if (
+    actionableTasks.length > 0 &&
+    actionableTasks.every((task) => task.status === 'blocked')
+  ) {
     derivedStatus = 'blocked';
-  } else if (openTasks.some((task) => task.status === 'in_progress')) {
+  } else if (
+    actionableTasks.length > 0 &&
+    actionableTasks.every((task) => task.status === 'on_hold')
+  ) {
+    derivedStatus = 'on_hold';
+  } else if (
+    openTasks.length > 0 &&
+    openTasks.every((task) => task.status === 'todo')
+  ) {
+    derivedStatus = 'not_started';
+  } else if (actionableTasks.length > 0) {
     derivedStatus = 'in_progress';
   }
 
@@ -69,6 +88,7 @@ export const deriveProjectRollup = (
     taskTodoCount: counts.todo,
     taskInProgressCount: counts.in_progress,
     taskBlockedCount: counts.blocked,
+    taskOnHoldCount: counts.on_hold,
     taskDoneCount: counts.done,
     taskCanceledCount: counts.canceled,
     taskOverdueCount: counts.overdue,

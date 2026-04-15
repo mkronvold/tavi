@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   BulkArchiveTasksInput,
+  BulkCopyTasksInput,
   BulkUpdateTasksInput,
   ConvertTaskToProjectInput,
   CreateTaskInput,
@@ -11,6 +12,7 @@ import type { Prisma } from '@prisma/client';
 import { buildAuditChanges } from './audit-change';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import { NotificationEventsService } from './notification-events.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsService } from './projects.service';
 
@@ -20,6 +22,7 @@ const toAuditDate = (value: Date | null) => value?.toISOString() ?? null;
 type TaskMutationRecord = {
   id: string;
   projectId: string;
+  projectTitle?: string | null;
   title: string;
   notes: string | null;
   assigneeUserId: string | null;
@@ -35,6 +38,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
+    private readonly notificationEventsService: NotificationEventsService,
     private readonly projectsService: ProjectsService,
   ) {}
 
@@ -45,38 +49,48 @@ export class TasksService {
   ) {
     this.authService.requireEditAccess(actor);
 
-    await requireActiveProject(this.prisma, projectId);
+    const project = await requireActiveProject(this.prisma, projectId);
 
-    const task = await this.prisma.task.create({
-      data: {
-        projectId,
-        title: input.title,
-        notes: normalizeOptionalNotes(input.notes),
-        assigneeUserId: input.assigneeUserId,
-        dueDate: toOptionalDate(input.dueDate),
-        priority: input.priority,
-        status: input.status,
-        sortOrder: await getNextTaskSortOrder(this.prisma, projectId),
-        completedAt: input.status === 'done' ? new Date() : null,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.task.create({
+        data: {
+          projectId,
+          title: input.title,
+          notes: normalizeOptionalNotes(input.notes),
+          assigneeUserId: input.assigneeUserId,
+          dueDate: toOptionalDate(input.dueDate),
+          priority: input.priority,
+          status: input.status,
+          sortOrder: await getNextTaskSortOrder(tx, projectId),
+          completedAt: input.status === 'done' ? new Date() : null,
+        },
+      });
+
+      await this.projectsService.recalculateProject(projectId, tx);
+      await this.authService.recordAudit(
+        actor,
+        'task',
+        task.id,
+        'create',
+        buildTaskAuditMetadata(task, getCreatedTaskFields(task), {
+          changes: buildTaskAuditChanges(
+            null,
+            toTaskMutationRecord(task),
+            getCreatedTaskFields(task),
+          ),
+        }),
+        tx,
+      );
+      await this.notificationEventsService.queueTaskChange(
+        {
+          actor,
+          nextTask: toTaskNotificationSnapshot(task, project.title),
+        },
+        tx,
+      );
+
+      return task;
     });
-
-    await this.projectsService.recalculateProject(projectId);
-    await this.authService.recordAudit(
-      actor,
-      'task',
-      task.id,
-      'create',
-      buildTaskAuditMetadata(task, getCreatedTaskFields(task), {
-        changes: buildTaskAuditChanges(
-          null,
-          toTaskMutationRecord(task),
-          getCreatedTaskFields(task),
-        ),
-      }),
-    );
-
-    return task;
   }
 
   async bulkArchiveTasks(input: BulkArchiveTasksInput, actor: SessionUser) {
@@ -152,10 +166,124 @@ export class TasksService {
     };
   }
 
+  async bulkCopyTasks(input: BulkCopyTasksInput, actor: SessionUser) {
+    this.authService.requireEditAccess(actor);
+
+    const targetProject = await requireActiveProject(
+      this.prisma,
+      input.targetProjectId,
+    );
+    const existingTasks = (
+      await this.prisma.task.findMany({
+        where: {
+          id: { in: input.taskIds },
+          archivedAt: null,
+        },
+        select: {
+          id: true,
+          projectId: true,
+          title: true,
+          notes: true,
+          assigneeUserId: true,
+          dueDate: true,
+          priority: true,
+          status: true,
+          completedAt: true,
+          project: {
+            select: {
+              title: true,
+            },
+          },
+        },
+      })
+    ).map((task) => ({
+      ...task,
+      projectTitle: task.project?.title ?? null,
+    }));
+
+    if (existingTasks.length !== input.taskIds.length) {
+      throw new NotFoundException('One or more tasks were not found');
+    }
+
+    const existingTaskById = new Map(
+      existingTasks.map((task) => [task.id, task] as const),
+    );
+    const orderedTasks = input.taskIds.map((taskId) => {
+      const task = existingTaskById.get(taskId);
+
+      if (!task) {
+        throw new NotFoundException('One or more tasks were not found');
+      }
+
+      return task;
+    });
+    const copiedTaskIds: string[] = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      const nextSortOrder = await getNextTaskSortOrder(tx, targetProject.id);
+
+      for (const [index, existingTask] of orderedTasks.entries()) {
+        const task = await tx.task.create({
+          data: {
+            projectId: targetProject.id,
+            title: existingTask.title,
+            notes: existingTask.notes,
+            assigneeUserId: existingTask.assigneeUserId,
+            dueDate: existingTask.dueDate,
+            priority: existingTask.priority,
+            status: existingTask.status,
+            sortOrder: nextSortOrder + index,
+            completedAt:
+              existingTask.status === 'done'
+                ? (existingTask.completedAt ?? new Date())
+                : null,
+          },
+        });
+        const copiedTask = toTaskMutationRecord(task);
+
+        copiedTaskIds.push(task.id);
+
+        await this.authService.recordAudit(
+          actor,
+          'task',
+          task.id,
+          'bulk_copy',
+          buildTaskAuditMetadata(copiedTask, getCreatedTaskFields(copiedTask), {
+            changes: buildTaskAuditChanges(
+              null,
+              copiedTask,
+              getCreatedTaskFields(copiedTask),
+            ),
+            copiedFromProjectId: existingTask.projectId,
+            copiedFromProjectTitle: existingTask.projectTitle,
+            selectionSize: input.taskIds.length,
+          }),
+          tx,
+        );
+        await this.notificationEventsService.queueTaskChange(
+          {
+            actor,
+            nextTask: toTaskNotificationSnapshot(task, targetProject.title),
+          },
+          tx,
+        );
+      }
+
+      await this.projectsService.recalculateProject(targetProject.id, tx);
+    });
+
+    return {
+      copiedCount: copiedTaskIds.length,
+      copiedTaskIds,
+      targetProjectId: targetProject.id,
+    };
+  }
+
   async bulkUpdateTasks(input: BulkUpdateTasksInput, actor: SessionUser) {
     this.authService.requireEditAccess(actor);
 
-    const existingTasks = await this.prisma.task.findMany({
+    const existingTasks = (
+      await this.prisma.task.findMany({
       where: {
         id: { in: input.taskIds },
         archivedAt: null,
@@ -170,8 +298,17 @@ export class TasksService {
         priority: true,
         status: true,
         completedAt: true,
+        project: {
+          select: {
+            title: true,
+          },
+        },
       },
-    });
+    })
+    ).map((task) => ({
+      ...task,
+      projectTitle: task.project?.title ?? null,
+    }));
 
     if (existingTasks.length !== input.taskIds.length) {
       throw new NotFoundException('One or more tasks were not found');
@@ -224,6 +361,17 @@ export class TasksService {
           }),
           tx,
         );
+        await this.notificationEventsService.queueTaskChange(
+          {
+            actor,
+            nextTask: toTaskNotificationSnapshot(task, update.existing.projectTitle),
+            previousTask: toTaskNotificationSnapshot(
+              update.existing,
+              update.existing.projectTitle,
+            ),
+          },
+          tx,
+        );
       }
 
       await Promise.all(
@@ -244,6 +392,13 @@ export class TasksService {
 
     const existing = await this.prisma.task.findUnique({
       where: { id: taskId },
+      include: {
+        project: {
+          select: {
+            title: true,
+          },
+        },
+      },
     });
 
     if (!existing || existing.archivedAt) {
@@ -260,51 +415,71 @@ export class TasksService {
     if (nextProjectId !== existing.projectId) {
       await requireActiveProject(this.prisma, nextProjectId);
     }
+    const nextProject =
+      nextProjectId === existing.projectId
+        ? { title: existing.project?.title ?? null }
+        : await requireActiveProject(this.prisma, nextProjectId);
 
-    const task = await this.prisma.task.update({
-      where: { id: taskId },
-      data: {
-        projectId: nextProjectId,
-        title: input.title ?? existing.title,
-        notes:
-          input.notes === undefined
-            ? existing.notes
-            : normalizeOptionalNotes(input.notes),
-        assigneeUserId: nextAssigneeUserId,
-        dueDate:
-          input.dueDate === undefined
-            ? existing.dueDate
-            : toOptionalDate(input.dueDate),
-        priority: input.priority ?? existing.priority,
-        sortOrder:
-          nextProjectId === existing.projectId
-            ? existing.sortOrder
-            : await getNextTaskSortOrder(this.prisma, nextProjectId),
-        status,
-        completedAt:
-          status === 'done' ? (existing.completedAt ?? new Date()) : null,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.task.update({
+        where: { id: taskId },
+        data: {
+          projectId: nextProjectId,
+          title: input.title ?? existing.title,
+          notes:
+            input.notes === undefined
+              ? existing.notes
+              : normalizeOptionalNotes(input.notes),
+          assigneeUserId: nextAssigneeUserId,
+          dueDate:
+            input.dueDate === undefined
+              ? existing.dueDate
+              : toOptionalDate(input.dueDate),
+          priority: input.priority ?? existing.priority,
+          sortOrder:
+            nextProjectId === existing.projectId
+              ? existing.sortOrder
+              : await getNextTaskSortOrder(tx, nextProjectId),
+          status,
+          completedAt:
+            status === 'done' ? (existing.completedAt ?? new Date()) : null,
+        },
+      });
+
+      await this.projectsService.recalculateProject(existing.projectId, tx);
+      if (nextProjectId !== existing.projectId) {
+        await this.projectsService.recalculateProject(nextProjectId, tx);
+      }
+      const changedFields = getChangedTaskFields(existing, task);
+
+      await this.authService.recordAudit(
+        actor,
+        'task',
+        task.id,
+        'update',
+        buildTaskAuditMetadata(task, changedFields, {
+          changes: buildTaskAuditChanges(
+            toTaskMutationRecord(existing),
+            toTaskMutationRecord(task),
+            changedFields,
+          ),
+        }),
+        tx,
+      );
+      await this.notificationEventsService.queueTaskChange(
+        {
+          actor,
+          nextTask: toTaskNotificationSnapshot(task, nextProject.title),
+          previousTask: toTaskNotificationSnapshot(
+            existing,
+            existing.project?.title ?? null,
+          ),
+        },
+        tx,
+      );
+
+      return task;
     });
-
-    await this.projectsService.recalculateProject(existing.projectId);
-    if (nextProjectId !== existing.projectId) {
-      await this.projectsService.recalculateProject(nextProjectId);
-    }
-    await this.authService.recordAudit(
-      actor,
-      'task',
-      task.id,
-      'update',
-      buildTaskAuditMetadata(task, getChangedTaskFields(existing, task), {
-        changes: buildTaskAuditChanges(
-          toTaskMutationRecord(existing),
-          toTaskMutationRecord(task),
-          getChangedTaskFields(existing, task),
-        ),
-      }),
-    );
-
-    return task;
   }
 
   async convertTaskToProject(
@@ -358,7 +533,7 @@ export class TasksService {
         data: {
           title: nextTask.title,
           notes: nextTask.notes,
-          trackerLink: null,
+          references: null,
           ownerUserId: nextTask.assigneeUserId,
           dueDate: nextTask.dueDate,
           priority: nextTask.priority,
@@ -392,7 +567,7 @@ export class TasksService {
           ownerUserId: project.ownerUserId,
           priority: project.priority,
           dueDate: toAuditDate(project.dueDate),
-          trackerLink: project.trackerLink,
+          references: project.references,
           ...(manualStatus ? { manualStatus } : {}),
           sourceTaskId: taskId,
         },
@@ -492,6 +667,8 @@ function toProjectManualStatus(
   switch (status) {
     case 'blocked':
       return 'blocked';
+    case 'on_hold':
+      return 'on_hold';
     case 'done':
       return 'done';
     case 'in_progress':
@@ -508,12 +685,14 @@ async function requireActiveProject(
 ) {
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { id: true, archivedAt: true },
+    select: { id: true, archivedAt: true, title: true },
   });
 
   if (!project || project.archivedAt) {
     throw new NotFoundException('Project not found');
   }
+
+  return project;
 }
 
 async function getNextTaskSortOrder(
@@ -612,6 +791,15 @@ function buildBulkTaskUpdate(
     }
   }
 
+  if (input.notes !== undefined) {
+    const notes = normalizeOptionalNotes(input.notes);
+
+    if (notes !== existing.notes) {
+      data.notes = notes;
+      changedFields.push('notes');
+    }
+  }
+
   if (input.status !== undefined) {
     if (input.status !== existing.status) {
       data.status = input.status;
@@ -635,6 +823,23 @@ function buildBulkTaskUpdate(
     existing,
     data,
     changedFields,
+  };
+}
+
+function toTaskNotificationSnapshot(
+  task: TaskMutationRecord,
+  projectTitle: string | null | undefined,
+) {
+  return {
+    assigneeUserId: task.assigneeUserId,
+    dueDate: toAuditDate(task.dueDate),
+    id: task.id,
+    notes: task.notes,
+    priority: task.priority,
+    projectId: task.projectId,
+    projectTitle: projectTitle ?? null,
+    status: task.status,
+    title: task.title,
   };
 }
 

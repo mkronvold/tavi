@@ -4,6 +4,7 @@ import type {
   AuditHistoryEvent,
   AuditLogRetentionPolicy,
   AuditLoginsQueryPayload,
+  BulkCopyTasksPayload,
   BulkDeleteTasksPayload,
   BulkUpdateTasksPayload,
   ConvertProjectToTaskResponse,
@@ -31,6 +32,8 @@ import type {
   SetLocalAccountPasswordPayload,
   SetAuditLogRetentionPayload,
   SetOwnPasswordPayload,
+  SmtpStatus,
+  UpdateEmailSettingsPayload,
   UpdateProjectPayload,
   UpdateLoopImportMappingPayload,
   UpdateLoopImportRowDecisionsPayload,
@@ -62,6 +65,14 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
   }
+}
+
+export function isApiUnavailableError(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    (error.status === 502 || error.status === 503) &&
+    error.message === API_UNAVAILABLE_MESSAGE
+  );
 }
 
 type ApiErrorPayload = {
@@ -108,12 +119,18 @@ async function request<T>(path: string, options: RequestOptions = {}) {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...options,
-    body: hasBody ? JSON.stringify(options.body) : undefined,
-    credentials: "include",
-    headers,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      ...options,
+      body: hasBody ? JSON.stringify(options.body) : undefined,
+      credentials: "include",
+      headers,
+    });
+  } catch {
+    throw new ApiError(503, API_UNAVAILABLE_MESSAGE);
+  }
 
   if (!response.ok) {
     if (response.status === 502) {
@@ -302,6 +319,16 @@ export const bulkDeleteTasks = (payload: BulkDeleteTasksPayload) =>
     },
   );
 
+export const bulkCopyTasks = (payload: BulkCopyTasksPayload) =>
+  request<{
+    copiedCount: number;
+    copiedTaskIds: string[];
+    targetProjectId: string;
+  }>("/tasks/bulk/copy", {
+    method: "POST",
+    body: payload,
+  });
+
 export const getAuditHistory = (
   entityType: AuditEntityType,
   entityId: string,
@@ -401,3 +428,14 @@ export const commitLoopImport = (importId: string) =>
   request<LoopImportJob>(`/imports/${importId}/commit`, {
     method: "POST",
   });
+
+// Email
+
+export const updateEmailSettings = (payload: UpdateEmailSettingsPayload) =>
+  request<SmtpStatus>("/auth/email/settings", {
+    method: "PUT",
+    body: payload,
+  });
+
+export const getSmtpStatus = () =>
+  request<SmtpStatus>("/auth/email/status");

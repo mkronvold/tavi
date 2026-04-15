@@ -73,13 +73,11 @@ export class LocalAccountsController {
     @Req() request: AuthenticatedRequest,
   ) {
     const input = parseInput(updateLocalAccountSchema, body);
-    const account = await this.localAccountsService.updateAccount(
+    return this.localAccountsService.updateAccount(
       userId,
       input,
       request.user!,
     );
-
-    return { account };
   }
 
   @Delete('accounts/:userId')

@@ -106,6 +106,7 @@ Recommended task statuses:
 - `todo`
 - `in_progress`
 - `blocked`
+- `on_hold`
 - `done`
 - `canceled`
 
@@ -116,6 +117,7 @@ Recommended project statuses:
 - `not_started`
 - `in_progress`
 - `blocked`
+- `on_hold`
 - `done`
 
 ### Project Rollup Rules
@@ -125,9 +127,10 @@ Default project status is auto-calculated from task state.
 1. If a manual override is active, show the override status and keep the derived status visible for context.
 2. If the project has no active tasks, set status to `not_started`.
 3. If all non-canceled tasks are `done`, set status to `done`.
-4. If any open task is `blocked`, set status to `blocked`.
-5. If any task is `in_progress`, set status to `in_progress`.
-6. Otherwise set status to `not_started`.
+4. If all actionable tasks are `blocked`, set status to `blocked`.
+5. If all actionable tasks are `on_hold`, set status to `on_hold`.
+6. If all non-canceled tasks are `todo`, set status to `not_started`.
+7. Otherwise set status to `in_progress`.
 
 Override requirements:
 
@@ -236,7 +239,7 @@ Rollup details shown in the UI should include:
 - Inline edits should preserve context and avoid full-page reloads.
 - New-task and inline-task editing controls should align to the visible task-table columns.
 - Edit and History row actions should stay compact and right-justified.
-- Projects must support an optional Tracker Link field that can be opened in a separate browser tab/window.
+- Projects must support optional References metadata that accepts one newline-delimited reference per line, with each line allowing either a URL or plain reference text.
 
 ### FR-06 Sorting, Filtering, and Regrouping
 
@@ -334,7 +337,7 @@ Rollup details shown in the UI should include:
 7. Panel toggle state should persist locally per browser and be clearable without removing unrelated site data.
 8. Exports should only include data visible to the authenticated user at export time.
 9. Theme mode, Auto Collapse, Bulk Actions visibility, and Full Width preferences should persist locally per browser and not affect saved views.
-10. Tracker Link is optional project metadata and should open externally rather than embedding another tracker inside Tavi.
+10. References are optional project metadata stored as newline-delimited entries. URL values should open externally rather than embedding another tracker inside Tavi, display without protocol/query/fragment noise, and plain-text entries should remain visible as metadata.
 
 ## 11. v1 Scope
 
@@ -347,7 +350,7 @@ Rollup details shown in the UI should include:
 - Inline editing
 - Filtering, sorting, regrouping, saved views
 - Derived project status with manual override
-- Project tracker links
+- Project references as newline-delimited links or reference text
 - CSV/export-based Loop import
 - CSV, XLSX, JSON, and Loop-oriented exports of the current filtered workspace
 - Settings panel with local account management, theme mode, Auto Collapse, Bulk Actions visibility, and Full Width in local-auth mode

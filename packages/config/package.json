@@ -8,12 +8,13 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./email": "./dist/email.js",
     "./observability": "./dist/observability.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -w -p tsconfig.json --preserveWatchOutput",
-    "typecheck": "tsc --noEmit"
+    "build": "node ./scripts/sync-version.mjs && tsc -p tsconfig.json",
+    "dev": "node ./scripts/sync-version.mjs && tsc -w -p tsconfig.json --preserveWatchOutput",
+    "typecheck": "node ./scripts/sync-version.mjs && tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.12.2",

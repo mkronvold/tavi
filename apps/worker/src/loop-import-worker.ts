@@ -76,9 +76,16 @@ type TaskMutationResult = {
   previousProjectId: string | null;
   projectId: string;
   sourceExternalId: string | null;
-  status: "blocked" | "canceled" | "done" | "in_progress" | "todo";
+  status: "blocked" | "canceled" | "done" | "in_progress" | "on_hold" | "todo";
   title: string | null;
 };
+
+function isImportCleanupRaceError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2003" || error.code === "P2025")
+  );
+}
 
 export class LoopImportWorker {
   private readonly idleDelayMs: number;
@@ -218,6 +225,16 @@ export class LoopImportWorker {
       });
       this.observability.finishJob("parse", "completed", startedAt);
     } catch (error) {
+      if (isImportCleanupRaceError(error)) {
+        this.observability.logger.info("worker.import.removed", {
+          fileName: job.fileName,
+          importId: job.id,
+          jobType: "parse",
+        });
+        this.observability.finishJob("parse", "completed", startedAt);
+        return;
+      }
+
       try {
         await this.failJob(job.id, error);
       } finally {
@@ -341,6 +358,16 @@ export class LoopImportWorker {
       });
       this.observability.finishJob("commit", "completed", startedAt);
     } catch (error) {
+      if (isImportCleanupRaceError(error)) {
+        this.observability.logger.info("worker.import.removed", {
+          fileName: job.fileName,
+          importId: job.id,
+          jobType: "commit",
+        });
+        this.observability.finishJob("commit", "completed", startedAt);
+        return;
+      }
+
       try {
         await this.failJob(job.id, error);
       } finally {
@@ -845,6 +872,7 @@ export class LoopImportWorker {
       let taskTodoCount = 0;
       let taskInProgressCount = 0;
       let taskBlockedCount = 0;
+      let taskOnHoldCount = 0;
       let taskDoneCount = 0;
       let taskCanceledCount = 0;
       let taskOverdueCount = 0;
@@ -860,6 +888,9 @@ export class LoopImportWorker {
           case "blocked":
             taskBlockedCount += 1;
             break;
+          case "on_hold":
+            taskOnHoldCount += 1;
+            break;
           case "done":
             taskDoneCount += 1;
             break;
@@ -872,6 +903,7 @@ export class LoopImportWorker {
           task.dueDate &&
           task.status !== "done" &&
           task.status !== "canceled" &&
+          task.status !== "on_hold" &&
           task.dueDate.getTime() < Date.now()
         ) {
           taskOverdueCount += 1;
@@ -882,18 +914,36 @@ export class LoopImportWorker {
         taskTodoCount +
         taskInProgressCount +
         taskBlockedCount +
+        taskOnHoldCount +
         taskDoneCount +
         taskCanceledCount;
-      const openTaskCount =
-        taskTodoCount + taskInProgressCount + taskBlockedCount;
+      const nonCanceledTaskCount =
+        taskTodoCount +
+        taskInProgressCount +
+        taskBlockedCount +
+        taskOnHoldCount +
+        taskDoneCount;
+      const actionableTaskCount =
+        taskTodoCount +
+        taskInProgressCount +
+        taskBlockedCount +
+        taskOnHoldCount;
       const derivedStatus =
         taskTotalCount === 0
           ? "not_started"
-          : openTaskCount === 0
+          : nonCanceledTaskCount > 0 &&
+              taskDoneCount === nonCanceledTaskCount
             ? "done"
-            : taskBlockedCount > 0
+            : actionableTaskCount > 0 &&
+                taskBlockedCount === actionableTaskCount
               ? "blocked"
-              : taskInProgressCount > 0
+              : actionableTaskCount > 0 &&
+                taskOnHoldCount === actionableTaskCount
+                ? "on_hold"
+                : actionableTaskCount > 0 &&
+                    taskTodoCount === nonCanceledTaskCount
+                  ? "not_started"
+                  : actionableTaskCount > 0
                 ? "in_progress"
                 : "not_started";
 
@@ -906,6 +956,7 @@ export class LoopImportWorker {
           taskCanceledCount,
           taskDoneCount,
           taskInProgressCount,
+          taskOnHoldCount,
           taskOverdueCount,
           taskTodoCount,
           taskTotalCount,
@@ -915,30 +966,48 @@ export class LoopImportWorker {
   }
 
   private async markRowFailed(rowId: string, errors: string[]) {
-    await this.prisma.importRow.update({
-      where: { id: rowId },
-      data: {
-        message: "Row failed validation",
-        projectOutcome: "failed",
-        rowOutcome: "failed",
-        taskOutcome: "failed",
-        validationErrors: errors as Prisma.InputJsonValue,
-      },
-    });
+    try {
+      await this.prisma.importRow.update({
+        where: { id: rowId },
+        data: {
+          message: "Row failed validation",
+          projectOutcome: "failed",
+          rowOutcome: "failed",
+          taskOutcome: "failed",
+          validationErrors: errors as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      if (!isImportCleanupRaceError(error)) {
+        throw error;
+      }
+    }
     this.observability.recordRowFailure();
   }
 
   private async failJob(jobId: string, error: unknown) {
     const message = toErrorMessage(error);
 
-    await this.prisma.importJob.update({
-      where: { id: jobId },
-      data: {
-        completedAt: new Date(),
-        lastError: message,
-        status: "failed",
-      },
-    });
+    try {
+      await this.prisma.importJob.update({
+        where: { id: jobId },
+        data: {
+          completedAt: new Date(),
+          lastError: message,
+          status: "failed",
+        },
+      });
+    } catch (updateError) {
+      if (!isImportCleanupRaceError(updateError)) {
+        throw updateError;
+      }
+
+      this.observability.logger.info("worker.import.removed", {
+        importId: jobId,
+        jobType: "commit",
+      });
+      return;
+    }
 
     this.observability.logger.error("worker.import.failed", {
       error: error instanceof Error ? error : message,

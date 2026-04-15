@@ -42,10 +42,11 @@ const POLLING_STATUSES: LoopImportJobStatus[] = [
   "queued_commit",
   "committing",
 ];
-const CANCELLABLE_IMPORT_STATUSES: LoopImportJobStatus[] = [
+const ACTIVE_IMPORT_STATUSES: LoopImportJobStatus[] = [
   "queued_parse",
-  "awaiting_review",
+  "parsing",
   "queued_commit",
+  "committing",
 ];
 
 export function ImportPanel({
@@ -108,9 +109,19 @@ export function ImportPanel({
       );
     },
   });
-  const cancelImportMutation = useMutation({
-    mutationFn: (importId: string) => deleteLoopImport(importId),
-    onSuccess: async ({ id }) => {
+  const removeImportMutation = useMutation({
+    mutationFn: ({
+      fileName,
+      importId,
+    }: {
+      fileName: string;
+      importId: string;
+    }) =>
+      deleteLoopImport(importId).then((result) => ({
+        ...result,
+        fileName,
+      })),
+    onSuccess: async ({ fileName, id }) => {
       setPanelError(null);
       setDraftImportId(null);
       setCreatedImportAccounts([]);
@@ -126,10 +137,11 @@ export function ImportPanel({
       setSelectedImportId(remainingImports[0]?.id ?? null);
 
       await queryClient.invalidateQueries({ queryKey: ["imports"] });
+      onNotice(`Removed recent import for ${fileName}.`);
     },
     onError: (error) => {
       setPanelError(
-        error instanceof ApiError ? error.message : "Unable to cancel import",
+        error instanceof ApiError ? error.message : "Unable to remove import",
       );
     },
   });
@@ -336,6 +348,16 @@ export function ImportPanel({
     return false;
   }, [displayedMapping, selectedImport]);
 
+  const confirmRemoveImport = (job: LoopImportJob) => {
+    const statusLabel = formatImportStatus(job.status);
+
+    return window.confirm(
+      ACTIVE_IMPORT_STATUSES.includes(job.status)
+        ? `Remove recent import for ${job.fileName} while it is still ${statusLabel}?\n\nThis deletes the import history entry and any staged rows. It does not undo any project or task changes that may already have been applied.`
+        : `Remove recent import for ${job.fileName}?\n\nThis deletes the import history entry and any staged or result rows. It does not undo any project or task changes from the import.`,
+    );
+  };
+
   if (!isAdmin) {
     return null;
   }
@@ -378,27 +400,49 @@ export function ImportPanel({
           </button>
         </div>
 
-        <label>
-          Recent imports
-          <select
-            value={effectiveSelectedImportId ?? ""}
-            onChange={(event) => {
-              const nextImportId = event.target.value;
-              setDraftImportId(null);
-              setCreatedImportAccounts([]);
-              setMappingDraft({});
-              setPanelError(null);
-              setSelectedImportId(nextImportId ? nextImportId : null);
-            }}
-          >
-            <option value="">Select an import</option>
-            {recentImports.map((job) => (
-              <option key={job.id} value={job.id}>
-                {job.fileName} · {formatImportStatus(job.status)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="import-selection-control">
+          <label>
+            Recent imports
+            <select
+              value={effectiveSelectedImportId ?? ""}
+              onChange={(event) => {
+                const nextImportId = event.target.value;
+                setDraftImportId(null);
+                setCreatedImportAccounts([]);
+                setMappingDraft({});
+                setPanelError(null);
+                setSelectedImportId(nextImportId ? nextImportId : null);
+              }}
+            >
+              <option value="">Select an import</option>
+              {recentImports.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.fileName} · {formatImportStatus(job.status)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedImport ? (
+            <button
+              type="button"
+              className="danger-button"
+              disabled={removeImportMutation.isPending}
+              onClick={() => {
+                if (!confirmRemoveImport(selectedImport)) {
+                  return;
+                }
+
+                removeImportMutation.mutate({
+                  fileName: selectedImport.fileName,
+                  importId: selectedImport.id,
+                });
+              }}
+            >
+              {removeImportMutation.isPending ? "Removing..." : "Remove import"}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {panelError ? <p className="error-banner">{panelError}</p> : null}
@@ -527,23 +571,6 @@ export function ImportPanel({
               <strong>{selectedImport.failedRowCount.toString()}</strong>
             </div>
           </div>
-
-          {CANCELLABLE_IMPORT_STATUSES.includes(selectedImport.status) ? (
-            <div className="import-actions">
-              <button
-                type="button"
-                className="danger-button"
-                disabled={cancelImportMutation.isPending}
-                onClick={() => {
-                  cancelImportMutation.mutate(selectedImport.id);
-                }}
-              >
-                {cancelImportMutation.isPending
-                  ? "Canceling..."
-                  : "Cancel import"}
-              </button>
-            </div>
-          ) : null}
 
           {selectedImport.lastError ? (
             <p className="error-banner">{selectedImport.lastError}</p>

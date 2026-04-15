@@ -11,7 +11,7 @@ const sampleProjects: WorkspaceProject[] = [
     id: "project-1",
     title: "Roadmap refresh",
     notes: "Discuss sequencing",
-    trackerLink: null,
+    references: null,
     ownerUserId: "user-1",
     ownerName: "Taylor",
     dueDate: "2026-04-30T00:00:00.000Z",
@@ -26,6 +26,8 @@ const sampleProjects: WorkspaceProject[] = [
     taskDoneCount: 0,
     taskCanceledCount: 0,
     taskOverdueCount: 0,
+    createdAt: "2026-04-01T00:00:00.000Z",
+    updatedAt: "2026-04-20T00:00:00.000Z",
     tasks: [
       {
         id: "task-1",
@@ -39,6 +41,8 @@ const sampleProjects: WorkspaceProject[] = [
         status: "blocked",
         sortOrder: 0,
         completedAt: null,
+        createdAt: "2026-04-02T00:00:00.000Z",
+        updatedAt: "2026-04-20T00:00:00.000Z",
       },
     ],
   },

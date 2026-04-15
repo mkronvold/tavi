@@ -1,5 +1,6 @@
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import { NotificationEventsService } from './notification-events.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsService } from './projects.service';
 
@@ -31,7 +32,7 @@ describe('ProjectsService', () => {
     id: 'project-1',
     title: 'Roadmap refresh',
     notes: null,
-    trackerLink: null,
+    references: null,
     ownerUserId: 'user-1',
     dueDate: null,
     priority: 'medium',
@@ -100,6 +101,9 @@ describe('ProjectsService', () => {
       requireEditAccess: requireEditAccessMock,
       recordAudit: recordAuditMock,
     } as unknown as AuthService;
+    const notificationEventsService = {
+      queueProjectChange: jest.fn(() => Promise.resolve()),
+    } as unknown as NotificationEventsService;
 
     return {
       mocks: {
@@ -116,7 +120,7 @@ describe('ProjectsService', () => {
         updateProjectMock,
         updateManyTasksMock,
       },
-      service: new ProjectsService(prisma, authService),
+      service: new ProjectsService(prisma, authService, notificationEventsService),
     };
   };
 
@@ -136,14 +140,17 @@ describe('ProjectsService', () => {
       tx?: unknown;
     },
   ) => {
-    expect(actual).toEqual([
+    expect(actual.slice(0, 5)).toEqual([
       actor,
       entityType,
       entityId,
       action,
       metadata,
-      ...(tx === undefined ? [] : [tx]),
     ]);
+
+    if (tx !== undefined) {
+      expect(actual[5]).toBe(tx);
+    }
   };
 
   it('creates projects with normalized tracker links and audit metadata', async () => {
@@ -151,13 +158,13 @@ describe('ProjectsService', () => {
 
     mocks.createProjectMock.mockResolvedValue({
       ...existingProject,
-      trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+      references: 'https://tracker.example.com/projects/roadmap-refresh',
     });
 
     const result = await service.createProject(
       {
         title: 'Roadmap refresh',
-        trackerLink: '  https://tracker.example.com/projects/roadmap-refresh  ',
+        references: '  https://tracker.example.com/projects/roadmap-refresh  ',
         ownerUserId: 'user-1',
         priority: 'medium',
       },
@@ -169,7 +176,7 @@ describe('ProjectsService', () => {
       data: {
         title: 'Roadmap refresh',
         notes: null,
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
         ownerUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
@@ -186,14 +193,14 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
-        changedFields: ['title', 'ownerUserId', 'priority', 'trackerLink'],
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
+        changedFields: ['title', 'ownerUserId', 'priority', 'references'],
         changes: [
           { field: 'title', from: null, to: 'Roadmap refresh' },
           { field: 'ownerUserId', from: null, to: 'user-1' },
           { field: 'priority', from: null, to: 'medium' },
           {
-            field: 'trackerLink',
+            field: 'references',
             from: null,
             to: 'https://tracker.example.com/projects/roadmap-refresh',
           },
@@ -202,7 +209,7 @@ describe('ProjectsService', () => {
     });
     expect(result).toMatchObject({
       id: 'project-1',
-      trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+      references: 'https://tracker.example.com/projects/roadmap-refresh',
     });
   });
 
@@ -213,7 +220,7 @@ describe('ProjectsService', () => {
     mocks.findUniqueMock.mockResolvedValue({
       ...existingProject,
       notes: 'Awaiting dependency',
-      trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+      references: 'https://tracker.example.com/projects/roadmap-refresh',
       displayStatus: 'blocked',
       manualStatus: 'blocked',
       taskTotalCount: 0,
@@ -223,7 +230,7 @@ describe('ProjectsService', () => {
       id: 'project-unassigned',
       title: 'Unassigned',
       notes: null,
-      trackerLink: null,
+      references: null,
       ownerUserId: 'user-1',
       dueDate: null,
       priority: 'medium',
@@ -246,7 +253,7 @@ describe('ProjectsService', () => {
       .mockResolvedValueOnce({
         ...existingProject,
         notes: 'Awaiting dependency',
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
         displayStatus: 'blocked',
         manualStatus: 'blocked',
         taskTotalCount: 0,
@@ -255,7 +262,7 @@ describe('ProjectsService', () => {
         id: 'project-unassigned',
         title: 'Unassigned',
         notes: null,
-        trackerLink: null,
+        references: null,
         ownerUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
@@ -274,7 +281,7 @@ describe('ProjectsService', () => {
       .mockResolvedValueOnce({
         ...existingProject,
         notes: 'Awaiting dependency',
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
         displayStatus: 'blocked',
         manualStatus: 'blocked',
         taskTotalCount: 0,
@@ -284,7 +291,7 @@ describe('ProjectsService', () => {
         id: 'project-unassigned',
         title: 'Unassigned',
         notes: null,
-        trackerLink: null,
+        references: null,
         ownerUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
@@ -312,7 +319,7 @@ describe('ProjectsService', () => {
       data: {
         title: 'Unassigned',
         notes: null,
-        trackerLink: null,
+        references: null,
         ownerUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
@@ -346,7 +353,7 @@ describe('ProjectsService', () => {
       data: {
         title: 'Roadmap refresh',
         notes: 'Awaiting dependency',
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
         ownerUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
@@ -365,7 +372,7 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
-        trackerLink: null,
+        references: null,
         changedFields: ['title', 'ownerUserId', 'priority'],
         changes: [
           { field: 'title', from: null, to: 'Unassigned' },
@@ -399,7 +406,7 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
-        trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+        references: 'https://tracker.example.com/projects/roadmap-refresh',
         status: 'blocked',
         changedFields: ['archivedAt'],
         archivedAt: archivedAt.toISOString(),
@@ -473,7 +480,7 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
-        trackerLink: null,
+        references: null,
         changedFields: ['notes'],
         changes: [
           {
@@ -495,17 +502,17 @@ describe('ProjectsService', () => {
 
     mocks.findUniqueMock.mockResolvedValue({
       ...existingProject,
-      trackerLink: 'https://tracker.example.com/projects/roadmap-refresh',
+      references: 'https://tracker.example.com/projects/roadmap-refresh',
     });
     mocks.updateProjectMock.mockResolvedValue({
       ...existingProject,
-      trackerLink: null,
+      references: null,
     });
 
     const result = await service.updateProject(
       'project-1',
       {
-        trackerLink: null,
+        references: null,
       },
       actor,
     );
@@ -515,7 +522,7 @@ describe('ProjectsService', () => {
     expect(updateCall).toMatchObject({
       where: { id: 'project-1' },
       data: {
-        trackerLink: null,
+        references: null,
       },
     });
     expectRecordAuditCall(mocks.recordAuditCalls[0], {
@@ -527,11 +534,11 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
-        trackerLink: null,
-        changedFields: ['trackerLink'],
+        references: null,
+        changedFields: ['references'],
         changes: [
           {
-            field: 'trackerLink',
+            field: 'references',
             from: 'https://tracker.example.com/projects/roadmap-refresh',
             to: null,
           },
@@ -540,7 +547,7 @@ describe('ProjectsService', () => {
     });
     expect(result).toMatchObject({
       id: 'project-1',
-      trackerLink: null,
+      references: null,
     });
   });
 
@@ -634,7 +641,7 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'high',
         dueDate: null,
-        trackerLink: null,
+        references: null,
         changedFields: ['title', 'notes', 'priority'],
         changes: [
           {
@@ -678,16 +685,29 @@ describe('ProjectsService', () => {
 
   it('clears manual status overrides back to the derived status while preserving notes', async () => {
     const { mocks, service } = createService();
+    const recalculateProjectMock = jest
+      .spyOn(service, 'recalculateProject')
+      .mockResolvedValue(undefined);
 
-    mocks.findUniqueMock.mockResolvedValue({
-      ...existingProject,
-      displayStatus: 'blocked',
-      manualStatus: 'blocked',
-      notes: 'Awaiting dependency',
-    });
+    mocks.findUniqueMock
+      .mockResolvedValueOnce({
+        ...existingProject,
+        derivedStatus: 'not_started',
+        displayStatus: 'blocked',
+        manualStatus: 'blocked',
+        notes: 'Awaiting dependency',
+      })
+      .mockResolvedValueOnce({
+        ...existingProject,
+        derivedStatus: 'in_progress',
+        displayStatus: 'in_progress',
+        manualStatus: null,
+        notes: 'Awaiting dependency',
+      });
     mocks.updateProjectMock.mockResolvedValue({
       ...existingProject,
-      displayStatus: 'in_progress',
+      derivedStatus: 'not_started',
+      displayStatus: 'not_started',
       manualStatus: null,
       notes: 'Awaiting dependency',
     });
@@ -705,11 +725,12 @@ describe('ProjectsService', () => {
     expect(updateCall).toMatchObject({
       where: { id: 'project-1' },
       data: {
-        displayStatus: 'in_progress',
         manualStatus: null,
         notes: 'Awaiting dependency',
       },
     });
+    expect(updateCall?.data).not.toHaveProperty('displayStatus');
+    expect(recalculateProjectMock).toHaveBeenCalledWith('project-1', mocks.tx);
     expectRecordAuditCall(mocks.recordAuditCalls[0], {
       entityType: 'project',
       entityId: 'project-1',
@@ -777,7 +798,7 @@ describe('ProjectsService', () => {
         ownerUserId: 'user-1',
         priority: 'medium',
         dueDate: null,
-        trackerLink: null,
+        references: null,
         changedFields: ['archivedAt'],
         archivedAt: archivedAt.toISOString(),
         archivedTaskCount: 2,

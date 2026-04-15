@@ -44,7 +44,12 @@ export class WorkspaceService {
     ]);
 
     return {
-      currentUser,
+      currentUser: {
+        id: currentUser.id,
+        email: currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role,
+      },
       users: users.map((user) => ({
         id: user.id,
         email: user.email,
@@ -55,7 +60,7 @@ export class WorkspaceService {
         id: project.id,
         title: project.title,
         notes: project.notes,
-        trackerLink: project.trackerLink,
+        references: project.references,
         ownerUserId: project.ownerUserId,
         ownerName: project.owner?.name ?? null,
         dueDate: project.dueDate,
@@ -70,6 +75,8 @@ export class WorkspaceService {
         taskDoneCount: project.taskDoneCount,
         taskCanceledCount: project.taskCanceledCount,
         taskOverdueCount: project.taskOverdueCount,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
         tasks: project.tasks.map((task) => ({
           id: task.id,
           projectId: task.projectId,
@@ -82,6 +89,8 @@ export class WorkspaceService {
           status: task.status,
           sortOrder: task.sortOrder,
           completedAt: task.completedAt,
+          createdAt: task.createdAt,
+          updatedAt: task.updatedAt,
         })),
       })),
       savedViews,
@@ -131,7 +140,7 @@ export class WorkspaceService {
           data: {
             title: projectSeed.title,
             notes: projectSeed.notes,
-            trackerLink: projectSeed.trackerLink,
+            references: projectSeed.references,
             ownerUserId: projectSeed.ownerUserId,
             dueDate: projectSeed.dueDate,
             priority: projectSeed.priority,
