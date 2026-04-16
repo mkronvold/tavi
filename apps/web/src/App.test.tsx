@@ -24,6 +24,29 @@ const createResponse = (payload: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
+const createSmtpStatusPayload = (
+  overrides: Partial<{
+    configured: boolean;
+    dailyDigestTime: string;
+    dragHandlesEnabled: boolean;
+    enabled: boolean;
+    fromAddress: string;
+    host: string | null;
+    port: number | null;
+    secure: boolean;
+  }> = {},
+) => ({
+  configured: true,
+  dailyDigestTime: "09:00",
+  dragHandlesEnabled: true,
+  enabled: true,
+  fromAddress: "noreply@tavi.local",
+  host: "10.120.64.99",
+  port: 25,
+  secure: false,
+  ...overrides,
+});
+
 const formatExpectedCalendarDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { timeZone: "UTC" }).format(
     new Date(value),
@@ -121,6 +144,9 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
       updatedAt: new Date().toISOString(),
     },
   ],
+  workspaceSettings: {
+    dragHandlesEnabled: true,
+  },
 });
 
 const createAdminWorkspacePayload = (): WorkspaceResponse => {
@@ -1405,6 +1431,51 @@ describe("App", () => {
     expect(scrollIntoViewMock).toHaveBeenCalled();
   });
 
+  it("shows a floating to top button after scrolling and scrolls smoothly to the top", async () => {
+    const scrollToMock = vi.fn();
+
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      value: 0,
+    });
+    Object.defineProperty(window, "scrollTo", {
+      configurable: true,
+      value: scrollToMock,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "To top" })).not.toBeInTheDocument();
+
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      value: 320,
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "To top" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "To top" }));
+
+    expect(scrollToMock).toHaveBeenCalledWith({
+      top: 0,
+      behavior: "smooth",
+    });
+  });
+
   it("deletes a project from the inline project editor", async () => {
     const workspacePayload = createWorkspacePayload();
     const confirmMock = vi.fn(() => true);
@@ -1841,15 +1912,11 @@ describe("App", () => {
         }
 
         if (url.endsWith("/auth/email/status")) {
-          return createResponse({
-            configured: true,
-            dailyDigestTime: "14:30",
-            enabled: true,
-            fromAddress: "noreply@tavi.local",
-            host: "10.120.64.99",
-            port: 25,
-            secure: false,
-          });
+          return createResponse(
+            createSmtpStatusPayload({
+              dailyDigestTime: "14:30",
+            }),
+          );
         }
 
         if (url.endsWith("/auth/notification/preferences")) {
@@ -1862,15 +1929,12 @@ describe("App", () => {
         if (url.endsWith("/auth/email/settings") && init?.method === "PUT") {
           emailSettingsRequestBody =
             typeof init.body === "string" ? init.body : null;
-          return createResponse({
-            configured: true,
-            dailyDigestTime: "14:30",
-            enabled: false,
-            fromAddress: "noreply@tavi.local",
-            host: "10.120.64.99",
-            port: 25,
-            secure: false,
-          });
+          return createResponse(
+            createSmtpStatusPayload({
+              dailyDigestTime: "14:30",
+              enabled: false,
+            }),
+          );
         }
 
         throw new Error(`Unexpected request: ${url}`);
@@ -1901,9 +1965,93 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(emailSettingsRequestBody).toBe(
-        JSON.stringify({ dailyDigestTime: "14:30", enabled: false }),
+        JSON.stringify({
+          dailyDigestTime: "14:30",
+          dragHandlesEnabled: true,
+          enabled: false,
+        }),
       );
       expect(emailNotificationsSwitch).not.toBeChecked();
+    });
+  });
+
+  it("toggles task drag handles for the whole workspace from admin settings", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    let emailSettingsRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse(createSmtpStatusPayload());
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
+          });
+        }
+
+        if (url.endsWith("/auth/email/settings") && init?.method === "PUT") {
+          emailSettingsRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse(
+            createSmtpStatusPayload({
+              dragHandlesEnabled: false,
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Drag to reorder Kickoff" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    const dragHandlesSwitch = screen.getByRole("switch", {
+      name: "Task Drag Handles",
+    });
+
+    await waitFor(() => {
+      expect(dragHandlesSwitch).not.toBeDisabled();
+    });
+    expect(dragHandlesSwitch).toBeChecked();
+
+    fireEvent.click(dragHandlesSwitch);
+
+    await waitFor(() => {
+      expect(emailSettingsRequestBody).toBe(
+        JSON.stringify({
+          dailyDigestTime: "09:00",
+          dragHandlesEnabled: false,
+          enabled: true,
+        }),
+      );
+      expect(dragHandlesSwitch).not.toBeChecked();
+      expect(
+        screen.queryByRole("button", { name: "Drag to reorder Kickoff" }),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -2008,15 +2156,7 @@ describe("App", () => {
         const url = typeof input === "string" ? input : input.toString();
 
         if (url.endsWith("/auth/email/status")) {
-          return createResponse({
-            configured: true,
-            dailyDigestTime: "09:00",
-            enabled: true,
-            fromAddress: "noreply@tavi.local",
-            host: "10.120.64.99",
-            port: 25,
-            secure: false,
-          });
+          return createResponse(createSmtpStatusPayload());
         }
 
         if (url.endsWith("/auth/notification/preferences")) {
@@ -2043,7 +2183,7 @@ describe("App", () => {
     );
 
     expect(settingsItems).not.toHaveLength(0);
-    expect(settingsItems).toHaveLength(14);
+    expect(settingsItems).toHaveLength(15);
     expect(settingsItems[0]?.textContent).toContain("Theme");
     expect(settingsItems[1]?.textContent).toContain("Auto Collapse");
     expect(settingsItems[2]?.textContent).toContain("Bulk Actions");
@@ -2053,11 +2193,12 @@ describe("App", () => {
     expect(settingsItems[6]?.textContent).toContain("My Auth History");
     expect(settingsItems[7]?.textContent).toContain("Email Notifications");
     expect(settingsItems[8]?.textContent).toContain("Daily Digest Time");
-    expect(settingsItems[9]?.textContent).toContain("Backups");
-    expect(settingsItems[10]?.textContent).toContain("Import/Export");
-    expect(settingsItems[11]?.textContent).toContain("Local Accounts");
-    expect(settingsItems[12]?.textContent).toContain("Audit logins");
-    expect(settingsItems[13]?.textContent).toContain("Audit changes");
+    expect(settingsItems[9]?.textContent).toContain("Task Drag Handles");
+    expect(settingsItems[10]?.textContent).toContain("Backups");
+    expect(settingsItems[11]?.textContent).toContain("Import/Export");
+    expect(settingsItems[12]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[13]?.textContent).toContain("Audit logins");
+    expect(settingsItems[14]?.textContent).toContain("Audit changes");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
       appRepositoryUrl,
@@ -2079,15 +2220,7 @@ describe("App", () => {
         }
 
         if (url.endsWith("/auth/email/status")) {
-          return createResponse({
-            configured: true,
-            dailyDigestTime: "09:00",
-            enabled: true,
-            fromAddress: "noreply@tavi.local",
-            host: "10.120.64.99",
-            port: 25,
-            secure: false,
-          });
+          return createResponse(createSmtpStatusPayload());
         }
 
         if (url.endsWith("/auth/notification/preferences")) {
@@ -2320,6 +2453,39 @@ describe("App", () => {
     });
   });
 
+  it("closes the add task row when a project is collapsed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "Add Task" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("New task title")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("New task title")).not.toBeInTheDocument();
+      expect(
+        within(projectCard!).getByRole("button", { name: "Add Task" }),
+      ).toHaveAttribute("aria-pressed", "false");
+    });
+  });
+
   it("keeps the last assignee and priority when adding tasks consecutively", async () => {
     const workspacePayload = createWorkspacePayload();
     let createBody: string | null = null;
@@ -2442,6 +2608,119 @@ describe("App", () => {
     expect(
       within(refreshedTaskCreateRow).getByDisplayValue("Todo"),
     ).toHaveValue("todo");
+  });
+
+  it("allows creating tasks with no assignee and keeps None as the next default", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let createBody: string | null = null;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/projects/project-1/tasks") &&
+          init?.method === "POST"
+        ) {
+          createBody = typeof init.body === "string" ? init.body : null;
+
+          const payload = JSON.parse(createBody ?? "{}") as {
+            assigneeUserId?: string | null;
+            notes?: string;
+            priority?: "low" | "medium" | "high";
+            status?: string;
+            title?: string;
+          };
+
+          workspacePayload.projects[0]!.tasks.push({
+            id: "task-3",
+            projectId: "project-1",
+            title: payload.title ?? "",
+            notes: payload.notes ?? null,
+            assigneeUserId: payload.assigneeUserId ?? null,
+            assigneeName:
+              payload.assigneeUserId === "user-2"
+                ? "Tavi Viewer"
+                : payload.assigneeUserId === "user-1"
+                  ? "Tavi Editor"
+                  : null,
+            dueDate: null,
+            priority: payload.priority ?? "medium",
+            status: payload.status === "done" ? "done" : "todo",
+            sortOrder: 2,
+            completedAt: null,
+            createdAt: "2026-04-03T09:00:00.000Z",
+            updatedAt: "2026-04-03T09:00:00.000Z",
+          });
+          workspacePayload.projects[0]!.taskTotalCount += 1;
+          workspacePayload.projects[0]!.taskTodoCount += 1;
+
+          return createResponse(workspacePayload.projects[0]!.tasks[2]);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "Add Task" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("New task title")).toBeInTheDocument();
+    });
+
+    const titleInput = screen.getByPlaceholderText(
+      "New task title",
+    ) as HTMLInputElement;
+    const taskCreateRow = titleInput.closest("tr");
+
+    expect(taskCreateRow).not.toBeNull();
+    if (!(taskCreateRow instanceof HTMLTableRowElement)) {
+      throw new Error("Expected add-task row");
+    }
+
+    fireEvent.change(titleInput, {
+      target: { value: "Unassigned task" },
+    });
+    fireEvent.change(within(taskCreateRow).getByDisplayValue("Tavi Editor"), {
+      target: { value: "" },
+    });
+    fireEvent.click(within(taskCreateRow).getByRole("button", { name: "Add" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Unassigned task")).toBeInTheDocument();
+    });
+
+    const refreshedTitleInput = screen.getByPlaceholderText(
+      "New task title",
+    ) as HTMLInputElement;
+    const refreshedTaskCreateRow = refreshedTitleInput.closest("tr");
+
+    expect(refreshedTaskCreateRow).not.toBeNull();
+    if (!(refreshedTaskCreateRow instanceof HTMLTableRowElement)) {
+      throw new Error("Expected refreshed add-task row");
+    }
+
+    expect(createBody).toContain('"assigneeUserId":null');
+    expect(
+      within(refreshedTaskCreateRow).getByDisplayValue("None"),
+    ).toHaveValue("");
   });
 
   it("reorders tasks with the drag handle and saves the new order", async () => {
@@ -3798,7 +4077,103 @@ describe("App", () => {
     });
   });
 
-  it("uses tighter card spacing only while a project is collapsed", async () => {
+  it("scrolls the newly expanded project into view when auto-collapse switches focus", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const scrollIntoViewMock = vi.fn();
+
+    workspacePayload.projects.push({
+      id: "project-2",
+      title: "Beta rollout",
+      notes: null,
+      references: null,
+      ownerUserId: "user-2",
+      ownerName: "Tavi Viewer",
+      dueDate: null,
+      priority: "high",
+      derivedStatus: "not_started",
+      displayStatus: "not_started",
+      manualStatus: null,
+      taskTotalCount: 1,
+      taskTodoCount: 1,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      tasks: [
+        {
+          id: "task-3",
+          projectId: "project-2",
+          title: "Draft brief",
+          notes: "Confirm the launch checklist",
+          assigneeUserId: "user-2",
+          assigneeName: "Tavi Viewer",
+          dueDate: null,
+          priority: "high",
+          status: "todo",
+          sortOrder: 0,
+          completedAt: null,
+        },
+      ],
+    });
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+      expect(screen.getByText("Beta rollout")).toBeInTheDocument();
+    });
+
+    const betaProjectCard = screen.getByText("Beta rollout").closest("article");
+
+    expect(betaProjectCard).not.toBeNull();
+    if (!(betaProjectCard instanceof HTMLElement)) {
+      throw new Error("Expected beta project card");
+    }
+
+    betaProjectCard.getBoundingClientRect = () =>
+      ({
+        bottom: 1020,
+        height: 120,
+        left: 0,
+        right: 500,
+        top: 900,
+        width: 500,
+        x: 0,
+        y: 900,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    scrollIntoViewMock.mockClear();
+    toggleProjectByTitle("Beta rollout");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Kickoff")).not.toBeInTheDocument();
+      expect(screen.getByText("Draft brief")).toBeInTheDocument();
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({
+        block: "end",
+        inline: "nearest",
+      });
+    });
+  });
+
+  it("uses tighter card spacing only while a project is collapsed and highlights expanded projects", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -3816,12 +4191,14 @@ describe("App", () => {
 
     expect(collapsedProjectCard).not.toBeNull();
     expect(collapsedProjectCard).toHaveClass("project-card--collapsed");
+    expect(collapsedProjectCard).not.toHaveClass("project-card--expanded");
 
     toggleProjectByTitle("Roadmap refresh");
 
     await waitFor(() => {
       expect(screen.getByText("Kickoff")).toBeInTheDocument();
       expect(collapsedProjectCard).not.toHaveClass("project-card--collapsed");
+      expect(collapsedProjectCard).toHaveClass("project-card--expanded");
     });
   });
 

@@ -112,6 +112,7 @@ export class EmailService implements OnModuleInit {
     return {
       dailyDigestTime:
         settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled: settings?.enabled ?? true,
       configured: this.configured,
       host: this.smtpHost,
@@ -128,10 +129,12 @@ export class EmailService implements OnModuleInit {
       where: { id: EMAIL_SETTINGS_ID },
       update: {
         dailyDigestTime: input.dailyDigestTime,
+        dragHandlesEnabled: input.dragHandlesEnabled,
         enabled: input.enabled,
       },
       create: {
         dailyDigestTime: input.dailyDigestTime,
+        dragHandlesEnabled: input.dragHandlesEnabled,
         id: EMAIL_SETTINGS_ID,
         enabled: input.enabled,
       },
@@ -146,6 +149,7 @@ export class EmailService implements OnModuleInit {
     return this.updateEmailSettings({
       dailyDigestTime:
         settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled,
     });
   }
@@ -250,6 +254,7 @@ export class EmailService implements OnModuleInit {
       where: { id: EMAIL_SETTINGS_ID },
       select: {
         dailyDigestTime: true,
+        dragHandlesEnabled: true,
         enabled: true,
       },
     });

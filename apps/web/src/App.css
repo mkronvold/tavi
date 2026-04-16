@@ -1202,6 +1202,15 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.scroll-to-top-button {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 35;
+  border-radius: 999px;
+  box-shadow: var(--card-shadow);
+}
+
 .project-create-form,
 .nested-form {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -1240,6 +1249,13 @@ button:disabled {
 .project-card {
   margin: 12px;
   overflow: hidden;
+}
+
+.project-card--expanded {
+  border-color: color-mix(in srgb, var(--brand-color) 55%, var(--border-strong));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--brand-color) 18%, transparent),
+    var(--shadow-card);
 }
 
 .project-card--collapsed {
@@ -1870,5 +1886,10 @@ button:disabled {
 
   .bulk-action-card--sticky {
     top: 178px;
+  }
+
+  .scroll-to-top-button {
+    right: 16px;
+    bottom: 16px;
   }
 }

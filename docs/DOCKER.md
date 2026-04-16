@@ -2,7 +2,7 @@
 
 Use this guide to run Tavi locally from the published GHCR images. This path
 does not build the product locally and does not mount your working tree into
-the containers. If you want source-driven local development, use `BUILD.md`
+the containers. If you want source-driven local development, use [`BUILD.md`](./BUILD.md)
 instead.
 
 ## Requirements
@@ -219,4 +219,4 @@ docker volume rm tavi-postgres-data
 | Database never becomes healthy    | Confirm `tavi-postgres` started cleanly and no other service is using local port `5432`                        |
 | Automatic backups do not show up  | Confirm both API and worker mount the same host `./backups` directory and use the same `BACKUP_DIRECTORY` path |
 
-See `BACKUPS.md` for the UI workflow once the containers are running.
+See [`BACKUPS.md`](./BACKUPS.md) for the UI workflow once the containers are running.

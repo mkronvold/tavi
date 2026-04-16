@@ -13,7 +13,7 @@ Saved views currently persist:
 5. Collapsed group defaults
 6. Expanded project defaults
 
-Saved views do not store theme, panel open or closed state, bulk-action preference, or other browser-local settings from `SETTINGS.md`.
+Saved views do not store theme, panel open or closed state, bulk-action preference, or other browser-local settings from [`SETTINGS.md`](./SETTINGS.md).
 
 ## Save a new view
 

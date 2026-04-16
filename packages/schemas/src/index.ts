@@ -359,7 +359,7 @@ export const createTaskSchema = z.object({
   projectId: z.string().min(1),
   title: z.string().min(1).max(120),
   notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional(),
-  assigneeUserId: z.string().min(1),
+  assigneeUserId: z.string().min(1).nullable(),
   dueDate: z.string().optional(),
   priority: prioritySchema.default("medium"),
   status: taskStatusSchema.default("todo"),
@@ -1928,12 +1928,14 @@ export const dailyDigestTimeSchema = timeOfDaySchema;
 export const emailSettingsSchema = z.object({
   enabled: z.boolean(),
   dailyDigestTime: dailyDigestTimeSchema,
+  dragHandlesEnabled: z.boolean(),
 });
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
 export const updateEmailSettingsSchema = z.object({
   enabled: z.boolean(),
   dailyDigestTime: dailyDigestTimeSchema,
+  dragHandlesEnabled: z.boolean(),
 });
 export type UpdateEmailSettingsInput = z.infer<
   typeof updateEmailSettingsSchema
@@ -1962,6 +1964,7 @@ export const smtpStatusSchema = z.object({
   secure: z.boolean(),
   fromAddress: z.string(),
   dailyDigestTime: dailyDigestTimeSchema,
+  dragHandlesEnabled: z.boolean(),
 });
 export type SmtpStatus = z.infer<typeof smtpStatusSchema>;
 

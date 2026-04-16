@@ -1,6 +1,6 @@
 # Kubernetes Deployment Guide
 
-Tavi now ships four complete raw-manifest deployment paths under `infra/k8s/`. Pick one folder, follow its `README.md`, and apply only that folder's manifests.
+Tavi now ships four complete raw-manifest deployment paths under `infra/k8s/`. Pick one folder, follow its `README.md`, and apply only that folder's manifests. The manifest directory index lives at [`../infra/k8s/README.md`](../infra/k8s/README.md).
 
 ## Available paths
 

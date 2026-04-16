@@ -490,6 +490,6 @@ After this document, the next most valuable technical docs are:
 
 1. `docs/API-CONTRACT.md`
 2. `docs/DATA-DICTIONARY.md`
-3. `docs/IMPORT-MAPPING.md`
+3. [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md)
 4. `docs/OPS-RUNBOOK.md`
 5. `adr/` decision records for stack, auth, rollup persistence, and deployment model

@@ -134,6 +134,7 @@ const EMPTY_LOGIN_FORM: LoginPayload = {
 const BRAND_MARK = "ᴛᴀᴠi";
 const EDITOR_SCROLL_TOP_MARGIN = 132;
 const EDITOR_SCROLL_BOTTOM_MARGIN = 24;
+const SCROLL_TO_TOP_VISIBILITY_OFFSET = 240;
 const MAX_DISPLAY_LINK_LABEL_LENGTH = 35;
 const EDITOR_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
@@ -632,6 +633,9 @@ function WorkspaceScreen({
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(
     null,
   );
+  const [showScrollToTop, setShowScrollToTop] = useState(() =>
+    readViewportScrollOffset() > SCROLL_TO_TOP_VISIBILITY_OFFSET,
+  );
   const canEditWorkspace = data.currentUser.role !== "viewer";
   const appHomeUrl = getAppHomeUrl();
   const { autoCollapse, bulkActions, fullWidth, theme } = preferences;
@@ -840,6 +844,23 @@ function WorkspaceScreen({
     writeTaviStorage(ADD_TASK_PANEL_STORAGE_KEY, activeAddTaskPanels);
   }, [addTaskPanels]);
 
+  useEffect(() => {
+    const syncScrollToTopVisibility = () => {
+      setShowScrollToTop(
+        readViewportScrollOffset() > SCROLL_TO_TOP_VISIBILITY_OFFSET,
+      );
+    };
+
+    syncScrollToTopVisibility();
+    globalThis.addEventListener("scroll", syncScrollToTopVisibility, {
+      passive: true,
+    });
+
+    return () => {
+      globalThis.removeEventListener("scroll", syncScrollToTopVisibility);
+    };
+  }, []);
+
   const clearSelectedTasksForProjects = (projectIds: string[]) => {
     if (projectIds.length === 0) {
       return;
@@ -895,6 +916,27 @@ function WorkspaceScreen({
       setBulkTaskError(null);
     }
   };
+  const clearAddTaskPanelsForProjects = (projectIds: string[]) => {
+    if (projectIds.length === 0) {
+      return;
+    }
+
+    setAddTaskPanels((current) => {
+      const nextAddTaskPanels = { ...current };
+      let changed = false;
+
+      for (const projectId of projectIds) {
+        if (!(projectId in nextAddTaskPanels)) {
+          continue;
+        }
+
+        delete nextAddTaskPanels[projectId];
+        changed = true;
+      }
+
+      return changed ? nextAddTaskPanels : current;
+    });
+  };
   const clearProjectPanels = (projectId: string) => {
     setExpandedProjects((current) => {
       if (!(projectId in current)) {
@@ -906,27 +948,42 @@ function WorkspaceScreen({
       delete nextExpandedProjects[projectId];
       return nextExpandedProjects;
     });
-    setAddTaskPanels((current) => {
-      if (!(projectId in current)) {
-        return current;
-      }
+    clearAddTaskPanelsForProjects([projectId]);
+  };
+  const revealExpandedProjectCard = (projectId: string) => {
+    const reveal = () => {
+      revealElementInViewport(
+        document.querySelector<HTMLElement>(
+          `[data-project-card-id="${projectId}"]`,
+        ),
+      );
+    };
 
-      const nextAddTaskPanels = { ...current };
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(reveal);
+      return;
+    }
 
-      delete nextAddTaskPanels[projectId];
-      return nextAddTaskPanels;
-    });
+    globalThis.setTimeout(reveal, 0);
   };
 
   const setProjectExpanded = (projectId: string, nextValue: boolean) => {
+    const collapsedProjectIds = !nextValue
+      ? [projectId]
+      : autoCollapse
+        ? Object.keys(expandedProjects).filter(
+            (expandedProjectId) => expandedProjectId !== projectId,
+          )
+        : [];
+    const shouldRevealExpandedProject =
+      nextValue && autoCollapse && collapsedProjectIds.length > 0;
+
+    clearAddTaskPanelsForProjects(collapsedProjectIds);
+
     if (!nextValue) {
-      clearSelectedTasksForProjects([projectId]);
+      clearSelectedTasksForProjects(collapsedProjectIds);
     } else if (autoCollapse) {
-      clearSelectedTasksForProjects(
-        Object.keys(expandedProjects).filter(
-          (expandedProjectId) => expandedProjectId !== projectId,
-        ),
-      );
+      clearSelectedTasksForProjects(collapsedProjectIds);
     }
 
     setExpandedProjects((current) => {
@@ -952,6 +1009,10 @@ function WorkspaceScreen({
         [projectId]: true,
       };
     });
+
+    if (shouldRevealExpandedProject) {
+      revealExpandedProjectCard(projectId);
+    }
   };
 
   const openProjectEditor = (project: WorkspaceProject) => {
@@ -2456,10 +2517,12 @@ function WorkspaceScreen({
                   ? project.tasks.filter((task) => task.status !== "done")
                   : project.tasks;
                 const projectTaskIds = visibleProjectTasks.map((task) => task.id);
-                const showTaskReorderColumn = canEditWorkspace;
+                const showTaskReorderColumn =
+                  canEditWorkspace &&
+                  (data.workspaceSettings?.dragHandlesEnabled ?? true);
                 const taskTableColumnCount =
                   (canSelectTasks ? 1 : 0) + (showTaskReorderColumn ? 1 : 0) + 6;
-                const taskReorderDisabledReason = !canEditWorkspace
+                const taskReorderDisabledReason = !showTaskReorderColumn
                   ? null
                   : reorderProjectTasksMutation.isPending
                     ? "Saving task order..."
@@ -2481,13 +2544,19 @@ function WorkspaceScreen({
                   selectedProjectTaskCount === projectTaskIds.length;
 
                 const projectCardClassName = `project-card${
+                  expanded ? " project-card--expanded" : ""
+                }${
                   expanded || editingProjectId === project.id || addTaskOpen
                     ? ""
                     : " project-card--collapsed"
                 }`;
 
                 return (
-                  <article className={projectCardClassName} key={project.id}>
+                  <article
+                    className={projectCardClassName}
+                    data-project-card-id={project.id}
+                    key={project.id}
+                  >
                     <div
                       className="project-row"
                       onClick={(event) => {
@@ -2970,17 +3039,21 @@ function WorkspaceScreen({
                                 </td>
                                 <td>
                                   <select
-                                    value={taskDraftValue.assigneeUserId}
+                                    value={taskDraftValue.assigneeUserId ?? ""}
                                     onChange={(event) =>
                                       setNewTaskByProject((current) => ({
                                         ...current,
                                         [project.id]: {
                                           ...taskDraftValue,
-                                          assigneeUserId: event.target.value,
+                                          assigneeUserId:
+                                            event.target.value || null,
                                         },
                                       }))
                                     }
                                   >
+                                    <option value="">
+                                      {NO_TASK_ASSIGNEE_LABEL}
+                                    </option>
                                     {data.users.map((user) => (
                                       <option key={user.id} value={user.id}>
                                         {user.name}
@@ -3279,6 +3352,20 @@ function WorkspaceScreen({
           ) : null}
         </section>
       ))}
+      {showScrollToTop ? (
+        <button
+          type="button"
+          className="ghost-button compact-button scroll-to-top-button"
+          onClick={() => {
+            globalThis.scrollTo({
+              top: 0,
+              behavior: "smooth",
+            });
+          }}
+        >
+          To top
+        </button>
+      ) : null}
     </main>
   );
 }
@@ -3713,6 +3800,7 @@ function SettingsPanel({
     notificationPreferencesQuery.data?.dailyDigestTime ??
     "09:00";
   const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
+  const dragHandlesEnabled = smtpStatusQuery.data?.dragHandlesEnabled ?? true;
   const dailyDigestEnabled =
     notificationPreferencesQuery.data?.dailyDigestEnabled ?? false;
 
@@ -3720,24 +3808,43 @@ function SettingsPanel({
     setDailyDigestTimeDraft(configuredDigestTime);
   }, [configuredDigestTime]);
 
+  const syncWorkspaceDragHandlesEnabled = (enabled: boolean) => {
+    queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+          current
+        ? {
+            ...current,
+            workspaceSettings: {
+              dragHandlesEnabled: enabled,
+            },
+          }
+        : current,
+    );
+  };
+
   const emailSettingsMutation = useMutation({
     mutationFn: updateEmailSettings,
     onMutate: async (variables) => {
       setEmailPrefError(null);
       const previous = queryClient.getQueryData<SmtpStatus>(["smtp-status"]);
+      const previousWorkspace = queryClient.getQueryData<WorkspaceResponse>([
+        "workspace",
+      ]);
       queryClient.setQueryData<SmtpStatus>(["smtp-status"], (current) =>
         current
           ? {
               ...current,
               dailyDigestTime: variables.dailyDigestTime,
+              dragHandlesEnabled: variables.dragHandlesEnabled,
               enabled: variables.enabled,
             }
           : current,
       );
-      return { previous };
+      syncWorkspaceDragHandlesEnabled(variables.dragHandlesEnabled);
+      return { previous, previousWorkspace };
     },
     onSuccess: (status) => {
       queryClient.setQueryData(["smtp-status"], status);
+      syncWorkspaceDragHandlesEnabled(status.dragHandlesEnabled);
       queryClient.setQueryData<NotificationPreferences>(
         ["notification-preferences"],
         (current) =>
@@ -3753,6 +3860,9 @@ function SettingsPanel({
       if (context?.previous) {
         queryClient.setQueryData(["smtp-status"], context.previous);
       }
+      if (context?.previousWorkspace) {
+        queryClient.setQueryData(["workspace"], context.previousWorkspace);
+      }
       setEmailPrefError(
         error instanceof ApiError
           ? error.message
@@ -3767,6 +3877,7 @@ function SettingsPanel({
 
     emailSettingsMutation.mutate({
       dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
+      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
       enabled: !smtpStatusQuery.data.enabled,
     });
   };
@@ -3777,6 +3888,18 @@ function SettingsPanel({
 
     emailSettingsMutation.mutate({
       dailyDigestTime: dailyDigestTimeDraft,
+      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
+      enabled: smtpStatusQuery.data.enabled,
+    });
+  };
+  const toggleDragHandles = () => {
+    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+      return;
+    }
+
+    emailSettingsMutation.mutate({
+      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
+      dragHandlesEnabled: !smtpStatusQuery.data.dragHandlesEnabled,
       enabled: smtpStatusQuery.data.enabled,
     });
   };
@@ -4156,6 +4279,38 @@ function SettingsPanel({
                   </button>
                 </div>
               </div>
+            </div>
+            <div
+              className="settings-item settings-item-toggle"
+              onClick={toggleDragHandles}
+            >
+              <div className="settings-item-header">
+                <strong>Task Drag Handles</strong>
+                <span>{dragHandlesEnabled ? "On" : "Off"}</span>
+              </div>
+              <p className="toolbar-hint">
+                Show or hide manual task-reorder handles for the whole workspace.
+              </p>
+              {emailPrefError ? (
+                <p className="error-banner">{emailPrefError}</p>
+              ) : null}
+              <label
+                className="settings-switch"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <span className="settings-switch-label">Task Drag Handles</span>
+                <input
+                  aria-label="Task Drag Handles"
+                  checked={dragHandlesEnabled}
+                  className="settings-switch-input"
+                  disabled={
+                    emailSettingsMutation.isPending || !smtpStatusQuery.data
+                  }
+                  onChange={toggleDragHandles}
+                  role="switch"
+                  type="checkbox"
+                />
+              </label>
             </div>
             <div
               aria-expanded={isBackupsOpen}
@@ -5469,7 +5624,7 @@ function nextTaskPayload(
 
   return {
     ...nextPayload,
-    assigneeUserId: previousPayload.assigneeUserId || nextPayload.assigneeUserId,
+    assigneeUserId: previousPayload.assigneeUserId,
     priority: previousPayload.priority ?? nextPayload.priority,
   };
 }
@@ -6008,7 +6163,7 @@ function shouldToggleProjectFromRowClick(event: React.MouseEvent<HTMLElement>) {
   );
 }
 
-function revealEditor(element: HTMLElement | null) {
+function revealElementInViewport(element: HTMLElement | null) {
   if (!element) {
     return;
   }
@@ -6031,12 +6186,29 @@ function revealEditor(element: HTMLElement | null) {
       inline: "nearest",
     });
   }
+}
+
+function revealEditor(element: HTMLElement | null) {
+  if (!element) {
+    return;
+  }
+
+  revealElementInViewport(element);
 
   const firstEditableField = element.querySelector<HTMLElement>(
     EDITOR_INPUT_SELECTOR,
   );
 
   firstEditableField?.focus({ preventScroll: true });
+}
+
+function readViewportScrollOffset() {
+  return Math.max(
+    typeof globalThis.scrollY === "number" ? globalThis.scrollY : 0,
+    typeof globalThis.pageYOffset === "number" ? globalThis.pageYOffset : 0,
+    document.documentElement?.scrollTop ?? 0,
+    document.body?.scrollTop ?? 0,
+  );
 }
 
 function normalizeNoteEditorHeights(

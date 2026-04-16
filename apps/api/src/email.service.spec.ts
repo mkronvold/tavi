@@ -6,19 +6,31 @@ describe('EmailService', () => {
   const createService = (enabled: boolean | null = true) => {
     let currentEnabled = enabled;
     let currentDailyDigestTime = '09:00';
+    let currentDragHandlesEnabled = true;
     const upsertMock = jest.fn(
       ({
         create,
         update,
       }: {
-        create: { dailyDigestTime: string; enabled: boolean };
-        update: { dailyDigestTime: string; enabled: boolean };
+        create: {
+          dailyDigestTime: string;
+          dragHandlesEnabled: boolean;
+          enabled: boolean;
+        };
+        update: {
+          dailyDigestTime: string;
+          dragHandlesEnabled: boolean;
+          enabled: boolean;
+        };
       }) => {
         currentEnabled = update.enabled ?? create.enabled;
         currentDailyDigestTime =
           update.dailyDigestTime ?? create.dailyDigestTime;
+        currentDragHandlesEnabled =
+          update.dragHandlesEnabled ?? create.dragHandlesEnabled;
         return Promise.resolve({
           dailyDigestTime: currentDailyDigestTime,
+          dragHandlesEnabled: currentDragHandlesEnabled,
           enabled: currentEnabled,
         });
       },
@@ -29,10 +41,11 @@ describe('EmailService', () => {
           Promise.resolve(
             currentEnabled === null
               ? null
-              : {
-                  dailyDigestTime: currentDailyDigestTime,
-                  enabled: currentEnabled,
-                },
+                : {
+                    dailyDigestTime: currentDailyDigestTime,
+                    dragHandlesEnabled: currentDragHandlesEnabled,
+                    enabled: currentEnabled,
+                  },
           ),
         ),
         upsert: upsertMock,
@@ -72,11 +85,12 @@ describe('EmailService', () => {
   it('defaults email delivery to enabled when no settings record exists', async () => {
     const { service } = createService(null);
 
-    await expect(service.getSmtpStatus()).resolves.toEqual({
-      configured: true,
-      dailyDigestTime: '09:00',
-      enabled: true,
-      fromAddress: 'noreply@tavi.local',
+      await expect(service.getSmtpStatus()).resolves.toEqual({
+        configured: true,
+        dailyDigestTime: '09:00',
+        dragHandlesEnabled: true,
+        enabled: true,
+        fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
       port: 25,
       secure: false,
@@ -89,6 +103,7 @@ describe('EmailService', () => {
     await expect(service.setEmailEnabled(false)).resolves.toEqual({
       configured: true,
       dailyDigestTime: '09:00',
+      dragHandlesEnabled: true,
       enabled: false,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
@@ -97,9 +112,14 @@ describe('EmailService', () => {
     });
     expect(upsertMock).toHaveBeenCalledWith({
       where: { id: 'global' },
-      update: { dailyDigestTime: '09:00', enabled: false },
+      update: {
+        dailyDigestTime: '09:00',
+        dragHandlesEnabled: true,
+        enabled: false,
+      },
       create: {
         dailyDigestTime: '09:00',
+        dragHandlesEnabled: true,
         id: 'global',
         enabled: false,
       },
@@ -112,11 +132,13 @@ describe('EmailService', () => {
     await expect(
       service.updateEmailSettings({
         dailyDigestTime: '14:30',
+        dragHandlesEnabled: false,
         enabled: true,
       }),
     ).resolves.toEqual({
       configured: true,
       dailyDigestTime: '14:30',
+      dragHandlesEnabled: false,
       enabled: true,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
@@ -126,9 +148,14 @@ describe('EmailService', () => {
 
     expect(upsertMock).toHaveBeenCalledWith({
       where: { id: 'global' },
-      update: { dailyDigestTime: '14:30', enabled: true },
+      update: {
+        dailyDigestTime: '14:30',
+        dragHandlesEnabled: false,
+        enabled: true,
+      },
       create: {
         dailyDigestTime: '14:30',
+        dragHandlesEnabled: false,
         id: 'global',
         enabled: true,
       },

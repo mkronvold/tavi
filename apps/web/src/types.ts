@@ -131,11 +131,16 @@ export type SavedView = {
   updatedAt: string;
 };
 
+export type WorkspaceSettings = {
+  dragHandlesEnabled: boolean;
+};
+
 export type WorkspaceResponse = {
   currentUser: WorkspaceUser;
   users: WorkspaceUser[];
   projects: WorkspaceProject[];
   savedViews: SavedView[];
+  workspaceSettings?: WorkspaceSettings;
 };
 
 export type AuditHistoryActor = {
@@ -194,7 +199,7 @@ export type CreateTaskPayload = {
   projectId: string;
   title: string;
   notes: string;
-  assigneeUserId: string;
+  assigneeUserId: string | null;
   dueDate: string;
   priority: Priority;
   status: TaskStatus;

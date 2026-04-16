@@ -22,13 +22,13 @@ Tavi currently ships as a TypeScript monorepo with:
 ### Run locally from source with Docker Compose
 
 ```bash
-./scripts/up
+./scripts/dev-up
 ```
 
 Stop the stack with:
 
 ```bash
-./scripts/down
+./scripts/dev-down
 ```
 
 The local stack exposes:
@@ -42,11 +42,13 @@ The local stack exposes:
 
 Compose applies the committed Prisma migrations and seeds the local auth accounts automatically when the API container starts.
 
+These scripts manage the source-mounted Docker Compose development stack in `infra/docker/compose.yaml`. They do not manage the published-image local runtime in `docs/DOCKER.md`, and this repository does not currently define a separate `.devcontainer` setup.
+
 For a local runtime that uses the published GHCR images and does not build from source, use `docs/DOCKER.md`.
 
 The local containers are named `tavi-postgres`, `tavi-api`, `tavi-web`, and `tavi-worker`.
 
-If you need the header logo link to point somewhere other than the current local URL, set `TAVI_HOME_URL` before running `./scripts/up`. The Kubernetes web deployment reads the same `TAVI_HOME_URL` value from `infra/k8s/configmap.yaml`.
+If you need the header logo link to point somewhere other than the current local URL, set `TAVI_HOME_URL` before running `./scripts/dev-up`. The Kubernetes web deployment reads the same `TAVI_HOME_URL` value from the chosen variant's `configmap.yaml` under [`infra/k8s/`](./infra/k8s/README.md).
 
 ## Container publishing
 

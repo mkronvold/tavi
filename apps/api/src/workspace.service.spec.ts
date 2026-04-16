@@ -21,6 +21,7 @@ describe('WorkspaceService', () => {
     const createProjectMock = jest.fn();
     const countTasksMock = jest.fn();
     const createTaskMock = jest.fn();
+    const findEmailSettingsMock = jest.fn();
     const transactionMock = jest.fn((callback: (tx: unknown) => unknown) =>
       Promise.resolve(
         callback({
@@ -49,6 +50,9 @@ describe('WorkspaceService', () => {
       project: {
         findMany: findProjectsMock,
       },
+      emailSettings: {
+        findUnique: findEmailSettingsMock,
+      },
     } as unknown as PrismaService;
     const savedViewsService = {
       listSavedViews: listSavedViewsMock,
@@ -69,6 +73,7 @@ describe('WorkspaceService', () => {
         createProjectMock,
         createTaskMock,
         deleteProjectsMock,
+        findEmailSettingsMock,
         findProjectsMock,
         findUsersMock,
         listSavedViewsMock,
@@ -124,10 +129,16 @@ describe('WorkspaceService', () => {
         tasks: [],
       },
     ]);
+    mocks.findEmailSettingsMock.mockResolvedValue({
+      dragHandlesEnabled: false,
+    });
     mocks.listSavedViewsMock.mockResolvedValue([]);
 
     const result = await service.getWorkspace(currentUser);
 
+    expect(result.workspaceSettings).toEqual({
+      dragHandlesEnabled: false,
+    });
     expect(result.projects).toEqual([
       expect.objectContaining({
         id: 'project-1',

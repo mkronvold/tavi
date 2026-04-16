@@ -372,17 +372,17 @@ Rollup details shown in the UI should include:
 
 ## 12. Suggested Supporting Documents
 
-To reduce ambiguity before implementation, the following supporting docs are recommended after `docs/DESIGN.md` and `docs/ARCHITECTURE.md` are accepted:
+To reduce ambiguity before implementation, the following supporting docs are recommended after [`DESIGN.md`](./DESIGN.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md) are accepted:
 
 1. `docs/UX-FLOWS.md` for annotated workflows and wireframes of the dense workspace, import flow, and inline editing states.
 2. `docs/API-CONTRACT.md` for concrete request/response shapes and error models.
 3. `docs/DATA-DICTIONARY.md` for field definitions, enums, and validation rules.
-4. `docs/IMPORT-MAPPING.md` for the Loop export format, column mapping, and migration rules.
+4. [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md) for the Loop export format, column mapping, and migration rules.
 5. `docs/EXPORT-FORMATS.md` for CSV, XLSX, JSON, and Loop export shapes.
 6. `docs/LOCAL-AUTH-ADMIN.md` for local account lifecycle rules and role-based settings behavior.
 7. `docs/OPS-RUNBOOK.md` for deployment, rollback, and operational procedures.
 8. `adr/` entries for major architectural decisions that may evolve during implementation.
-9. `docs/BRANDING.md` for canonical naming, stylized display usage, and first-use product copy.
+9. [`BRANDING.md`](./BRANDING.md) for canonical naming, stylized display usage, and first-use product copy.
 
 ## 13. Reference Alignment
 

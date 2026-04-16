@@ -198,6 +198,7 @@ const backupAuditLogRetentionRecordSchema = z.object({
 const backupEmailSettingsRecordSchema = z.object({
   createdAt: z.string().min(1),
   dailyDigestTime: z.string().min(1),
+  dragHandlesEnabled: z.boolean(),
   enabled: z.boolean(),
   id: z.string().min(1),
   updatedAt: z.string().min(1),
@@ -942,6 +943,7 @@ export class BackupsService {
           data: {
             createdAt: new Date(snapshot.data.emailSettings.createdAt),
             dailyDigestTime: snapshot.data.emailSettings.dailyDigestTime,
+            dragHandlesEnabled: snapshot.data.emailSettings.dragHandlesEnabled,
             enabled: snapshot.data.emailSettings.enabled,
             id: snapshot.data.emailSettings.id,
             updatedAt: new Date(snapshot.data.emailSettings.updatedAt),
@@ -1540,6 +1542,7 @@ export class BackupsService {
           ? {
               createdAt: emailSettings.createdAt.toISOString(),
               dailyDigestTime: emailSettings.dailyDigestTime,
+              dragHandlesEnabled: emailSettings.dragHandlesEnabled,
               enabled: emailSettings.enabled,
               id: emailSettings.id,
               updatedAt: emailSettings.updatedAt.toISOString(),

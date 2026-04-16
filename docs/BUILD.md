@@ -4,7 +4,7 @@ Use this guide when you want the checked-out repository to run inside local
 development containers. This path installs dependencies, builds the shared
 packages, runs database migrations, and starts the apps from source. If you
 want a no-build runtime that pulls the published images instead, use
-`DOCKER.md`.
+[`DOCKER.md`](./DOCKER.md).
 
 ## Requirements
 
@@ -16,7 +16,7 @@ want a no-build runtime that pulls the published images instead, use
 ```bash
 git clone https://github.com/mkronvold/tavi
 cd tavi
-./scripts/up
+./scripts/dev-up
 ```
 
 What startup does automatically:
@@ -59,7 +59,7 @@ Default local accounts:
 ## Stop the stack
 
 ```bash
-./scripts/down
+./scripts/dev-down
 ```
 
 ## Reset local Docker data
@@ -67,13 +67,13 @@ Default local accounts:
 This removes the local PostgreSQL volume and is destructive for your local environment.
 
 ```bash
-./scripts/down -v
+./scripts/dev-down -v
 ```
 
 Then start again:
 
 ```bash
-./scripts/up
+./scripts/dev-up
 ```
 
 ## Useful commands
@@ -93,15 +93,17 @@ docker compose -f infra/docker/compose.yaml logs -f worker
 docker compose -f infra/docker/compose.yaml logs -f postgres
 ```
 
-Scheduled backup files appear on the host under the configured backup directory. See `BACKUPS.md` for the in-app backup, upload, download, delete, and restore workflow.
+Scheduled backup files appear on the host under the configured backup directory. See [`BACKUPS.md`](./BACKUPS.md) for the in-app backup, upload, download, delete, and restore workflow.
 
 ## Optional home link override
+
+These scripts only manage the source-based Docker Compose development stack in `infra/docker/compose.yaml`. They are separate from the published-image local runtime in [`DOCKER.md`](./DOCKER.md), and this repository does not currently include a separate `.devcontainer` configuration.
 
 If you want the header logo to point somewhere other than the default local URL, set `TAVI_HOME_URL` before startup.
 
 ```bash
 export TAVI_HOME_URL="https://your-preview-host.example.com"
-./scripts/up
+./scripts/dev-up
 ```
 
 ## Local troubleshooting
@@ -111,5 +113,5 @@ export TAVI_HOME_URL="https://your-preview-host.example.com"
 | Web UI does not load              | Confirm `tavi-web` is running and port `5173` is free                                                       |
 | API calls fail                    | Confirm `tavi-api` is healthy and port `4000` is free                                                       |
 | Imports do not progress           | Confirm `tavi-worker` is running                                                                            |
-| Login hint is gone                | The default accounts were changed; use the current admin account or reset defaults from `LOCAL_ACCOUNTS.md` |
+| Login hint is gone                | The default accounts were changed; use the current admin account or reset defaults from [`LOCAL_ACCOUNTS.md`](./LOCAL_ACCOUNTS.md) |
 | Layout feels wrong after a change | Use `Settings -> Clear Local Storage` to reset browser-only preferences                                     |

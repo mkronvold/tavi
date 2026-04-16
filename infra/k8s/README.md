@@ -1,0 +1,25 @@
+# Kubernetes manifests
+
+This directory now contains only the supported raw-manifest deployment variants for Tavi. Pick one subdirectory and follow that folder's `README.md`; do not mix manifests across variants.
+
+## Start with the docs
+
+1. [Quickstart](../../docs/QUICKSTART.md) to choose between Docker Compose, published Docker images, and Kubernetes.
+2. [Kubernetes deployment guide](../../docs/KUBERNETES.md) for the selection guide, shared requirements, backups, and day-2 operations.
+3. [Architecture](../../docs/ARCHITECTURE.md) for the runtime topology across web, API, worker, and database components.
+4. [Backups](../../docs/BACKUPS.md) for the shared backup volume and restore workflow used by every Kubernetes variant.
+
+## Deployment variants
+
+| Path | Database | App replicas | Use when |
+| --- | --- | --- | --- |
+| [`k8s-with-external-db/`](./k8s-with-external-db/README.md) | External PostgreSQL | 1 | You already have a database service and only need Tavi workloads in-cluster |
+| [`k8s-with-internal-db/`](./k8s-with-internal-db/README.md) | Single in-cluster PostgreSQL StatefulSet | 1 | You want the simplest self-contained cluster install |
+| [`k8s-with-replicas-and-external-db/`](./k8s-with-replicas-and-external-db/README.md) | External PostgreSQL | 3 | You want more resilient app replicas while keeping the database external |
+| [`k8s-with-replicas-and-internal-ha-db/`](./k8s-with-replicas-and-internal-ha-db/README.md) | In-cluster CloudNativePG cluster | 3 | You want replicated app workloads and HA PostgreSQL in Kubernetes |
+
+## Notes
+
+1. Each variant directory includes its own `namespace.yaml`, `configmap.yaml`, `secret.example.yaml`, workload manifests, and backup storage templates.
+2. The old top-level manifests were removed because they were a legacy pre-variant set and no longer matched the backup-aware deployment layouts in the supported folders.
+3. When you need `TAVI_HOME_URL`, `VITE_API_BASE_URL`, ingress hostnames, or backup PVC settings, edit the files in the chosen variant directory rather than expecting shared manifests at this level.

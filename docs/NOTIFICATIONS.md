@@ -57,7 +57,7 @@ Keep digest mode off when you want immediate update emails instead.
 ## Related workspace behavior
 
 1. Project and task saves still happen immediately in the UI; digest mode changes delivery timing, not save timing.
-2. Audit history remains separate from email delivery and is available from `AUDIT_HISTORY.md`.
+2. Audit history remains separate from email delivery and is available from [`AUDIT_HISTORY.md`](./AUDIT_HISTORY.md).
 3. Backup, import, and restore operations do not use this non-admin notification flow.
 
 ## Non-obvious behavior

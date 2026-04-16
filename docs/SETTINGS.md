@@ -25,6 +25,7 @@ Most launcher cards and audit cards are whole-card click targets. If a card open
 | Browser-local | My Auth History | Opens the login and auth event history for the current signed-in identity |
 | Admin-only | Email Notifications | Controls the global outbound email switch |
 | Admin-only | Daily Digest Time | Sets the shared digest send time in server local time |
+| Admin-only | Task Drag Handles | Shows or hides manual task-reorder handles for every user in the workspace |
 | Admin-only | Backups | Opens the dedicated backup and restore panel |
 | Admin-only | Import/Export | Opens the dedicated import and export panel |
 | Admin-only | Local Accounts | Opens the local-auth management panel |
@@ -38,11 +39,12 @@ Most launcher cards and audit cards are whole-card click targets. If a card open
 2. Turn on `Bulk Actions` before doing large task cleanups.
 3. Turn on `Full Width` when project titles, notes, references, or dense task tables need more horizontal space.
 4. Turn on `Daily Digest` if you want one scheduled summary email instead of immediate task and project update emails.
-5. Use the `Import/Export` and `Backups` launcher cards when you need data-management tools without keeping those panels open all the time.
+5. Leave `Task Drag Handles` on when editors should be able to manually reorder visible task lists, or turn it off for cleaner review-only sessions.
+6. Use the `Import/Export` and `Backups` launcher cards when you need data-management tools without keeping those panels open all the time.
 
 ## Local Accounts entry point
 
-`Local Accounts` opens the dedicated account-management panel documented in `LOCAL_ACCOUNTS.md`.
+`Local Accounts` opens the dedicated account-management panel documented in [`LOCAL_ACCOUNTS.md`](./LOCAL_ACCOUNTS.md).
 
 Behavior depends on role:
 
@@ -64,10 +66,10 @@ It does not delete projects, tasks, imports, backups, or accounts.
 
 ## Related panels launched from Settings
 
-1. `IMPORT_EXPORT.md` covers exports, CSV import staging, import review, and workspace reset.
-2. `BACKUPS.md` covers scheduled backups, backup-now, upload, restore, download, and delete.
-3. `LOCAL_ACCOUNTS.md` covers local-auth account management.
-4. `AUDIT_HISTORY.md` covers audit timelines and filters.
+1. [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) covers exports, CSV import staging, import review, and workspace reset.
+2. [`BACKUPS.md`](./BACKUPS.md) covers scheduled backups, backup-now, upload, restore, download, and delete.
+3. [`LOCAL_ACCOUNTS.md`](./LOCAL_ACCOUNTS.md) covers local-auth account management.
+4. [`AUDIT_HISTORY.md`](./AUDIT_HISTORY.md) covers audit timelines and filters.
 
 ## Non-obvious behavior
 
