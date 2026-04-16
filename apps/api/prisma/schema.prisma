@@ -37,6 +37,7 @@ enum ProjectStatus {
 }
 
 enum NotificationKind {
+  daily_non_admin_digest
   task_assigned
   task_unassigned
   task_updated
@@ -118,6 +119,7 @@ model User {
   email          String          @unique
   name           String
   passwordHash   String
+  dailyDigestEnabled Boolean     @default(false)
   roleAssignment RoleAssignment?
   ownedProjects  Project[]       @relation("ProjectOwner")
   assignedTasks  Task[]          @relation("TaskAssignee")
@@ -291,8 +293,21 @@ model AuditLogRetention {
 model EmailSettings {
   id        String   @id @default("global")
   enabled   Boolean  @default(true)
+  dailyDigestTime String @default("09:00")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model BackupSettings {
+  id                 String   @id @default("global")
+  enabled            Boolean  @default(false)
+  scheduleTime       String   @default("02:00")
+  lastScheduledRunAt DateTime?
+  lastSuccessAt      DateTime?
+  lastFailureAt      DateTime?
+  lastError          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 model NotificationEvent {

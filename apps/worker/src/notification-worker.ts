@@ -9,10 +9,12 @@ const DEFAULT_WORK_DELAY_MS = 500;
 const DEFAULT_SCHEDULE_INTERVAL_MS = 60_000;
 const DEFAULT_SMTP_URL = "smtp://10.120.64.99:25";
 const DEFAULT_SMTP_FROM = "noreply@tavi.local";
+const DEFAULT_DAILY_DIGEST_TIME = "09:00";
 const MAX_ATTEMPTS = 5;
 const RETRY_MINUTES = [1, 2, 5, 13, 34];
 
 type ScheduledNotificationKind =
+  | "daily_non_admin_digest"
   | "daily_project_summary"
   | "daily_task_summary"
   | "task_due_3_days"
@@ -28,6 +30,7 @@ type NotificationWorkerOptions = {
 };
 
 type NotificationRecipient = {
+  dailyDigestEnabled: boolean;
   email: string;
   id: string;
   name: string;
@@ -111,6 +114,7 @@ export class NotificationWorker {
         include: {
           recipient: {
             select: {
+              dailyDigestEnabled: true,
               email: true,
               id: true,
               name: true,
@@ -124,7 +128,7 @@ export class NotificationWorker {
         return true;
       }
 
-      const skipReason = await this.getSkipReason(event.recipient);
+      const skipReason = await this.getSkipReason(event.kind, event.recipient);
 
       if (skipReason) {
         await this.completeEvent(event.id, "skipped", { reason: skipReason });
@@ -172,18 +176,27 @@ export class NotificationWorker {
     const startedAt = this.observability.startJob("digest");
 
     try {
-      const [dueReminderCount, dailyTaskSummaryCount, dailyProjectSummaryCount] =
-        await Promise.all([
-          this.queueDueDateNotifications(new Date(now)),
-          this.queueDailyTaskSummaries(new Date(now)),
-          this.queueDailyProjectSummaries(new Date(now)),
-        ]);
+      const [
+        dueReminderCount,
+        dailyTaskSummaryCount,
+        dailyProjectSummaryCount,
+        dailyDigestCount,
+      ] = await Promise.all([
+        this.queueDueDateNotifications(new Date(now)),
+        this.queueDailyTaskSummaries(new Date(now)),
+        this.queueDailyProjectSummaries(new Date(now)),
+        this.queueDailyNonAdminDigests(new Date(now)),
+      ]);
 
       const queuedCount =
-        dueReminderCount + dailyTaskSummaryCount + dailyProjectSummaryCount;
+        dueReminderCount +
+        dailyTaskSummaryCount +
+        dailyProjectSummaryCount +
+        dailyDigestCount;
 
       if (queuedCount > 0) {
         this.observability.logger.info("worker.notifications.scheduled", {
+          dailyDigestCount,
           dailyProjectSummaryCount,
           dailyTaskSummaryCount,
           dueReminderCount,
@@ -333,7 +346,10 @@ export class NotificationWorker {
     });
   }
 
-  private async getSkipReason(recipient: NotificationRecipient | null) {
+  private async getSkipReason(
+    kind: string,
+    recipient: NotificationRecipient | null,
+  ) {
     if (!recipient) {
       return "recipient_missing";
     }
@@ -351,6 +367,10 @@ export class NotificationWorker {
       return "email_disabled";
     }
 
+    if (recipient.dailyDigestEnabled && shouldBatchIntoDailyDigest(kind)) {
+      return "batched_into_digest";
+    }
+
     return null;
   }
 
@@ -358,6 +378,11 @@ export class NotificationWorker {
     const dayKey = formatUtcDate(now);
     const tasks = await this.prisma.task.findMany({
       where: {
+        assignee: {
+          is: {
+            dailyDigestEnabled: false,
+          },
+        },
         archivedAt: null,
         assigneeUserId: {
           not: null,
@@ -468,6 +493,11 @@ export class NotificationWorker {
     const projects = await this.prisma.project.findMany({
       where: {
         archivedAt: null,
+        owner: {
+          is: {
+            dailyDigestEnabled: false,
+          },
+        },
         ownerUserId: {
           not: null,
         },
@@ -528,6 +558,214 @@ export class NotificationWorker {
     return this.queueEvents(events);
   }
 
+  private async queueDailyNonAdminDigests(now: Date) {
+    const settings = await this.prisma.emailSettings.findUnique({
+      where: { id: "global" },
+      select: {
+        dailyDigestTime: true,
+      },
+    });
+    const digestTime = settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME;
+    const digestWindow = getDigestWindow(now, digestTime);
+
+    if (!digestWindow) {
+      return 0;
+    }
+
+    const digestUsers = await this.prisma.user.findMany({
+      where: {
+        dailyDigestEnabled: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (digestUsers.length === 0) {
+      return 0;
+    }
+
+    const recipientUserIds = digestUsers.map((user) => user.id);
+    const [notifications, tasks, projects] = await Promise.all([
+      this.prisma.notificationEvent.findMany({
+        where: {
+          createdAt: {
+            gt: digestWindow.windowStart,
+            lte: digestWindow.windowEnd,
+          },
+          kind: {
+            notIn: [
+              "daily_non_admin_digest",
+              "daily_project_summary",
+              "daily_task_summary",
+            ],
+          },
+          recipientUserId: {
+            in: recipientUserIds,
+          },
+          status: {
+            not: "failed",
+          },
+        },
+        orderBy: [{ createdAt: "asc" }],
+        select: {
+          createdAt: true,
+          kind: true,
+          payload: true,
+          recipientUserId: true,
+        },
+      }),
+      this.prisma.task.findMany({
+        where: {
+          archivedAt: null,
+          assignee: {
+            is: {
+              dailyDigestEnabled: true,
+            },
+          },
+          assigneeUserId: {
+            in: recipientUserIds,
+          },
+          status: {
+            notIn: ["canceled", "done"],
+          },
+        },
+        select: {
+          assigneeUserId: true,
+          dueDate: true,
+          id: true,
+          project: {
+            select: {
+              title: true,
+            },
+          },
+          status: true,
+          title: true,
+        },
+        orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
+      }),
+      this.prisma.project.findMany({
+        where: {
+          archivedAt: null,
+          owner: {
+            is: {
+              dailyDigestEnabled: true,
+            },
+          },
+          ownerUserId: {
+            in: recipientUserIds,
+          },
+          OR: [
+            {
+              displayStatus: {
+                not: "done",
+              },
+            },
+            {
+              taskOverdueCount: {
+                gt: 0,
+              },
+            },
+          ],
+        },
+        select: {
+          displayStatus: true,
+          dueDate: true,
+          id: true,
+          ownerUserId: true,
+          taskBlockedCount: true,
+          taskDoneCount: true,
+          taskOnHoldCount: true,
+          taskOverdueCount: true,
+          taskTotalCount: true,
+          title: true,
+        },
+        orderBy: [{ updatedAt: "desc" }],
+      }),
+    ]);
+
+    const notificationsByRecipient = new Map<string, typeof notifications>();
+
+    for (const notification of notifications) {
+      if (!notification.recipientUserId) {
+        continue;
+      }
+
+      const current =
+        notificationsByRecipient.get(notification.recipientUserId) ?? [];
+      current.push(notification);
+      notificationsByRecipient.set(notification.recipientUserId, current);
+    }
+
+    const tasksByAssignee = new Map<string, typeof tasks>();
+
+    for (const task of tasks) {
+      if (!task.assigneeUserId) {
+        continue;
+      }
+
+      const current = tasksByAssignee.get(task.assigneeUserId) ?? [];
+      current.push(task);
+      tasksByAssignee.set(task.assigneeUserId, current);
+    }
+
+    const projectsByOwner = new Map<string, typeof projects>();
+
+    for (const project of projects) {
+      if (!project.ownerUserId) {
+        continue;
+      }
+
+      const current = projectsByOwner.get(project.ownerUserId) ?? [];
+      current.push(project);
+      projectsByOwner.set(project.ownerUserId, current);
+    }
+
+    const events = recipientUserIds.flatMap((recipientUserId) => {
+      const digestNotifications =
+        notificationsByRecipient.get(recipientUserId) ?? [];
+      const taskSummaryItems = tasksByAssignee.get(recipientUserId) ?? [];
+      const projectSummaryItems = projectsByOwner.get(recipientUserId) ?? [];
+
+      if (
+        digestNotifications.length === 0 &&
+        taskSummaryItems.length === 0 &&
+        projectSummaryItems.length === 0
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          dedupeKey: `daily_non_admin_digest:${recipientUserId}:${digestWindow.summaryDate}`,
+          kind: "daily_non_admin_digest" as const,
+          payload: {
+            itemCount: digestNotifications.length,
+            items: digestNotifications.map((notification) => ({
+              createdAt: notification.createdAt.toISOString(),
+              kind: notification.kind,
+              payload: toRecord(notification.payload),
+            })),
+            projectSummary:
+              projectSummaryItems.length > 0
+                ? summarizeOwnedProjects(projectSummaryItems)
+                : null,
+            summaryDate: digestWindow.summaryDate,
+            taskSummary:
+              taskSummaryItems.length > 0
+                ? summarizeAssignedTasks(taskSummaryItems, now)
+                : null,
+            windowEnd: digestWindow.windowEnd.toISOString(),
+            windowStart: digestWindow.windowStart.toISOString(),
+          },
+          recipientUserId,
+        },
+      ];
+    });
+
+    return this.queueEvents(events);
+  }
+
   private async queueEvents(
     events: Array<{
       dedupeKey: string;
@@ -560,166 +798,155 @@ function buildNotificationEmail(input: {
   payload: Record<string, unknown>;
   recipientName: string;
 }) {
-  const { kind, payload } = input;
+  const content = buildNotificationContent(input.kind, input.payload);
+
+  return toEmail(input, content.subject, content.bodyHtml);
+}
+
+function buildNotificationContent(kind: string, payload: Record<string, unknown>) {
   const taskTitle = escapeHtml(readString(payload.taskTitle) ?? "Untitled task");
-  const projectTitle = escapeHtml(readString(payload.projectTitle) ?? "Unassigned");
+  const projectTitle = escapeHtml(
+    readString(payload.projectTitle) ?? "Unassigned",
+  );
   const actorName = escapeHtml(readString(payload.actorName) ?? "Someone");
   const dueDate = formatDate(readString(payload.dueDate));
 
   switch (kind) {
     case "task_assigned":
-      return toEmail(
-        input,
-        `New task assigned: ${taskTitle}`,
-        `${actorName} assigned you <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.${dueDate ? `<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate}</strong></p>` : ""}`,
-      );
+      return {
+        bodyHtml: `${actorName} assigned you <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.${dueDate ? `<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate}</strong></p>` : ""}`,
+        subject: `New task assigned: ${taskTitle}`,
+      };
     case "task_unassigned":
-      return toEmail(
-        input,
-        `Task unassigned: ${taskTitle}`,
-        `${actorName} removed you from <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} removed you from <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.`,
+        subject: `Task unassigned: ${taskTitle}`,
+      };
     case "task_updated":
-      return toEmail(
-        input,
-        `Task updated: ${taskTitle}`,
-        buildChangeUpdateBody({
+      return {
+        bodyHtml: buildChangeUpdateBody({
           actorName,
           entityTitle: taskTitle,
           fromLines: readStringArray(payload.fromLines),
           projectTitle,
           toLines: readStringArray(payload.toLines),
         }),
-      );
+        subject: `Task updated: ${taskTitle}`,
+      };
     case "task_due_date_added":
-      return toEmail(
-        input,
-        `Due date added: ${taskTitle}`,
-        `${actorName} added a due date to <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
-      );
+      return {
+        bodyHtml: `${actorName} added a due date to <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
+        subject: `Due date added: ${taskTitle}`,
+      };
     case "task_due_date_changed":
-      return toEmail(
-        input,
-        `Due date changed: ${taskTitle}`,
-        `${actorName} changed the due date for <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.<p style="margin:12px 0 0;">New due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
-      );
+      return {
+        bodyHtml: `${actorName} changed the due date for <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.<p style="margin:12px 0 0;">New due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
+        subject: `Due date changed: ${taskTitle}`,
+      };
     case "task_blocked":
-      return toEmail(
-        input,
-        `Task blocked: ${taskTitle}`,
-        `${actorName} marked <strong>${taskTitle}</strong> as blocked in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} marked <strong>${taskTitle}</strong> as blocked in <strong>${projectTitle}</strong>.`,
+        subject: `Task blocked: ${taskTitle}`,
+      };
     case "task_unblocked":
-      return toEmail(
-        input,
-        `Task unblocked: ${taskTitle}`,
-        `${actorName} moved <strong>${taskTitle}</strong> out of blocked status in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} moved <strong>${taskTitle}</strong> out of blocked status in <strong>${projectTitle}</strong>.`,
+        subject: `Task unblocked: ${taskTitle}`,
+      };
     case "task_on_hold":
-      return toEmail(
-        input,
-        `Task on hold: ${taskTitle}`,
-        `${actorName} put <strong>${taskTitle}</strong> on hold in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} put <strong>${taskTitle}</strong> on hold in <strong>${projectTitle}</strong>.`,
+        subject: `Task on hold: ${taskTitle}`,
+      };
     case "task_resumed":
-      return toEmail(
-        input,
-        `Task resumed: ${taskTitle}`,
-        `${actorName} took <strong>${taskTitle}</strong> off hold in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} took <strong>${taskTitle}</strong> off hold in <strong>${projectTitle}</strong>.`,
+        subject: `Task resumed: ${taskTitle}`,
+      };
     case "task_reopened":
-      return toEmail(
-        input,
-        `Task reopened: ${taskTitle}`,
-        `${actorName} reopened <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} reopened <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.`,
+        subject: `Task reopened: ${taskTitle}`,
+      };
     case "task_completed":
-      return toEmail(
-        input,
-        `Task completed: ${taskTitle}`,
-        `${actorName} marked <strong>${taskTitle}</strong> done in <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} marked <strong>${taskTitle}</strong> done in <strong>${projectTitle}</strong>.`,
+        subject: `Task completed: ${taskTitle}`,
+      };
     case "task_moved":
-      return toEmail(
-        input,
-        `Task moved: ${taskTitle}`,
-        `${actorName} moved <strong>${taskTitle}</strong> to <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} moved <strong>${taskTitle}</strong> to <strong>${projectTitle}</strong>.`,
+        subject: `Task moved: ${taskTitle}`,
+      };
     case "project_owner_assigned":
-      return toEmail(
-        input,
-        `You now own: ${projectTitle}`,
-        `${actorName} assigned you as the owner of <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} assigned you as the owner of <strong>${projectTitle}</strong>.`,
+        subject: `You now own: ${projectTitle}`,
+      };
     case "project_owner_changed":
-      return toEmail(
-        input,
-        `Project owner changed: ${projectTitle}`,
-        `${actorName} assigned you as the new owner of <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} assigned you as the new owner of <strong>${projectTitle}</strong>.`,
+        subject: `Project owner changed: ${projectTitle}`,
+      };
     case "project_owner_removed":
-      return toEmail(
-        input,
-        `Owner removed: ${projectTitle}`,
-        `${actorName} removed you as the owner of <strong>${projectTitle}</strong>.`,
-      );
+      return {
+        bodyHtml: `${actorName} removed you as the owner of <strong>${projectTitle}</strong>.`,
+        subject: `Owner removed: ${projectTitle}`,
+      };
     case "project_updated":
-      return toEmail(
-        input,
-        `Project updated: ${projectTitle}`,
-        buildChangeUpdateBody({
+      return {
+        bodyHtml: buildChangeUpdateBody({
           actorName,
           entityTitle: projectTitle,
           fromLines: readStringArray(payload.fromLines),
           toLines: readStringArray(payload.toLines),
         }),
-      );
+        subject: `Project updated: ${projectTitle}`,
+      };
     case "project_blocked":
-      return toEmail(
-        input,
-        `Project blocked: ${projectTitle}`,
-        `${actorName} marked <strong>${projectTitle}</strong> as blocked.`,
-      );
+      return {
+        bodyHtml: `${actorName} marked <strong>${projectTitle}</strong> as blocked.`,
+        subject: `Project blocked: ${projectTitle}`,
+      };
     case "project_on_hold":
-      return toEmail(
-        input,
-        `Project on hold: ${projectTitle}`,
-        `${actorName} put <strong>${projectTitle}</strong> on hold.`,
-      );
+      return {
+        bodyHtml: `${actorName} put <strong>${projectTitle}</strong> on hold.`,
+        subject: `Project on hold: ${projectTitle}`,
+      };
     case "project_resumed":
-      return toEmail(
-        input,
-        `Project resumed: ${projectTitle}`,
-        `${actorName} took <strong>${projectTitle}</strong> off hold.`,
-      );
+      return {
+        bodyHtml: `${actorName} took <strong>${projectTitle}</strong> off hold.`,
+        subject: `Project resumed: ${projectTitle}`,
+      };
     case "task_due_7_days":
     case "task_due_3_days":
     case "task_due_tomorrow":
     case "task_due_today":
     case "task_overdue":
-      return toEmail(
-        input,
-        `${dueReminderSubject(kind)}: ${taskTitle}`,
-        `<strong>${taskTitle}</strong> in <strong>${projectTitle}</strong> is ${dueReminderBody(kind, dueDate)}.`,
-      );
+      return {
+        bodyHtml: `<strong>${taskTitle}</strong> in <strong>${projectTitle}</strong> is ${dueReminderBody(kind, dueDate)}.`,
+        subject: `${dueReminderSubject(kind)}: ${taskTitle}`,
+      };
+    case "daily_non_admin_digest":
+      return {
+        bodyHtml: buildDailyNonAdminDigestBody(payload),
+        subject: buildDailyNonAdminDigestSubject(payload),
+      };
     case "daily_task_summary":
-      return toEmail(
-        input,
-        "Daily task summary",
-        buildDailyTaskSummaryBody(payload),
-      );
+      return {
+        bodyHtml: buildDailyTaskSummaryBody(payload),
+        subject: "Daily task summary",
+      };
     case "daily_project_summary":
-      return toEmail(
-        input,
-        "Daily project summary",
-        buildDailyProjectSummaryBody(payload),
-      );
+      return {
+        bodyHtml: buildDailyProjectSummaryBody(payload),
+        subject: "Daily project summary",
+      };
     default:
-      return toEmail(
-        input,
-        "Tavi notification",
-        "You have a new notification in Tavi.",
-      );
+      return {
+        bodyHtml: "You have a new notification in Tavi.",
+        subject: "Tavi notification",
+      };
   }
 }
 
@@ -761,6 +988,79 @@ function buildDailyProjectSummaryBody(payload: Record<string, unknown>) {
 </p>
 
 ${buildProjectList(items)}`;
+}
+
+function buildDailyNonAdminDigestSubject(payload: Record<string, unknown>) {
+  const itemCount = readNumber(payload.itemCount);
+
+  return itemCount > 0 ? `Daily digest (${itemCount} updates)` : "Daily digest";
+}
+
+function buildDailyNonAdminDigestBody(payload: Record<string, unknown>) {
+  const itemCount = readNumber(payload.itemCount);
+  const items = readRecordArray(payload.items);
+  const taskSummary = toNullableRecord(payload.taskSummary);
+  const projectSummary = toNullableRecord(payload.projectSummary);
+  const sections = [
+    `Here is your daily digest.
+
+<p style="margin:16px 0 0;">
+  Updates since your last digest: <strong style="color:#e2e8f0;">${itemCount}</strong>
+</p>`,
+  ];
+
+  if (taskSummary) {
+    sections.push(
+      buildDigestSection("Assigned tasks", buildDailyTaskSummaryBody(taskSummary)),
+    );
+  }
+
+  if (projectSummary) {
+    sections.push(
+      buildDigestSection(
+        "Projects you own",
+        buildDailyProjectSummaryBody(projectSummary),
+      ),
+    );
+  }
+
+  if (items.length > 0) {
+    sections.push(buildDigestNotificationList(items));
+  }
+
+  return sections.join("\n\n");
+}
+
+function buildDigestSection(title: string, bodyHtml: string) {
+  return `<div style="margin:20px 0 0;">
+  <div style="margin:0 0 8px;color:#94a3b8;font-size:13px;font-weight:600;">${escapeHtml(title)}</div>
+  ${bodyHtml}
+</div>`;
+}
+
+function buildDigestNotificationList(items: Array<Record<string, unknown>>) {
+  return buildDigestSection(
+    "Recent updates",
+    items.map((item) => buildDigestNotificationCard(item)).join(""),
+  );
+}
+
+function buildDigestNotificationCard(item: Record<string, unknown>) {
+  const kind = readString(item.kind) ?? "notification";
+  const createdAt = formatDigestTimestamp(readString(item.createdAt));
+  const content = buildNotificationContent(kind, toRecord(item.payload));
+
+  return `<div style="margin:12px 0 0;padding:14px 16px;background-color:#111827;border:1px solid #334155;border-radius:10px;">
+  <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+    <strong style="color:#e2e8f0;">${escapeHtml(content.subject)}</strong>
+    ${
+      createdAt
+        ? `<span style="color:#94a3b8;font-size:12px;white-space:nowrap;">${escapeHtml(createdAt)}</span>`
+        : ""
+    }
+  </div>
+  <div style="margin:10px 0 0;">${content.bodyHtml}</div>
+</div>`;
 }
 
 function buildTaskList(items: Array<Record<string, unknown>>) {
@@ -992,6 +1292,14 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
+function formatDigestTimestamp(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return new Date(value).toLocaleString();
+}
+
 function formatStatus(value: string | null) {
   return value ? value.replace(/_/g, " ") : "unknown";
 }
@@ -1019,6 +1327,44 @@ function readStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
     : [];
+}
+
+function shouldBatchIntoDailyDigest(kind: string) {
+  return kind !== "daily_non_admin_digest";
+}
+
+function getDigestWindow(now: Date, digestTime: string) {
+  const [hours, minutes] = digestTime.split(":").map((value) => Number(value));
+  const windowEnd = new Date(now);
+
+  windowEnd.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+
+  if (now < windowEnd) {
+    return null;
+  }
+
+  const windowStart = new Date(windowEnd);
+  windowStart.setDate(windowStart.getDate() - 1);
+
+  return {
+    summaryDate: formatLocalDate(windowEnd),
+    windowEnd,
+    windowStart,
+  };
+}
+
+function formatLocalDate(value: Date) {
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, "0"),
+    String(value.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function toNullableRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function toRecord(value: unknown) {

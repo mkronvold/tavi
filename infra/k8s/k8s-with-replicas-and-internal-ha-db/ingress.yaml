@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tavi
+  namespace: tavi
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: tavi.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: tavi-api
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tavi-web
+                port:
+                  number: 80

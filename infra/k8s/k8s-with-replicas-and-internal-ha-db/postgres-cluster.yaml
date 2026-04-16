@@ -1,0 +1,18 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: tavi-postgres
+  namespace: tavi
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+  storage:
+    size: 10Gi
+  bootstrap:
+    initdb:
+      database: tavi
+      owner: tavi
+      secret:
+        name: tavi-postgres-app
+  superuserSecret:
+    name: tavi-postgres-superuser

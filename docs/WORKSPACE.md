@@ -12,17 +12,18 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 | Status | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects |
 | Assignee | Multi-select task filter for one or more assignees |
 | View | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state |
-| Import/Export | Opens exports for everyone, plus admin-only CSV import and workspace reset |
 | New Project | Opens the inline project-creation panel |
-| Settings | Opens browser-local preferences, auth history, and local-account entry points |
+| Settings | Opens browser-local preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
 
 ## Working with project rows
 
 The top search, grouping, filter, and bulk-action controls stay pinned while you scroll so review controls remain visible during long discussions.
 
-Each project row shows the project title, notes, owner, due date, priority, status, and completion percentage.
+Each project row shows the project title, notes, references, owner, due date, priority, status, and completion percentage.
 
 Project and task notes render basic markdown in place. Tavi keeps line breaks, recognizes simple lists and emphasis, and turns plain URLs into clickable links.
+
+Project references support one line per entry. URL lines render as shortened external links, while plain-text lines stay visible as compact project metadata.
 
 Use the row actions on the right to:
 
@@ -47,6 +48,12 @@ Task rows stay directly under their parent project. Inline task editing lets edi
 7. Project
 
 Changing the `Project` field moves the task to a different project and recalculates both project rollups when you save. The last `Project` option, `Convert to Project`, turns the edited task into a new standalone project instead. The new project keeps the task title, notes, assignee as owner, due date, priority, and the closest matching project status.
+
+When you add several tasks to the same project in a row, Tavi keeps the last assignee and priority selected in the add-task row so repeated entry is faster.
+
+Use the compact `::` drag handle on the left side of each visible task row to save a manual task order for that project. Reordering is only enabled when the full task list for that project is visible.
+
+Expanded task tables include a compact `D` toggle beside the `Status` header so you can hide or show `done` rows without changing project rollups or task data.
 
 Use `History` on a task row when you need to confirm who changed status, assignment, or dates.
 
@@ -84,6 +91,7 @@ Once enabled:
 7. Project and task delete actions ask for confirmation before the workspace removes them.
 8. Project-to-task conversion is only available when the source project has no active tasks, so existing task lists are never dropped silently.
 9. When outbound email is enabled, saving a project emails the current project owner plus all active task assignees for that project. Saving a task emails the current task assignee plus the current project owner. Update emails include side-by-side `From:` and `To:` change blocks instead of just the edited field.
+10. `Import/Export` and `Backups` are opened from `SETTINGS.md`, not from the top workspace toolbar.
 
 ## Derived project status
 

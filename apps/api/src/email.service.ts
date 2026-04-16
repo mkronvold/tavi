@@ -1,7 +1,7 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-import type { SmtpStatus } from '@tavi/schemas';
+import type { SmtpStatus, UpdateEmailSettingsInput } from '@tavi/schemas';
 import { AppLogger } from './app-logger';
 import { buildEmailHtml, escapeHtml, parseSmtpUrl } from './email-helpers';
 import { PrismaService } from './prisma.service';
@@ -9,6 +9,7 @@ import { PrismaService } from './prisma.service';
 const DEFAULT_SMTP_URL = 'smtp://10.120.64.99:25';
 const DEFAULT_SMTP_FROM = 'noreply@tavi.local';
 const EMAIL_SETTINGS_ID = 'global';
+const DEFAULT_DAILY_DIGEST_TIME = '09:00';
 
 type EmailRecipient = {
   email: string;
@@ -109,6 +110,8 @@ export class EmailService implements OnModuleInit {
     const settings = await this.readEmailSettings();
 
     return {
+      dailyDigestTime:
+        settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
       enabled: settings?.enabled ?? true,
       configured: this.configured,
       host: this.smtpHost,
@@ -118,17 +121,33 @@ export class EmailService implements OnModuleInit {
     };
   }
 
-  async setEmailEnabled(enabled: boolean): Promise<SmtpStatus> {
+  async updateEmailSettings(
+    input: UpdateEmailSettingsInput,
+  ): Promise<SmtpStatus> {
     await this.prisma.emailSettings.upsert({
       where: { id: EMAIL_SETTINGS_ID },
-      update: { enabled },
+      update: {
+        dailyDigestTime: input.dailyDigestTime,
+        enabled: input.enabled,
+      },
       create: {
+        dailyDigestTime: input.dailyDigestTime,
         id: EMAIL_SETTINGS_ID,
-        enabled,
+        enabled: input.enabled,
       },
     });
 
     return this.getSmtpStatus();
+  }
+
+  async setEmailEnabled(enabled: boolean): Promise<SmtpStatus> {
+    const settings = await this.readEmailSettings();
+
+    return this.updateEmailSettings({
+      dailyDigestTime:
+        settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      enabled,
+    });
   }
 
   async sendPasswordEmail(
@@ -229,7 +248,10 @@ export class EmailService implements OnModuleInit {
   private readEmailSettings() {
     return this.prisma.emailSettings.findUnique({
       where: { id: EMAIL_SETTINGS_ID },
-      select: { enabled: true },
+      select: {
+        dailyDigestTime: true,
+        enabled: true,
+      },
     });
   }
 }

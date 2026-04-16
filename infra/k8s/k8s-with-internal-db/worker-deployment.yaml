@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tavi-worker
+  namespace: tavi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tavi-worker
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "4100"
+        prometheus.io/scrape: "true"
+      labels:
+        app: tavi-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/mkronvold/tavi-worker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4100
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tavi-secrets
+                  key: DATABASE_URL
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: WORKER_PORT
+            - name: BACKUP_DIRECTORY
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: BACKUP_DIRECTORY
+          volumeMounts:
+            - name: tavi-backups
+              mountPath: /var/tavi/backups
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4100
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: tavi-backups
+          persistentVolumeClaim:
+            claimName: tavi-backups

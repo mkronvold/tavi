@@ -3,7 +3,12 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { AuditEntityType, LocalLoginHintResponse } from '@tavi/schemas';
+import type {
+  AuditEntityType,
+  LocalLoginHintResponse,
+  NotificationPreferences,
+  UpdateNotificationPreferencesInput,
+} from '@tavi/schemas';
 import { Prisma, Role } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import type { FastifyReply } from 'fastify';
@@ -17,6 +22,7 @@ import { PrismaService } from './prisma.service';
 const SESSION_COOKIE = 'tavi_session';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const LOCAL_AUTH_MODE = 'local';
+const DEFAULT_DAILY_DIGEST_TIME = '09:00';
 type AuditWriteClient = PrismaService | Prisma.TransactionClient;
 type AuditActor = Pick<SessionUser, 'email' | 'id' | 'name' | 'role'>;
 
@@ -220,6 +226,49 @@ export class AuthService {
     }
 
     return { visible: true };
+  }
+
+  async getNotificationPreferences(
+    userId: string,
+  ): Promise<NotificationPreferences> {
+    const [user, emailSettings] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          dailyDigestEnabled: true,
+        },
+      }),
+      this.prisma.emailSettings.findUnique({
+        where: { id: 'global' },
+        select: {
+          dailyDigestTime: true,
+        },
+      }),
+    ]);
+
+    return {
+      dailyDigestEnabled: user?.dailyDigestEnabled ?? false,
+      dailyDigestTime:
+        emailSettings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+    };
+  }
+
+  async updateNotificationPreferences(
+    actor: SessionUser,
+    input: UpdateNotificationPreferencesInput,
+  ): Promise<NotificationPreferences> {
+    await this.prisma.user.update({
+      where: { id: actor.id },
+      data: {
+        dailyDigestEnabled: input.dailyDigestEnabled,
+      },
+    });
+
+    await this.recordAudit(actor, 'auth', actor.id, 'notification_preferences_updated', {
+      dailyDigestEnabled: input.dailyDigestEnabled,
+    });
+
+    return this.getNotificationPreferences(actor.id);
   }
 
   async hashPassword(password: string) {

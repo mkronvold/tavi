@@ -1,6 +1,12 @@
 # Import and Export Guide
 
-The `Import/Export` area combines filtered workspace exports for all signed-in users with admin-only CSV import and workspace reset controls.
+The `Import/Export` panel combines filtered workspace exports for all signed-in users with admin-only CSV import and workspace reset controls.
+
+## Open the panel
+
+1. Open `Settings`.
+2. Select the `Import/Export` settings card.
+3. Use the `Close` button in either panel header when you want to hide the panel again.
 
 ## Permissions
 
@@ -25,7 +31,7 @@ Available export buttons:
 
 ## CSV import workflow
 
-1. Open `Import/Export`.
+1. Open `Settings`, then open `Import/Export`.
 2. Choose a CSV file and select `Stage import`.
 3. Pick the staged job from `Recent imports`.
 4. Review `Header mapping` and fix any incorrect field matches.
@@ -102,3 +108,4 @@ Blank checklist cells keep the project row in preview and import it without crea
 2. A blank mapped checklist or task-title value creates a valid project-only row, even when project and task mappings share source columns such as status or priority.
 3. `Commit valid rows` stays disabled when there are blocking missing users or zero valid rows.
 4. Removing an import clears its history entry; it does not undo any completed import changes.
+5. The export and import cards share the same workspace panel toggle, so closing either header closes the full `Import/Export` workspace area.

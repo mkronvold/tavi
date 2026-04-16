@@ -27,6 +27,7 @@ import type {
 type ImportPanelProps = {
   isAdmin: boolean;
   onNotice: (message: string) => void;
+  onClose?: () => void;
   queryClient: QueryClient;
 };
 
@@ -52,6 +53,7 @@ const ACTIVE_IMPORT_STATUSES: LoopImportJobStatus[] = [
 export function ImportPanel({
   isAdmin,
   onNotice,
+  onClose,
   queryClient,
 }: ImportPanelProps) {
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
@@ -371,6 +373,17 @@ export function ImportPanel({
             Stage CSV exports, review mapping, then commit in the worker.
           </span>
         </div>
+        {onClose ? (
+          <div className="import-actions">
+            <button
+              type="button"
+              className="ghost-button compact-button"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="import-grid">

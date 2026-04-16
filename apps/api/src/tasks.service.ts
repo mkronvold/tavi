@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   BulkArchiveTasksInput,
   BulkCopyTasksInput,
@@ -6,6 +6,7 @@ import type {
   ConvertTaskToProjectInput,
   CreateTaskInput,
   ProjectStatus,
+  ReorderProjectTasksInput,
   UpdateTaskInput,
 } from '@tavi/schemas';
 import type { Prisma } from '@prisma/client';
@@ -277,6 +278,100 @@ export class TasksService {
       copiedTaskIds,
       targetProjectId: targetProject.id,
     };
+  }
+
+  async reorderProjectTasks(
+    projectId: string,
+    input: ReorderProjectTasksInput,
+    actor: SessionUser,
+  ) {
+    this.authService.requireEditAccess(actor);
+
+    const project = await requireActiveProject(this.prisma, projectId);
+    const existingTasks = await this.prisma.task.findMany({
+      where: {
+        projectId,
+        archivedAt: null,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        projectId: true,
+        title: true,
+        notes: true,
+        assigneeUserId: true,
+        dueDate: true,
+        priority: true,
+        status: true,
+        completedAt: true,
+        sortOrder: true,
+      },
+    });
+
+    if (existingTasks.length !== input.taskIds.length) {
+      throw new BadRequestException(
+        'Task order must include every active task in the project exactly once',
+      );
+    }
+
+    const existingTaskById = new Map(
+      existingTasks.map((task) => [task.id, task] as const),
+    );
+    const orderedTasks = input.taskIds.map((taskId) => {
+      const task = existingTaskById.get(taskId);
+
+      if (!task) {
+        throw new BadRequestException(
+          'Task order must include every active task in the project exactly once',
+        );
+      }
+
+      return task;
+    });
+    const changedTasks = orderedTasks.flatMap((task, index) =>
+      task.sortOrder === index
+        ? []
+        : [
+            {
+              existing: task,
+              nextSortOrder: index,
+            },
+          ],
+    );
+
+    if (changedTasks.length === 0) {
+      return { success: true as const };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const changedTask of changedTasks) {
+        const task = await tx.task.update({
+          where: { id: changedTask.existing.id },
+          data: { sortOrder: changedTask.nextSortOrder },
+        });
+
+        await this.authService.recordAudit(
+          actor,
+          'task',
+          task.id,
+          'bulk_update',
+          buildTaskAuditMetadata(task, ['sortOrder'], {
+            changes: [
+              {
+                field: 'sortOrder',
+                from: changedTask.existing.sortOrder,
+                to: changedTask.nextSortOrder,
+              },
+            ],
+            projectTitle: project.title,
+            selectionSize: input.taskIds.length,
+          }),
+          tx,
+        );
+      }
+    });
+
+    return { success: true as const };
   }
 
   async bulkUpdateTasks(input: BulkUpdateTasksInput, actor: SessionUser) {

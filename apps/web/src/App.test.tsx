@@ -24,6 +24,11 @@ const createResponse = (payload: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   });
 
+const formatExpectedCalendarDate = (value: string) =>
+  new Intl.DateTimeFormat(undefined, { timeZone: "UTC" }).format(
+    new Date(value),
+  );
+
 const createWorkspacePayload = (): WorkspaceResponse => ({
   currentUser: {
     id: "user-1",
@@ -341,11 +346,15 @@ describe("App", () => {
   };
 
   const toggleGroupByTitle = (title: string) => {
-    const groupCard = screen.getByRole("heading", { name: title }).closest("section");
+    const groupCard = screen
+      .getByRole("heading", { name: title })
+      .closest("section");
 
     expect(groupCard).not.toBeNull();
 
-    const toggleButton = groupCard?.querySelector(".group-header .group-toggle");
+    const toggleButton = groupCard?.querySelector(
+      ".group-header .group-toggle",
+    );
 
     expect(toggleButton).toBeTruthy();
     fireEvent.click(toggleButton!);
@@ -834,9 +843,69 @@ describe("App", () => {
       "Tavi Editor",
       "Medium",
       "0%",
-      new Date(dueDate).toLocaleDateString(),
+      formatExpectedCalendarDate(dueDate),
       "tracker.example.com/projects/roa... ↗",
     ]);
+  });
+
+  it("renders due dates without local timezone drift", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const dueDate = "2026-05-01T00:00:00.000Z";
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      dueDate,
+      tasks: workspacePayload.projects[0]!.tasks.map((task, index) =>
+        index === 0
+          ? {
+              ...task,
+              dueDate,
+            }
+          : task,
+      ),
+    };
+
+    const localDateSpy = vi
+      .spyOn(Date.prototype, "toLocaleDateString")
+      .mockReturnValue("LOCAL-DRIFT");
+    const dateTimeFormatSpy = vi
+      .spyOn(Intl, "DateTimeFormat")
+      .mockImplementation(
+        function DateTimeFormatMock(
+          this: Intl.DateTimeFormat,
+          _locales?: string | string[],
+          options?: Intl.DateTimeFormatOptions,
+        ) {
+          return {
+            format: () =>
+              options?.timeZone === "UTC" ? "UTC-STABLE-DATE" : "NON-UTC-DATE",
+          } as Intl.DateTimeFormat;
+        } as unknown as typeof Intl.DateTimeFormat,
+      );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("UTC-STABLE-DATE")).toBeInTheDocument();
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getAllByText("UTC-STABLE-DATE")).toHaveLength(2);
+    });
+
+    expect(localDateSpy).not.toHaveBeenCalled();
+    expect(dateTimeFormatSpy).toHaveBeenCalledWith(undefined, {
+      timeZone: "UTC",
+    });
   });
 
   it("renders project notes as markdown with CRLF line breaks and linked URLs", async () => {
@@ -848,7 +917,10 @@ describe("App", () => {
         "Blocked on **approvals**\r\nhttps://docs.example.com/spec\r\n- confirm legal",
     };
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -883,7 +955,10 @@ describe("App", () => {
       notes: `Review **scope**\r\n${fileUrl}\r\n- confirm owner`,
     };
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -923,7 +998,10 @@ describe("App", () => {
         "https://tracker.example.com/projects/roadmap-refresh?tab=board#milestones",
     };
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -954,7 +1032,10 @@ describe("App", () => {
       references: fileUrl,
     };
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -981,7 +1062,10 @@ describe("App", () => {
         "https://tracker.example.com/projects/roadmap-refresh?tab=board#milestones\nLoop board - roadmap refresh",
     };
 
-    vi.stubGlobal("fetch", vi.fn(async () => createResponse(workspacePayload)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
 
     renderApp();
 
@@ -1276,7 +1360,9 @@ describe("App", () => {
     fireEvent.click(projectRow!);
 
     await waitFor(() => {
-      expect(within(projectCard!).queryByText("Kickoff")).not.toBeInTheDocument();
+      expect(
+        within(projectCard!).queryByText("Kickoff"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1611,7 +1697,9 @@ describe("App", () => {
     });
 
     expect(
-      JSON.parse(localStorage.getItem("tavi.workspace.collapsedGroups") ?? "{}"),
+      JSON.parse(
+        localStorage.getItem("tavi.workspace.collapsedGroups") ?? "{}",
+      ),
     ).toEqual(
       expect.objectContaining({
         owner: {
@@ -1755,6 +1843,7 @@ describe("App", () => {
         if (url.endsWith("/auth/email/status")) {
           return createResponse({
             configured: true,
+            dailyDigestTime: "14:30",
             enabled: true,
             fromAddress: "noreply@tavi.local",
             host: "10.120.64.99",
@@ -1763,11 +1852,19 @@ describe("App", () => {
           });
         }
 
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "14:30",
+          });
+        }
+
         if (url.endsWith("/auth/email/settings") && init?.method === "PUT") {
           emailSettingsRequestBody =
             typeof init.body === "string" ? init.body : null;
           return createResponse({
             configured: true,
+            dailyDigestTime: "14:30",
             enabled: false,
             fromAddress: "noreply@tavi.local",
             host: "10.120.64.99",
@@ -1803,15 +1900,92 @@ describe("App", () => {
     fireEvent.click(emailNotificationsSwitch);
 
     await waitFor(() => {
-      expect(emailSettingsRequestBody).toBe(JSON.stringify({ enabled: false }));
+      expect(emailSettingsRequestBody).toBe(
+        JSON.stringify({ dailyDigestTime: "14:30", enabled: false }),
+      );
       expect(emailNotificationsSwitch).not.toBeChecked();
+    });
+  });
+
+  it("keeps the daily digest toggle in sync after saving", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let notificationPreferencesRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/auth/notification/preferences") &&
+          init?.method === "PUT"
+        ) {
+          notificationPreferencesRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse({
+            dailyDigestEnabled: true,
+            dailyDigestTime: "14:30",
+          });
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "14:30",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    const dailyDigestSwitch = screen.getByRole("switch", {
+      name: "Daily Digest",
+    });
+
+    await waitFor(() => {
+      expect(dailyDigestSwitch).not.toBeDisabled();
+    });
+
+    expect(dailyDigestSwitch).not.toBeChecked();
+
+    fireEvent.click(dailyDigestSwitch);
+
+    await waitFor(() => {
+      expect(notificationPreferencesRequestBody).toBe(
+        JSON.stringify({ dailyDigestEnabled: true }),
+      );
+      expect(dailyDigestSwitch).toBeChecked();
     });
   });
 
   it("hides the email notifications toggle for non-admins", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => createResponse(createWorkspacePayload())),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
+          });
+        }
+
+        return createResponse(createWorkspacePayload());
+      }),
     );
 
     renderApp();
@@ -1836,11 +2010,19 @@ describe("App", () => {
         if (url.endsWith("/auth/email/status")) {
           return createResponse({
             configured: true,
+            dailyDigestTime: "09:00",
             enabled: true,
             fromAddress: "noreply@tavi.local",
             host: "10.120.64.99",
             port: 25,
             secure: false,
+          });
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
           });
         }
 
@@ -1861,17 +2043,21 @@ describe("App", () => {
     );
 
     expect(settingsItems).not.toHaveLength(0);
-    expect(settingsItems).toHaveLength(10);
+    expect(settingsItems).toHaveLength(14);
     expect(settingsItems[0]?.textContent).toContain("Theme");
     expect(settingsItems[1]?.textContent).toContain("Auto Collapse");
     expect(settingsItems[2]?.textContent).toContain("Bulk Actions");
     expect(settingsItems[3]?.textContent).toContain("Full Width");
-    expect(settingsItems[4]?.textContent).toContain("Email Notifications");
-    expect(settingsItems[5]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[4]?.textContent).toContain("Daily Digest");
+    expect(settingsItems[5]?.textContent).toContain("Clear Local Storage");
     expect(settingsItems[6]?.textContent).toContain("My Auth History");
-    expect(settingsItems[7]?.textContent).toContain("Audit logins");
-    expect(settingsItems[8]?.textContent).toContain("Audit changes");
-    expect(settingsItems[9]?.textContent).toContain("Clear Local Storage");
+    expect(settingsItems[7]?.textContent).toContain("Email Notifications");
+    expect(settingsItems[8]?.textContent).toContain("Daily Digest Time");
+    expect(settingsItems[9]?.textContent).toContain("Backups");
+    expect(settingsItems[10]?.textContent).toContain("Import/Export");
+    expect(settingsItems[11]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[12]?.textContent).toContain("Audit logins");
+    expect(settingsItems[13]?.textContent).toContain("Audit changes");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
       appRepositoryUrl,
@@ -1882,7 +2068,128 @@ describe("App", () => {
     });
   });
 
-  it("closes the local accounts panel from its header button", async () => {
+  it("opens import/export and backups panels from settings cards and closes them from panel headers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(createAdminWorkspacePayload());
+        }
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse({
+            configured: true,
+            dailyDigestTime: "09:00",
+            enabled: true,
+            fromAddress: "noreply@tavi.local",
+            host: "10.120.64.99",
+            port: 25,
+            secure: false,
+          });
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
+          });
+        }
+
+        if (url.endsWith("/backups")) {
+          return createResponse({
+            backupDirectory: "/var/tavi/backups",
+            backupDirectoryAccessible: true,
+            backups: [],
+            enabled: true,
+            lastError: null,
+            lastFailureAt: null,
+            lastSuccessAt: null,
+            scheduleTime: "02:00",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    const importExportCard =
+      screen.getByText("Import/Export").closest(".settings-item");
+    const backupsCard = screen.getByText("Backups").closest(".settings-item");
+
+    expect(importExportCard).not.toBeNull();
+    expect(backupsCard).not.toBeNull();
+
+    fireEvent.click(importExportCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Download the current filtered workspace as CSV, XLSX, JSON, or a Loop-oriented CSV.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    const exportPanel = screen.getByText("Export").closest(".workspace-panel-card");
+    const importPanel =
+      screen.getByText("CSV import").closest(".toolbar-card");
+
+    expect(exportPanel).not.toBeNull();
+    expect(importPanel).not.toBeNull();
+    expect(
+      within(exportPanel as HTMLElement).getByRole("button", { name: "Close" }),
+    ).toBeInTheDocument();
+    expect(
+      within(importPanel as HTMLElement).getByRole("button", { name: "Close" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(backupsCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Configure scheduled snapshots and preview restore changes.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    const backupsPanel = screen
+      .getByText("Configure scheduled snapshots and preview restore changes.")
+      .closest(".workspace-panel-card");
+
+    expect(backupsPanel).not.toBeNull();
+
+    fireEvent.click(
+      within(backupsPanel as HTMLElement).getByRole("button", { name: "Close" }),
+    );
+    fireEvent.click(
+      within(exportPanel as HTMLElement).getByRole("button", { name: "Close" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Download the current filtered workspace as CSV, XLSX, JSON, or a Loop-oriented CSV.",
+        ),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          "Configure scheduled snapshots and preview restore changes.",
+        ),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("toggles the local accounts panel from the settings card", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -1895,23 +2202,63 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open local accounts" }));
+    const localAccountsCard =
+      screen.getByText("Local Accounts").closest(".settings-item");
+
+    expect(localAccountsCard).not.toBeNull();
+    fireEvent.click(localAccountsCard as HTMLElement);
 
     await waitFor(() => {
       expect(container.querySelector(".local-accounts-panel")).not.toBeNull();
     });
 
-    fireEvent.click(
-      within(container.querySelector(".local-accounts-panel") as HTMLElement).getByRole(
-        "button",
-        { name: "Close" },
-      ),
+    fireEvent.click(localAccountsCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(container.querySelector(".local-accounts-panel")).toBeNull();
+    });
+  });
+
+  it("toggles my auth history from the settings card", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.includes("/audit/auth/user-1")) {
+          return createResponse([]);
+        }
+
+        return createResponse(createWorkspacePayload());
+      }),
     );
 
-    expect(container.querySelector(".local-accounts-panel")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Open local accounts" }),
-    ).toBeInTheDocument();
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const authHistoryCard =
+      screen.getByText("My Auth History").closest(".settings-item");
+
+    expect(authHistoryCard).not.toBeNull();
+    fireEvent.click(authHistoryCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "My Auth History" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(authHistoryCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("heading", { name: "My Auth History" }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("persists the per-project add task toggle", async () => {
@@ -1973,6 +2320,252 @@ describe("App", () => {
     });
   });
 
+  it("keeps the last assignee and priority when adding tasks consecutively", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let createBody: string | null = null;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/projects/project-1/tasks") &&
+          init?.method === "POST"
+        ) {
+          createBody = typeof init.body === "string" ? init.body : null;
+
+          const payload = JSON.parse(createBody ?? "{}") as {
+            assigneeUserId?: string;
+            notes?: string;
+            priority?: "low" | "medium" | "high";
+            status?: string;
+            title?: string;
+          };
+
+          workspacePayload.projects[0]!.tasks.push({
+            id: "task-3",
+            projectId: "project-1",
+            title: payload.title ?? "",
+            notes: payload.notes ?? null,
+            assigneeUserId: payload.assigneeUserId ?? "user-1",
+            assigneeName:
+              payload.assigneeUserId === "user-2"
+                ? "Tavi Viewer"
+                : "Tavi Editor",
+            dueDate: null,
+            priority: payload.priority ?? "medium",
+            status: payload.status === "done" ? "done" : "todo",
+            sortOrder: 2,
+            completedAt: null,
+            createdAt: "2026-04-03T09:00:00.000Z",
+            updatedAt: "2026-04-03T09:00:00.000Z",
+          });
+          workspacePayload.projects[0]!.taskTotalCount += 1;
+          workspacePayload.projects[0]!.taskTodoCount += 1;
+
+          return createResponse(workspacePayload.projects[0]!.tasks[2]);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "Add Task" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("New task title")).toBeInTheDocument();
+    });
+
+    const titleInput = screen.getByPlaceholderText(
+      "New task title",
+    ) as HTMLInputElement;
+    const taskCreateRow = titleInput.closest("tr");
+
+    expect(taskCreateRow).not.toBeNull();
+    if (!(taskCreateRow instanceof HTMLTableRowElement)) {
+      throw new Error("Expected add-task row");
+    }
+
+    fireEvent.change(titleInput, {
+      target: { value: "Prepare handoff" },
+    });
+    fireEvent.change(within(taskCreateRow).getByDisplayValue("Tavi Editor"), {
+      target: { value: "user-2" },
+    });
+    fireEvent.change(within(taskCreateRow).getByDisplayValue("Medium"), {
+      target: { value: "high" },
+    });
+    fireEvent.click(within(taskCreateRow).getByRole("button", { name: "Add" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Prepare handoff")).toBeInTheDocument();
+    });
+
+    const refreshedTitleInput = screen.getByPlaceholderText(
+      "New task title",
+    ) as HTMLInputElement;
+    const refreshedTaskCreateRow = refreshedTitleInput.closest("tr");
+
+    expect(refreshedTaskCreateRow).not.toBeNull();
+    if (!(refreshedTaskCreateRow instanceof HTMLTableRowElement)) {
+      throw new Error("Expected refreshed add-task row");
+    }
+
+    expect(createBody).toContain('"assigneeUserId":"user-2"');
+    expect(createBody).toContain('"priority":"high"');
+    expect(refreshedTitleInput).toHaveValue("");
+    expect(
+      within(refreshedTaskCreateRow).getByDisplayValue("Tavi Viewer"),
+    ).toHaveValue(
+      "user-2",
+    );
+    expect(
+      within(refreshedTaskCreateRow).getByDisplayValue("High"),
+    ).toHaveValue("high");
+    expect(
+      within(refreshedTaskCreateRow).getByDisplayValue("Todo"),
+    ).toHaveValue("todo");
+  });
+
+  it("reorders tasks with the drag handle and saves the new order", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let reorderBody: string | null = null;
+
+    workspacePayload.projects[0]!.tasks.push({
+      id: "task-3",
+      projectId: "project-1",
+      title: "Share update",
+      notes: "Notify stakeholders",
+      assigneeUserId: "user-1",
+      assigneeName: "Tavi Editor",
+      dueDate: null,
+      priority: "low",
+      status: "todo",
+      sortOrder: 2,
+      completedAt: null,
+      createdAt: "2026-04-03T09:00:00.000Z",
+      updatedAt: "2026-04-03T09:00:00.000Z",
+    });
+    workspacePayload.projects[0]!.taskTotalCount = 3;
+    workspacePayload.projects[0]!.taskTodoCount = 2;
+    workspacePayload.projects[0]!.taskInProgressCount = 1;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/projects/project-1/tasks/reorder") &&
+          init?.method === "PATCH"
+        ) {
+          reorderBody = typeof init.body === "string" ? init.body : null;
+          const payload = JSON.parse(reorderBody ?? "{}") as {
+            taskIds?: string[];
+          };
+          const taskById = new Map(
+            workspacePayload.projects[0]!.tasks.map((task) => [task.id, task] as const),
+          );
+
+          workspacePayload.projects[0]!.tasks =
+            payload.taskIds?.map((taskId, index) => ({
+              ...taskById.get(taskId)!,
+              sortOrder: index,
+            })) ?? workspacePayload.projects[0]!.tasks;
+
+          return createResponse({ success: true });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+      expect(screen.getByText("Share update")).toBeInTheDocument();
+    });
+
+    const kickoffHandle = screen.getByRole("button", {
+      name: "Drag to reorder Kickoff",
+    });
+    const reviewPlanRow = screen.getByText("Review plan").closest("tr");
+
+    expect(reviewPlanRow).not.toBeNull();
+    if (!(reviewPlanRow instanceof HTMLTableRowElement)) {
+      throw new Error("Expected target task row");
+    }
+
+    reviewPlanRow.getBoundingClientRect = () =>
+      ({
+        bottom: 40,
+        height: 40,
+        left: 0,
+        right: 400,
+        top: 0,
+        width: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    const dataTransfer = {
+      dropEffect: "move",
+      effectAllowed: "move",
+      getData: vi.fn(() => "task-1"),
+      setData: vi.fn(),
+    } as unknown as DataTransfer;
+
+    fireEvent.dragStart(kickoffHandle, { dataTransfer });
+    fireEvent.dragOver(reviewPlanRow, { clientY: 30, dataTransfer });
+    fireEvent.drop(reviewPlanRow, { clientY: 30, dataTransfer });
+    fireEvent.dragEnd(kickoffHandle, { dataTransfer });
+
+    await waitFor(() => {
+      expect(reorderBody).toContain('"taskIds":["task-2","task-1","task-3"]');
+    });
+
+    const reorderedTaskTitles = Array.from(
+      projectCard.querySelectorAll(".task-table tbody tr strong"),
+    ).map((element) => element.textContent?.trim());
+
+    expect(reorderedTaskTitles).toEqual([
+      "Review plan",
+      "Kickoff",
+      "Share update",
+    ]);
+  });
+
   it("keeps the project open while editing tasks with compact aligned actions", async () => {
     vi.stubGlobal(
       "fetch",
@@ -2011,7 +2604,7 @@ describe("App", () => {
     expect(editingRow).not.toBeNull();
     expect(projectToggle).toHaveTextContent("-");
     expect(editingRow?.querySelector("td[colspan]")).toBeNull();
-    expect(editingRow?.querySelectorAll("td")).toHaveLength(7);
+    expect(editingRow?.querySelectorAll("td")).toHaveLength(8);
     expect(
       within(editingRow!).getByRole("button", { name: "Save" }),
     ).toHaveClass("mini-button");
@@ -2289,7 +2882,9 @@ describe("App", () => {
     fireEvent.click(kickoffRow!, { ctrlKey: true });
 
     await waitFor(() => {
-      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -2479,7 +3074,9 @@ describe("App", () => {
     if (!(projectActions instanceof HTMLElement)) {
       throw new Error("Expected project actions");
     }
-    fireEvent.click(within(projectActions).getByRole("button", { name: "Edit" }));
+    fireEvent.click(
+      within(projectActions).getByRole("button", { name: "Edit" }),
+    );
 
     expect(
       within(projectCard).getByRole("button", { name: "Convert to Task" }),
@@ -2499,7 +3096,9 @@ describe("App", () => {
     fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
 
     await waitFor(() => {
-      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
     });
 
     expect(
@@ -2511,9 +3110,12 @@ describe("App", () => {
       ),
     ).not.toBeInTheDocument();
 
-    fireEvent.change(within(projectCard).getByRole("combobox", { name: "Assignee" }), {
-      target: { value: "" },
-    });
+    fireEvent.change(
+      within(projectCard).getByRole("combobox", { name: "Assignee" }),
+      {
+        target: { value: "" },
+      },
+    );
     fireEvent.click(within(projectCard).getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -2570,7 +3172,9 @@ describe("App", () => {
     fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
 
     await waitFor(() => {
-      expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
     });
 
     expect(scrollIntoViewMock).toHaveBeenCalled();
@@ -2778,10 +3382,13 @@ describe("App", () => {
   });
 
   it("clears only tavi-owned local storage keys from settings", async () => {
+    const confirmMock = vi.fn(() => true);
+
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
     );
+    vi.stubGlobal("confirm", confirmMock);
     window.localStorage.setItem("unrelated", "keep");
 
     renderApp();
@@ -2805,16 +3412,19 @@ describe("App", () => {
       expect(
         localStorage.getItem("tavi.workspace.projectAddTask"),
       ).not.toBeNull();
-      expect(
-        screen.getByRole("button", { name: "Clear Local Storage" }),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Clear Local Storage")).toBeInTheDocument();
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Clear Local Storage" }),
-    );
+    const clearLocalStorageCard =
+      screen.getByText("Clear Local Storage").closest(".settings-item");
+
+    expect(clearLocalStorageCard).not.toBeNull();
+    fireEvent.click(clearLocalStorageCard as HTMLElement);
 
     await waitFor(() => {
+      expect(confirmMock).toHaveBeenCalledWith(
+        "Clear all Tavi browser-local preferences stored in this browser?",
+      );
       expect(localStorage.getItem("unrelated")).toBe("keep");
       expect(localStorage.getItem("tavi.workspace.panels")).toBeNull();
       expect(localStorage.getItem("tavi.workspace.projectAddTask")).toBeNull();
@@ -2861,41 +3471,43 @@ describe("App", () => {
       },
     ];
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const method = init?.method ?? "GET";
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
 
-      if (url.endsWith("/workspace")) {
-        return createResponse(workspacePayload);
-      }
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
 
-      if (url.endsWith("/audit/retention")) {
-        if (method === "PUT") {
+        if (url.endsWith("/audit/retention")) {
+          if (method === "PUT") {
+            const payload = JSON.parse(String(init?.body ?? "{}")) as {
+              olderThan: string;
+            };
+            retentionRequests.push(payload.olderThan);
+            return createResponse({ olderThan: payload.olderThan });
+          }
+
+          return createResponse({ olderThan: "six_months" });
+        }
+
+        if (url.endsWith("/audit/purge")) {
           const payload = JSON.parse(String(init?.body ?? "{}")) as {
             olderThan: string;
           };
-          retentionRequests.push(payload.olderThan);
-          return createResponse({ olderThan: payload.olderThan });
+          purgeRequests.push(payload.olderThan);
+          return createResponse({ deletedCount: 3 });
         }
 
-        return createResponse({ olderThan: "six_months" });
-      }
+        if (url.includes("/audit/changes")) {
+          auditRequests.push(url);
+          return createResponse(auditEvents);
+        }
 
-      if (url.endsWith("/audit/purge")) {
-        const payload = JSON.parse(String(init?.body ?? "{}")) as {
-          olderThan: string;
-        };
-        purgeRequests.push(payload.olderThan);
-        return createResponse({ deletedCount: 3 });
-      }
-
-      if (url.includes("/audit/changes")) {
-        auditRequests.push(url);
-        return createResponse(auditEvents);
-      }
-
-      throw new Error(`Unexpected request: ${url}`);
-    });
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -2906,7 +3518,11 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open audit changes" }));
+    const auditChangesCard =
+      screen.getByText("Audit changes").closest(".settings-item");
+
+    expect(auditChangesCard).not.toBeNull();
+    fireEvent.click(auditChangesCard as HTMLElement);
 
     const panel = await waitFor(() => {
       const element = screen
@@ -2948,7 +3564,9 @@ describe("App", () => {
 
     fireEvent.click(within(panel).getByRole("button", { name: "Purge logs" }));
 
-    expect(confirmSpy).toHaveBeenCalledWith("Purge audit logs older than 1 month?");
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Purge audit logs older than 1 month?",
+    );
     await waitFor(() => {
       expect(
         within(panel).getByText("Purged 3 audit events older than 1 month."),
@@ -2978,6 +3596,14 @@ describe("App", () => {
           );
         }),
       ).toBe(true);
+    });
+
+    fireEvent.click(auditChangesCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Admin-only project and task change history"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -3030,7 +3656,11 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open audit logins" }));
+    const auditLoginsCard =
+      screen.getByText("Audit logins").closest(".settings-item");
+
+    expect(auditLoginsCard).not.toBeNull();
+    fireEvent.click(auditLoginsCard as HTMLElement);
 
     const panel = await waitFor(() => {
       const element = screen
@@ -3082,6 +3712,14 @@ describe("App", () => {
           );
         }),
       ).toBe(true);
+    });
+
+    fireEvent.click(auditLoginsCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Admin-only sign-in and sign-out history"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -3185,6 +3823,80 @@ describe("App", () => {
       expect(screen.getByText("Kickoff")).toBeInTheDocument();
       expect(collapsedProjectCard).not.toHaveClass("project-card--collapsed");
     });
+  });
+
+  it("toggles done tasks inside an expanded project without keeping hidden selections", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0]?.tasks.push({
+      id: "task-3",
+      projectId: "project-1",
+      title: "Ship recap",
+      notes: "Already wrapped",
+      assigneeUserId: "user-1",
+      assigneeName: "Tavi Editor",
+      dueDate: null,
+      priority: "low",
+      status: "done",
+      sortOrder: 2,
+      completedAt: "2026-04-03T10:00:00.000Z",
+      createdAt: "2026-04-03T09:00:00.000Z",
+      updatedAt: "2026-04-03T10:00:00.000Z",
+    });
+    workspacePayload.projects[0]!.taskTotalCount = 3;
+    workspacePayload.projects[0]!.taskDoneCount = 1;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+      expect(screen.getByText("Ship recap")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Select task Ship recap"));
+
+    await waitFor(() => {
+      expect(screen.getByText("1 selected task")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Hide done tasks in Roadmap refresh" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Ship recap")).not.toBeInTheDocument();
+      expect(screen.queryByText("1 selected task")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Select all tasks in Roadmap refresh"));
+
+    await waitFor(() => {
+      expect(screen.getByText("2 selected tasks")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show done tasks in Roadmap refresh" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Ship recap")).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText("Select task Kickoff")).toBeChecked();
+    expect(screen.getByLabelText("Select task Review plan")).toBeChecked();
+    expect(screen.getByLabelText("Select task Ship recap")).not.toBeChecked();
   });
 
   it("clears selected tasks for a collapsed project without affecting other open projects", async () => {
@@ -3531,37 +4243,39 @@ describe("App", () => {
 
   it("clears task notes through bulk task actions", async () => {
     const workspacePayload = createWorkspacePayload();
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
 
-      if (url.endsWith("/workspace")) {
-        return createResponse(workspacePayload);
-      }
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
 
-      if (url.endsWith("/tasks/bulk") && init?.method === "PATCH") {
-        expect(init.body).toBe(
-          JSON.stringify({
-            notes: null,
-            taskIds: ["task-1", "task-2"],
-          }),
-        );
+        if (url.endsWith("/tasks/bulk") && init?.method === "PATCH") {
+          expect(init.body).toBe(
+            JSON.stringify({
+              notes: null,
+              taskIds: ["task-1", "task-2"],
+            }),
+          );
 
-        workspacePayload.projects[0] = {
-          ...workspacePayload.projects[0],
-          tasks: workspacePayload.projects[0].tasks.map((task) => ({
-            ...task,
-            notes: null,
-          })),
-        };
+          workspacePayload.projects[0] = {
+            ...workspacePayload.projects[0],
+            tasks: workspacePayload.projects[0].tasks.map((task) => ({
+              ...task,
+              notes: null,
+            })),
+          };
 
-        return createResponse({
-          updatedCount: 2,
-          updatedTaskIds: ["task-1", "task-2"],
-        });
-      }
+          return createResponse({
+            updatedCount: 2,
+            updatedTaskIds: ["task-1", "task-2"],
+          });
+        }
 
-      throw new Error(`Unexpected request: ${url}`);
-    });
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -3593,6 +4307,77 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
     });
+  });
+
+  it("clears task assignees through bulk task actions", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/bulk") && init?.method === "PATCH") {
+          expect(init.body).toBe(
+            JSON.stringify({
+              assigneeUserId: null,
+              taskIds: ["task-1", "task-2"],
+            }),
+          );
+
+          workspacePayload.projects[0] = {
+            ...workspacePayload.projects[0],
+            tasks: workspacePayload.projects[0].tasks.map((task) => ({
+              ...task,
+              assigneeUserId: null,
+              assigneeName: null,
+            })),
+          };
+
+          return createResponse({
+            updatedCount: 2,
+            updatedTaskIds: ["task-1", "task-2"],
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    if (!screen.queryByText("Kickoff")) {
+      toggleProjectByTitle("Roadmap refresh");
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Select task Kickoff"));
+    fireEvent.click(screen.getByLabelText("Select task Review plan"));
+
+    const bulkCard = screen.getByText("2 selected tasks").closest("section");
+
+    expect(bulkCard).not.toBeNull();
+    fireEvent.change(within(bulkCard!).getByLabelText("Assignee"), {
+      target: { value: "__none__" },
+    });
+    fireEvent.click(within(bulkCard!).getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText("None").length).toBeGreaterThanOrEqual(2);
   });
 
   it("copies selected tasks to another project through bulk task actions", async () => {

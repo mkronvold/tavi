@@ -10,7 +10,12 @@ const JOB_DURATION_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60];
 
 export type WorkerJobResult = "completed" | "failed";
 
-export type WorkerJobType = "commit" | "digest" | "notification" | "parse";
+export type WorkerJobType =
+  | "backup"
+  | "commit"
+  | "digest"
+  | "notification"
+  | "parse";
 
 export class WorkerObservability {
   readonly logger = createStructuredLogger({ service: "worker" });

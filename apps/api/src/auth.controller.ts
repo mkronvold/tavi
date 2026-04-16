@@ -8,7 +8,11 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { localLoginSchema, updateEmailSettingsSchema } from '@tavi/schemas';
+import {
+  localLoginSchema,
+  updateEmailSettingsSchema,
+  updateNotificationPreferencesSchema,
+} from '@tavi/schemas';
 import type { FastifyReply } from 'fastify';
 import type { AuthenticatedRequest } from './auth.types';
 import { AuthService } from './auth.service';
@@ -77,7 +81,7 @@ export class AuthController {
     this.authService.requireAdminAccess(request.user!);
 
     const input = parseInput(updateEmailSettingsSchema, body);
-    return this.emailService.setEmailEnabled(input.enabled);
+    return this.emailService.updateEmailSettings(input);
   }
 
   @Get('email/status')
@@ -85,5 +89,21 @@ export class AuthController {
   async getEmailStatus(@Req() request: AuthenticatedRequest) {
     this.authService.requireAdminAccess(request.user!);
     return this.emailService.getSmtpStatus();
+  }
+
+  @Get('notification/preferences')
+  @UseGuards(SessionGuard)
+  async getNotificationPreferences(@Req() request: AuthenticatedRequest) {
+    return this.authService.getNotificationPreferences(request.user!.id);
+  }
+
+  @Put('notification/preferences')
+  @UseGuards(SessionGuard)
+  async updateNotificationPreferences(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(updateNotificationPreferencesSchema, body);
+    return this.authService.updateNotificationPreferences(request.user!, input);
   }
 }

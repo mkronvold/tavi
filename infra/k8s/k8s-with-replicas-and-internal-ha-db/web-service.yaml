@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tavi-web
+  namespace: tavi
+spec:
+  selector:
+    app: tavi-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4173

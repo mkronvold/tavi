@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tavi-web
+  namespace: tavi
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tavi-web
+  template:
+    metadata:
+      labels:
+        app: tavi-web
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/mkronvold/tavi-web:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4173
+          env:
+            - name: VITE_API_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: VITE_API_BASE_URL
+            - name: TAVI_HOME_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tavi-config
+                  key: TAVI_HOME_URL

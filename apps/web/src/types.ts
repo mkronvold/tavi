@@ -1,4 +1,5 @@
 import type {
+  ApplyBackupRestoreInput,
   AuditEntityType,
   CreateLocalAccountInput,
   GroupBy,
@@ -18,16 +19,21 @@ import type {
   SetOwnPasswordInput,
   TaskStatus,
   UpdateLocalAccountInput,
+  UpdateNotificationPreferencesInput,
   UpdateLoopImportRowDecisionsInput,
   UpdateEmailSettingsInput,
+  UpdateBackupSettingsInput,
 } from "@tavi/schemas";
 
 export type {
+  ApplyBackupRestoreResult,
   AuditChangesQuery as AuditChangesQueryPayload,
   AuditEntityType,
   AuditLogRetentionPolicy,
   AuditLogRetentionWindow,
   AuditLoginsQuery as AuditLoginsQueryPayload,
+  BackupRestorePreview,
+  BackupStatus,
   ConvertProjectToTaskResponse,
   ConvertTaskToProjectResponse,
   DeleteLocalAccountInput as DeleteLocalAccountPayload,
@@ -48,6 +54,7 @@ export type {
   LoopImportMissingAssignee,
   LoopImportOverlapAction,
   LoopImportJobStatus,
+  NotificationPreferences,
   ProjectSortField,
   Priority,
   ProjectStatus,
@@ -60,6 +67,7 @@ export type {
   SmtpStatus,
   SuccessResponse,
   TaskStatus,
+  UploadBackupFileInput,
 } from "@tavi/schemas";
 
 export type WorkspaceUser = {
@@ -202,7 +210,7 @@ export type UpdateTaskPayload = Omit<
 
 export type BulkUpdateTasksPayload = {
   taskIds: string[];
-  assigneeUserId?: string;
+  assigneeUserId?: string | null;
   dueDate?: string | null;
   notes?: string | null;
   priority?: Priority;
@@ -348,3 +356,14 @@ export type UpdateLoopImportRowDecisionsPayload =
   UpdateLoopImportRowDecisionsInput;
 
 export type UpdateEmailSettingsPayload = UpdateEmailSettingsInput;
+
+export type UpdateNotificationPreferencesPayload =
+  UpdateNotificationPreferencesInput;
+
+export type UpdateBackupSettingsPayload = UpdateBackupSettingsInput;
+
+export type PreviewBackupRestorePayload = {
+  source: ApplyBackupRestoreInput["source"];
+};
+
+export type ApplyBackupRestorePayload = ApplyBackupRestoreInput;

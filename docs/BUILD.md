@@ -27,6 +27,15 @@ What startup does automatically:
 4. Runs Prisma generate, migrations, and seed for the API
 5. Starts the API, web app, and worker
 
+The compose stack also mounts a shared backup directory into the API and worker:
+
+- host path: `${BACKUP_HOST_DIRECTORY:-../../backups}` from `.env`
+- container path: `${BACKUP_DIRECTORY:-/var/tavi/backups}`
+
+Copy `.env.example` to `.env` at the repo root if you want to override those defaults.
+
+If you temporarily run the API or worker directly on the host instead of through Docker, Tavi can fall back from the container path to `BACKUP_HOST_DIRECTORY` so the same repo `.env` still works.
+
 ## Open the app
 
 After the stack is healthy, open:
@@ -41,9 +50,9 @@ After the stack is healthy, open:
 
 Default local accounts:
 
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@tavi.local` | `password123` |
+| Role   | Email               | Password      |
+| ------ | ------------------- | ------------- |
+| Admin  | `admin@tavi.local`  | `password123` |
 | Editor | `editor@tavi.local` | `password123` |
 | Viewer | `viewer@tavi.local` | `password123` |
 
@@ -84,6 +93,8 @@ docker compose -f infra/docker/compose.yaml logs -f worker
 docker compose -f infra/docker/compose.yaml logs -f postgres
 ```
 
+Scheduled backup files appear on the host under the configured backup directory. See `BACKUPS.md` for the in-app backup, upload, download, delete, and restore workflow.
+
 ## Optional home link override
 
 If you want the header logo to point somewhere other than the default local URL, set `TAVI_HOME_URL` before startup.
@@ -95,10 +106,10 @@ export TAVI_HOME_URL="https://your-preview-host.example.com"
 
 ## Local troubleshooting
 
-| Problem | What to check |
-| --- | --- |
-| Web UI does not load | Confirm `tavi-web` is running and port `5173` is free |
-| API calls fail | Confirm `tavi-api` is healthy and port `4000` is free |
-| Imports do not progress | Confirm `tavi-worker` is running |
-| Login hint is gone | The default accounts were changed; use the current admin account or reset defaults from `LOCAL_ACCOUNTS.md` |
-| Layout feels wrong after a change | Use `Settings -> Clear Local Storage` to reset browser-only preferences |
+| Problem                           | What to check                                                                                               |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Web UI does not load              | Confirm `tavi-web` is running and port `5173` is free                                                       |
+| API calls fail                    | Confirm `tavi-api` is healthy and port `4000` is free                                                       |
+| Imports do not progress           | Confirm `tavi-worker` is running                                                                            |
+| Login hint is gone                | The default accounts were changed; use the current admin account or reset defaults from `LOCAL_ACCOUNTS.md` |
+| Layout feels wrong after a change | Use `Settings -> Clear Local Storage` to reset browser-only preferences                                     |

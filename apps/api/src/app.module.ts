@@ -5,6 +5,8 @@ import { AuditController } from './audit.controller';
 import { AuditService } from './audit.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { BackupsController } from './backups.controller';
+import { BackupsService } from './backups.service';
 import { EmailService } from './email.service';
 import { HealthController } from './health.controller';
 import { ImportsController } from './imports.controller';
@@ -29,6 +31,7 @@ import { WorkspaceService } from './workspace.service';
   controllers: [
     AuditController,
     AuthController,
+    BackupsController,
     HealthController,
     ImportsController,
     LocalAccountsController,
@@ -43,6 +46,7 @@ import { WorkspaceService } from './workspace.service';
     AppLogger,
     AuditService,
     AuthService,
+    BackupsService,
     EmailService,
     PrismaService,
     ImportsService,

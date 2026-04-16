@@ -14,6 +14,7 @@ import {
   bulkUpdateTasksSchema,
   convertTaskToProjectSchema,
   createTaskSchema,
+  reorderProjectTasksSchema,
   updateTaskSchema,
 } from '@tavi/schemas';
 import type { AuthenticatedRequest } from './auth.types';
@@ -38,6 +39,16 @@ export class TasksController {
     });
 
     return this.tasksService.createTask(projectId, input, request.user!);
+  }
+
+  @Patch('projects/:projectId/tasks/reorder')
+  reorderProjectTasks(
+    @Param('projectId') projectId: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(reorderProjectTasksSchema, body);
+    return this.tasksService.reorderProjectTasks(projectId, input, request.user!);
   }
 
   @Patch('tasks/bulk/archive')

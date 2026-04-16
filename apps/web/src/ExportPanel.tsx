@@ -15,6 +15,7 @@ import {
 type ExportPanelProps = {
   groupBy: GroupBy;
   onNotice: (message: string) => void;
+  onClose?: () => void;
   projects: WorkspaceProject[];
   search: string;
   sortBy: ProjectSortField[];
@@ -27,6 +28,7 @@ type ExportFormat = "csv" | "xlsx" | "json" | "loop";
 export function ExportPanel({
   groupBy,
   onNotice,
+  onClose,
   projects,
   search,
   sortBy,
@@ -90,6 +92,17 @@ export function ExportPanel({
             Loop-oriented CSV.
           </span>
         </div>
+        {onClose ? (
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="ghost-button compact-button"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <div className="export-actions">

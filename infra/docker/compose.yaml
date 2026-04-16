@@ -33,6 +33,7 @@ services:
       env HOME=/tmp COREPACK_HOME=/tmp/corepack setpriv --reuid=$$LOCAL_UID --regid=$$LOCAL_GID --clear-groups corepack pnpm --filter @tavi/api dev
       "
     environment:
+      BACKUP_DIRECTORY: "${BACKUP_DIRECTORY:-/var/tavi/backups}"
       DATABASE_URL: postgresql://tavi:tavi@postgres:5432/tavi?schema=public
       COOKIE_SECRET: tavi-local-dev-secret
       CORS_ORIGIN: http://localhost:5173
@@ -48,6 +49,7 @@ services:
       - "4000:4000"
     volumes:
       - ../../:/workspace
+      - ${BACKUP_HOST_DIRECTORY:-../../backups}:${BACKUP_DIRECTORY:-/var/tavi/backups}
       - workspace-node_modules:/workspace/node_modules
     depends_on:
       postgres:
@@ -104,6 +106,7 @@ services:
       env HOME=/tmp COREPACK_HOME=/tmp/corepack setpriv --reuid=$$LOCAL_UID --regid=$$LOCAL_GID --clear-groups corepack pnpm --filter @tavi/worker dev
       "
     environment:
+      BACKUP_DIRECTORY: "${BACKUP_DIRECTORY:-/var/tavi/backups}"
       DATABASE_URL: postgresql://tavi:tavi@postgres:5432/tavi?schema=public
       LOCAL_GID: "${GID:-1000}"
       LOCAL_UID: "${UID:-1000}"
@@ -112,6 +115,7 @@ services:
       - "4100:4100"
     volumes:
       - ../../:/workspace
+      - ${BACKUP_HOST_DIRECTORY:-../../backups}:${BACKUP_DIRECTORY:-/var/tavi/backups}
       - workspace-node_modules:/workspace/node_modules
     depends_on:
       api:

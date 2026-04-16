@@ -26,7 +26,10 @@ branch.
 export TAVI_TAG=latest
 export TAVI_COOKIE_SECRET='replace-with-a-long-random-secret'
 export TAVI_DATABASE_URL='postgresql://tavi:tavi@tavi-postgres:5432/tavi?schema=public'
+export TAVI_BACKUP_DIRECTORY='/var/tavi/backups'
 ```
+
+The API and worker must use the same backup directory so stored backups, backup-now, download, delete, and restore all operate on the same files.
 
 ## Pull the published images
 
@@ -42,6 +45,7 @@ docker pull ghcr.io/mkronvold/tavi-worker:${TAVI_TAG}
 ```bash
 docker network inspect tavi-net >/dev/null 2>&1 || docker network create tavi-net
 docker volume inspect tavi-postgres-data >/dev/null 2>&1 || docker volume create tavi-postgres-data
+mkdir -p ./backups
 ```
 
 Run these once per machine, or rerun them safely if the network and volume
@@ -112,9 +116,11 @@ docker run -d \
   --name tavi-api \
   --network tavi-net \
   -e DATABASE_URL="${TAVI_DATABASE_URL}" \
+  -e BACKUP_DIRECTORY="${TAVI_BACKUP_DIRECTORY}" \
   -e COOKIE_SECRET="${TAVI_COOKIE_SECRET}" \
   -e CORS_ORIGIN="http://localhost:5173" \
   -e PORT=4000 \
+  -v "$(pwd)/backups:${TAVI_BACKUP_DIRECTORY}" \
   -p 4000:4000 \
   ghcr.io/mkronvold/tavi-api:${TAVI_TAG}
 ```
@@ -126,7 +132,9 @@ docker run -d \
   --name tavi-worker \
   --network tavi-net \
   -e DATABASE_URL="${TAVI_DATABASE_URL}" \
+  -e BACKUP_DIRECTORY="${TAVI_BACKUP_DIRECTORY}" \
   -e PORT=4100 \
+  -v "$(pwd)/backups:${TAVI_BACKUP_DIRECTORY}" \
   -p 4100:4100 \
   ghcr.io/mkronvold/tavi-worker:${TAVI_TAG}
 ```
@@ -157,9 +165,9 @@ After the containers are up, open:
 
 If you ran the seed step above, use these local accounts:
 
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@tavi.local` | `password123` |
+| Role   | Email               | Password      |
+| ------ | ------------------- | ------------- |
+| Admin  | `admin@tavi.local`  | `password123` |
 | Editor | `editor@tavi.local` | `password123` |
 | Viewer | `viewer@tavi.local` | `password123` |
 
@@ -202,10 +210,13 @@ docker volume rm tavi-postgres-data
 
 ## Local troubleshooting
 
-| Problem | What to check |
-| --- | --- |
-| Web UI does not load | Confirm `tavi-web` is running and port `5173` is free |
-| API calls fail | Confirm `tavi-api` is running, `CORS_ORIGIN` matches `http://localhost:5173`, and port `4000` is free |
-| Imports do not progress | Confirm `tavi-worker` is running |
-| Login fails with default accounts | Re-run the seed step or use the current local accounts in the database |
-| Database never becomes healthy | Confirm `tavi-postgres` started cleanly and no other service is using local port `5432` |
+| Problem                           | What to check                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Web UI does not load              | Confirm `tavi-web` is running and port `5173` is free                                                          |
+| API calls fail                    | Confirm `tavi-api` is running, `CORS_ORIGIN` matches `http://localhost:5173`, and port `4000` is free          |
+| Imports do not progress           | Confirm `tavi-worker` is running                                                                               |
+| Login fails with default accounts | Re-run the seed step or use the current local accounts in the database                                         |
+| Database never becomes healthy    | Confirm `tavi-postgres` started cleanly and no other service is using local port `5432`                        |
+| Automatic backups do not show up  | Confirm both API and worker mount the same host `./backups` directory and use the same `BACKUP_DIRECTORY` path |
+
+See `BACKUPS.md` for the UI workflow once the containers are running.

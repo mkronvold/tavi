@@ -1,0 +1,65 @@
+# Kubernetes path: internal database
+
+Use this path when the cluster should run a single PostgreSQL instance for Tavi.
+
+## Deploys
+
+| Component                     | Manifest                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| Namespace                     | `namespace.yaml`                                                                       |
+| ConfigMap                     | `configmap.yaml`                                                                       |
+| Secret template               | `secret.example.yaml`                                                                  |
+| Backup storage                | `backup-pvc.yaml`                                                                      |
+| Backup post-process templates | `backup-post-process-pvc.example.yaml`, `backup-post-process-cronjob.example.yaml`     |
+| PostgreSQL                    | `postgres-headless-service.yaml`, `postgres-service.yaml`, `postgres-statefulset.yaml` |
+| API                           | `api-deployment.yaml`, `api-service.yaml`                                              |
+| Web                           | `web-deployment.yaml`, `web-service.yaml`                                              |
+| Worker                        | `worker-deployment.yaml`                                                               |
+| Ingress                       | `ingress.yaml`                                                                         |
+
+## Requirements
+
+1. A Kubernetes cluster with a default storage class or another `ReadWriteOnce` storage class available.
+2. A compatible ingress controller.
+3. The Tavi GHCR images available to the cluster.
+
+## Configure
+
+1. Edit `configmap.yaml` and `ingress.yaml` for your public hostname.
+2. Create a real secret from `secret.example.yaml`. The checked-in example points `DATABASE_URL` at `tavi-postgres`.
+3. Adjust the `postgres-statefulset.yaml` storage request if `10Gi` is not appropriate.
+4. Update `backup-pvc.yaml` if your cluster needs a different storage class or size. The API and worker share this PVC, so the storage class must support `ReadWriteMany`.
+5. If you need downstream archival or off-cluster replication, customize `backup-post-process-pvc.example.yaml` and `backup-post-process-cronjob.example.yaml`.
+
+## Install
+
+```bash
+kubectl apply -f infra/k8s/k8s-with-internal-db/namespace.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/configmap.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/backup-pvc.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/postgres-headless-service.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/postgres-service.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/postgres-statefulset.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/api-service.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/web-service.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/api-deployment.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/worker-deployment.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/web-deployment.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/ingress.yaml
+```
+
+Apply the post-process templates only after customizing them:
+
+```bash
+kubectl apply -f infra/k8s/k8s-with-internal-db/backup-post-process-pvc.example.yaml
+kubectl apply -f infra/k8s/k8s-with-internal-db/backup-post-process-cronjob.example.yaml
+```
+
+## Verify
+
+```bash
+kubectl rollout status statefulset/tavi-postgres -n tavi
+kubectl rollout status deployment/tavi-api -n tavi
+kubectl rollout status deployment/tavi-web -n tavi
+kubectl rollout status deployment/tavi-worker -n tavi
+```

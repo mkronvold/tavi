@@ -1,108 +1,76 @@
 # Kubernetes Deployment Guide
 
-This guide covers the checked-in raw manifests under `infra/k8s/` and the day-2 commands needed to operate them.
+Tavi now ships four complete raw-manifest deployment paths under `infra/k8s/`. Pick one folder, follow its `README.md`, and apply only that folder's manifests.
 
-## What the manifests deploy
+## Available paths
 
-| Component | Manifest | Notes |
-| --- | --- | --- |
-| Namespace | `infra/k8s/namespace.yaml` | Creates the `tavi` namespace |
-| Config | `infra/k8s/configmap.yaml` | App ports, public URLs, and CORS |
-| Secret example | `infra/k8s/secret.example.yaml` | Template only; do not apply it unchanged |
-| API deployment | `infra/k8s/api-deployment.yaml` | Runs Prisma migrations in an initContainer before the API starts |
-| API service | `infra/k8s/api-service.yaml` | Exposes the API on service port `80` -> container port `4000` |
-| Web deployment | `infra/k8s/web-deployment.yaml` | Serves the Vite-built web container on port `4173` |
-| Web service | `infra/k8s/web-service.yaml` | Exposes the web app on service port `80` -> container port `4173` |
-| Worker deployment | `infra/k8s/worker-deployment.yaml` | Background worker with `/health` and `/metrics` on port `4100` |
-| Ingress | `infra/k8s/ingress.yaml` | Routes `/` to web and `/api` to API |
+| Path                                              | App replicas | Database topology                           | Best for                                                                              |
+| ------------------------------------------------- | ------------ | ------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `infra/k8s/k8s-with-external-db/`                 | 1            | External PostgreSQL                         | Small production or staging clusters with an existing database service                |
+| `infra/k8s/k8s-with-internal-db/`                 | 1            | Single in-cluster PostgreSQL StatefulSet    | Self-contained cluster deployments without external database dependencies             |
+| `infra/k8s/k8s-with-replicas-and-external-db/`    | 3            | External PostgreSQL                         | Higher-availability app rollout while keeping database operations outside the cluster |
+| `infra/k8s/k8s-with-replicas-and-internal-ha-db/` | 3            | In-cluster CloudNativePG 3-instance cluster | Full in-cluster deployment with replicated app workloads and HA PostgreSQL            |
 
-## Requirements
+## Shared requirements
 
-1. A Kubernetes cluster with ingress-nginx or a compatible controller using `ingressClassName: nginx`
-2. `kubectl` access with permission to create resources in the `tavi` namespace
-3. A reachable PostgreSQL database for `DATABASE_URL`
-4. A strong `COOKIE_SECRET`
-5. Access to the container images:
+1. A Kubernetes cluster with a compatible ingress controller using `ingressClassName: nginx`.
+2. `kubectl` access with permission to create resources in the `tavi` namespace.
+3. Access to:
    - `ghcr.io/mkronvold/tavi-api`
    - `ghcr.io/mkronvold/tavi-web`
    - `ghcr.io/mkronvold/tavi-worker`
+4. A strong `COOKIE_SECRET`.
 
-If your registry access is private, configure an image pull secret before rollout.
+Additional variant-specific requirements:
 
-## Configure the deployment
+1. External DB variants need a reachable PostgreSQL server for `DATABASE_URL`.
+2. Internal DB variants need cluster storage for database volumes.
+3. The `k8s-with-replicas-and-internal-ha-db` path requires the CloudNativePG operator and CRDs installed before rollout.
 
-### 1. Update public URLs
+## Recommended selection guide
 
-Edit `infra/k8s/configmap.yaml` and set:
+1. Choose `k8s-with-external-db` when you already have a managed PostgreSQL service and only need Tavi app workloads in-cluster.
+2. Choose `k8s-with-internal-db` when you want the simplest self-contained cluster install and single-instance PostgreSQL is acceptable.
+3. Choose `k8s-with-replicas-and-external-db` when you want more resilient app replicas but still trust an external database service.
+4. Choose `k8s-with-replicas-and-internal-ha-db` when you want both replicated app workloads and an operator-managed HA PostgreSQL cluster in Kubernetes.
 
-1. `CORS_ORIGIN`
-2. `TAVI_HOME_URL`
-3. `VITE_API_BASE_URL`
+## Common deployment flow
 
-Then update `infra/k8s/ingress.yaml` so the host matches the same public DNS name.
+Each variant README follows the same pattern:
 
-### 2. Create the application secret
+1. Edit `configmap.yaml` and `ingress.yaml` in the chosen folder for your hostname and public URLs.
+2. Create real secrets from that folder's `secret.example.yaml`.
+3. Review that folder's `backup-pvc.yaml`. The API and worker share the backup volume, so the storage class must support `ReadWriteMany`.
+4. Apply the manifests from that folder only.
+5. Verify the rollout for the app deployments and, if present, the database workload.
 
-Do not apply `infra/k8s/secret.example.yaml` unchanged. Create a real secret instead.
+## Backups and restore
 
-```bash
-kubectl apply -f infra/k8s/namespace.yaml
+Each deployment path now mounts a shared backup directory into both the API and worker at `/var/tavi/backups`.
 
-kubectl -n tavi create secret generic tavi-secrets \
-  --from-literal=DATABASE_URL='postgresql://username:password@postgres-host:5432/tavi?schema=public' \
-  --from-literal=COOKIE_SECRET='replace-with-a-long-random-secret'
-```
+1. Automatic backups are scheduled from the Tavi UI by an admin. The worker writes complete JSON snapshots into the shared backup PVC.
+2. The API reads the same shared directory so admins can preview and restore stored backups from the UI.
+3. Replica variants require the same backup PVC to be mounted into multiple pods at once, which is why the template uses `ReadWriteMany`.
+4. Full restore replaces the full Tavi dataset. Selective restore supports projects/tasks or users only, with previewed conflict choices before apply.
+5. Admins can also create an immediate backup, upload a backup into storage, download stored backups, and delete stored backups from the UI once the shared backup volume is mounted.
 
-If the secret already exists, replace it safely:
+Each folder also includes:
 
-```bash
-kubectl -n tavi create secret generic tavi-secrets \
-  --from-literal=DATABASE_URL='postgresql://username:password@postgres-host:5432/tavi?schema=public' \
-  --from-literal=COOKIE_SECRET='replace-with-a-long-random-secret' \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
+- `backup-post-process-pvc.example.yaml`
+- `backup-post-process-cronjob.example.yaml`
 
-### 3. Optional: pin image tags
+These are operator templates, not manifests you should apply unchanged. Customize at least:
 
-The checked-in manifests use `latest`. For safer rollouts, replace those tags with a release tag before applying.
+1. The cron schedule.
+2. The image and command used to copy, compress, encrypt, or ship backups.
+3. The retention logic.
+4. The target PVC size and storage class.
 
-## Install
-
-Apply the manifests except the example secret file:
-
-```bash
-kubectl apply -f infra/k8s/namespace.yaml
-kubectl apply -f infra/k8s/configmap.yaml
-kubectl apply -f infra/k8s/api-service.yaml
-kubectl apply -f infra/k8s/web-service.yaml
-kubectl apply -f infra/k8s/api-deployment.yaml
-kubectl apply -f infra/k8s/worker-deployment.yaml
-kubectl apply -f infra/k8s/web-deployment.yaml
-kubectl apply -f infra/k8s/ingress.yaml
-```
-
-## Verify the rollout
-
-```bash
-kubectl get pods -n tavi
-kubectl get svc -n tavi
-kubectl get ingress -n tavi
-
-kubectl rollout status deployment/tavi-api -n tavi
-kubectl rollout status deployment/tavi-web -n tavi
-kubectl rollout status deployment/tavi-worker -n tavi
-```
-
-What to expect:
-
-1. The API deployment runs the `migrate` initContainer first.
-2. The API pod becomes ready only after `/api/health` succeeds.
-3. The worker pod becomes ready only after `/health` succeeds.
-4. The ingress host serves the web app on `/` and proxies `/api` to the API service.
+The example cronjob copies the current backup directory into a second PVC and prunes older archive folders. Replace that command with whatever post-processing your environment requires.
 
 ## Day-2 operations
 
-### Check health and logs
+Most app operations stay the same across all four paths:
 
 ```bash
 kubectl get deploy,pods -n tavi
@@ -110,59 +78,33 @@ kubectl logs -n tavi deployment/tavi-api -c api --tail=200
 kubectl logs -n tavi deployment/tavi-api -c migrate --tail=200
 kubectl logs -n tavi deployment/tavi-web -c web --tail=200
 kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200
-```
 
-### Roll out a new image
-
-```bash
-kubectl -n tavi set image deployment/tavi-api api=ghcr.io/mkronvold/tavi-api:0.2.0
-kubectl -n tavi set image deployment/tavi-web web=ghcr.io/mkronvold/tavi-web:0.2.0
-kubectl -n tavi set image deployment/tavi-worker worker=ghcr.io/mkronvold/tavi-worker:0.2.0
-
-kubectl rollout status deployment/tavi-api -n tavi
-kubectl rollout status deployment/tavi-web -n tavi
-kubectl rollout status deployment/tavi-worker -n tavi
-```
-
-### Restart without changing images
-
-```bash
 kubectl rollout restart deployment/tavi-api -n tavi
 kubectl rollout restart deployment/tavi-web -n tavi
 kubectl rollout restart deployment/tavi-worker -n tavi
 ```
 
-### Roll back
+Database-specific checks depend on the selected path:
 
 ```bash
-kubectl rollout undo deployment/tavi-api -n tavi
-kubectl rollout undo deployment/tavi-web -n tavi
-kubectl rollout undo deployment/tavi-worker -n tavi
+# Single in-cluster PostgreSQL variant
+kubectl get statefulset,pvc -n tavi
+kubectl logs -n tavi statefulset/tavi-postgres --tail=200
+
+# CloudNativePG HA variant
+kubectl get cluster.postgresql.cnpg.io -n tavi
+kubectl get pods -n tavi
+kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi
 ```
-
-### Scale
-
-```bash
-kubectl scale deployment/tavi-api --replicas=2 -n tavi
-kubectl scale deployment/tavi-web --replicas=2 -n tavi
-kubectl scale deployment/tavi-worker --replicas=2 -n tavi
-```
-
-Scale the worker only when your queue throughput and database capacity can support it.
-
-## Maintenance notes
-
-1. API migrations run from the API deployment initContainer, so database compatibility should be checked before every image rollout.
-2. Web config changes such as `TAVI_HOME_URL` or `VITE_API_BASE_URL` need a web rollout after the ConfigMap changes.
-3. Secret changes for `DATABASE_URL` or `COOKIE_SECRET` require at least API and worker restarts.
-4. The worker has no ClusterIP service because it is an internal background process.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | What to inspect |
-| --- | --- | --- |
-| API pod stuck in `Init` | Migration failure or bad database secret | `kubectl logs -n tavi deployment/tavi-api -c migrate --tail=200` |
-| Web loads but API requests fail | `VITE_API_BASE_URL`, ingress, or `CORS_ORIGIN` mismatch | `infra/k8s/configmap.yaml`, `infra/k8s/ingress.yaml`, browser network tab |
-| Imports never finish | Worker unavailable or cannot reach the database | `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200` |
-| Ingress host does not respond | DNS or ingress-controller issue | `kubectl get ingress -n tavi`, ingress-controller logs |
-| Metrics are missing | Prometheus scrape annotations not being collected | pod annotations on API and worker deployments |
+| Symptom                                       | Likely cause                                                                               | What to inspect                                                                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| API pod stuck in `Init`                       | Migration failure or bad database secret                                                   | `kubectl logs -n tavi deployment/tavi-api -c migrate --tail=200`                                                                       |
+| Web loads but API requests fail               | `VITE_API_BASE_URL`, ingress, or `CORS_ORIGIN` mismatch                                    | The chosen folder's `configmap.yaml`, `ingress.yaml`, and browser network tab                                                          |
+| Imports or notifications never finish         | Worker unavailable or cannot reach the database                                            | `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                                                                     |
+| Backups never appear in the UI                | Backup PVC not mounted, not `ReadWriteMany`, or worker cannot write to `/var/tavi/backups` | `kubectl describe pvc -n tavi tavi-backups`, `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                        |
+| Single-instance Postgres never becomes ready  | Bad DB secret values, PVC binding issue, or storage-class problem                          | `kubectl get pvc -n tavi`, `kubectl describe pod -n tavi tavi-postgres-0`, `kubectl logs -n tavi statefulset/tavi-postgres --tail=200` |
+| CloudNativePG cluster does not become healthy | Missing operator/CRDs, bad bootstrap secrets, or storage issue                             | `kubectl get cluster.postgresql.cnpg.io -n tavi`, `kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi`, operator logs   |
+| Ingress host does not respond                 | DNS or ingress-controller issue                                                            | `kubectl get ingress -n tavi`, ingress-controller logs                                                                                 |

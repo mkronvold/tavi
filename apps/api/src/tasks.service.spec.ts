@@ -13,6 +13,7 @@ type TaskFixture = {
   notes: string | null;
   priority: 'low' | 'medium' | 'high';
   projectId: string;
+  sortOrder?: number;
   status: 'todo' | 'in_progress' | 'blocked' | 'done' | 'canceled';
   title: string;
 };
@@ -481,6 +482,129 @@ describe('TasksService', () => {
       copiedTaskIds: ['copy-2', 'copy-1'],
       targetProjectId: 'project-2',
     });
+  });
+
+  it('reorders project tasks and audits changed sort order entries', async () => {
+    const { mocks, service } = createService();
+    const existingTasks: Array<TaskFixture & { sortOrder: number }> = [
+      {
+        id: 'task-1',
+        projectId: 'project-1',
+        title: 'Kickoff',
+        notes: null,
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'medium',
+        status: 'todo',
+        sortOrder: 0,
+        completedAt: null,
+      },
+      {
+        id: 'task-2',
+        projectId: 'project-1',
+        title: 'Review plan',
+        notes: null,
+        assigneeUserId: 'user-2',
+        dueDate: null,
+        priority: 'medium',
+        status: 'in_progress',
+        sortOrder: 1,
+        completedAt: null,
+      },
+      {
+        id: 'task-3',
+        projectId: 'project-1',
+        title: 'Share update',
+        notes: null,
+        assigneeUserId: 'user-1',
+        dueDate: null,
+        priority: 'low',
+        status: 'todo',
+        sortOrder: 2,
+        completedAt: null,
+      },
+    ];
+
+    mocks.findUniqueProjectMock.mockResolvedValue({
+      id: 'project-1',
+      archivedAt: null,
+      title: 'Roadmap refresh',
+    });
+    mocks.findManyMock.mockResolvedValue(existingTasks);
+    mocks.updateTaskMock
+      .mockResolvedValueOnce({
+        ...existingTasks[1],
+        sortOrder: 0,
+      })
+      .mockResolvedValueOnce({
+        ...existingTasks[0],
+        sortOrder: 1,
+      });
+
+    const result = await service.reorderProjectTasks(
+      'project-1',
+      {
+        taskIds: ['task-2', 'task-1', 'task-3'],
+      },
+      actor,
+    );
+
+    expect(mocks.requireEditAccessMock).toHaveBeenCalledWith(actor);
+    expect(mocks.findUniqueProjectMock).toHaveBeenCalledWith({
+      where: { id: 'project-1' },
+      select: { archivedAt: true, id: true, title: true },
+    });
+    expect(mocks.findManyMock).toHaveBeenCalledWith({
+      where: {
+        archivedAt: null,
+        projectId: 'project-1',
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        assigneeUserId: true,
+        completedAt: true,
+        dueDate: true,
+        id: true,
+        notes: true,
+        priority: true,
+        projectId: true,
+        sortOrder: true,
+        status: true,
+        title: true,
+      },
+    });
+    expect(mocks.updateTaskMock).toHaveBeenNthCalledWith(1, {
+      where: { id: 'task-2' },
+      data: { sortOrder: 0 },
+    });
+    expect(mocks.updateTaskMock).toHaveBeenNthCalledWith(2, {
+      where: { id: 'task-1' },
+      data: { sortOrder: 1 },
+    });
+    expect(mocks.recordAuditMock).toHaveBeenCalledTimes(2);
+
+    const firstAuditCall = mocks.recordAuditCalls[0];
+    const firstAuditMetadata = firstAuditCall[4] ?? {};
+    const firstAuditChangedFields = Array.isArray(
+      firstAuditMetadata['changedFields'],
+    )
+      ? firstAuditMetadata['changedFields'].filter(
+          (value): value is string => typeof value === 'string',
+        )
+      : [];
+
+    expect(firstAuditCall[3]).toBe('bulk_update');
+    expect(firstAuditChangedFields).toEqual(['sortOrder']);
+    expect(firstAuditMetadata['selectionSize']).toBe(3);
+    expect(firstAuditMetadata['projectTitle']).toBe('Roadmap refresh');
+    expect(firstAuditMetadata['changes']).toEqual([
+      {
+        field: 'sortOrder',
+        from: 1,
+        to: 0,
+      },
+    ]);
+    expect(result).toEqual({ success: true });
   });
 
   it('updates only the selected tasks that actually change', async () => {

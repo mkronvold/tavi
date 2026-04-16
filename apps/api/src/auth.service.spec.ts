@@ -13,19 +13,27 @@ describe('AuthService', () => {
   const createService = () => {
     const findManyUsersMock = jest.fn();
     const findUniqueUserMock = jest.fn();
+    const updateUserMock = jest.fn();
+    const findUniqueEmailSettingsMock = jest.fn();
     const prisma = {
       auditEvent: {
         create: jest.fn(() => Promise.resolve()),
       },
+      emailSettings: {
+        findUnique: findUniqueEmailSettingsMock,
+      },
       user: {
         findMany: findManyUsersMock,
         findUnique: findUniqueUserMock,
+        update: updateUserMock,
       },
     } as unknown as PrismaService;
 
     return {
+      findUniqueEmailSettingsMock,
       findManyUsersMock,
       findUniqueUserMock,
+      updateUserMock,
       service: new AuthService(prisma),
     };
   };
@@ -187,5 +195,63 @@ describe('AuthService', () => {
     await expect(
       service.reauthenticateCurrentUser('user-1', 'wrong-password-123'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('returns the current digest preference with the configured digest time', async () => {
+    const { findUniqueEmailSettingsMock, findUniqueUserMock, service } =
+      createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      dailyDigestEnabled: true,
+    });
+    findUniqueEmailSettingsMock.mockResolvedValue({
+      dailyDigestTime: '14:30',
+    });
+
+    await expect(service.getNotificationPreferences('user-1')).resolves.toEqual({
+      dailyDigestEnabled: true,
+      dailyDigestTime: '14:30',
+    });
+  });
+
+  it('updates the current user digest preference and records an audit event', async () => {
+    const {
+      findUniqueEmailSettingsMock,
+      findUniqueUserMock,
+      updateUserMock,
+      service,
+    } = createService();
+    const actor = {
+      id: 'user-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor' as const,
+    };
+
+    updateUserMock.mockResolvedValue({
+      id: actor.id,
+    });
+    findUniqueUserMock.mockResolvedValue({
+      dailyDigestEnabled: true,
+    });
+    findUniqueEmailSettingsMock.mockResolvedValue({
+      dailyDigestTime: '09:00',
+    });
+
+    await expect(
+      service.updateNotificationPreferences(actor, {
+        dailyDigestEnabled: true,
+      }),
+    ).resolves.toEqual({
+      dailyDigestEnabled: true,
+      dailyDigestTime: '09:00',
+    });
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: actor.id },
+      data: {
+        dailyDigestEnabled: true,
+      },
+    });
   });
 });

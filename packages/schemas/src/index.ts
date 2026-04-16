@@ -51,6 +51,9 @@ const nullableUserIdSchema = z.preprocess(
   z.string().min(1).nullable().optional(),
 );
 const auditDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const timeOfDaySchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Expected HH:MM");
 
 export const roleSchema = z.enum(["admin", "editor", "viewer"]);
 export type Role = z.infer<typeof roleSchema>;
@@ -203,9 +206,7 @@ export const deleteLocalAccountSchema = z.object({
   nextProjectOwnerUserId: nullableUserIdSchema,
   nextTaskAssigneeUserId: nullableUserIdSchema,
 });
-export type DeleteLocalAccountInput = z.infer<
-  typeof deleteLocalAccountSchema
->;
+export type DeleteLocalAccountInput = z.infer<typeof deleteLocalAccountSchema>;
 
 export const localAccountImportSchema = z.object({
   email: emailAddressSchema,
@@ -294,9 +295,7 @@ export const deleteProjectResponseSchema = z.object({
   id: z.string().min(1),
   archivedTaskCount: z.number().int().nonnegative(),
 });
-export type DeleteProjectResponse = z.infer<
-  typeof deleteProjectResponseSchema
->;
+export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 
 export const deleteTaskResponseSchema = z.object({
   id: z.string().min(1),
@@ -373,6 +372,21 @@ export const updateTaskSchema = createTaskSchema.partial().extend({
 });
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 
+export const reorderProjectTasksSchema = z
+  .object({
+    taskIds: z.array(z.string().min(1)).min(1).max(500),
+  })
+  .superRefine((value, context) => {
+    if (new Set(value.taskIds).size !== value.taskIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Duplicate task ids are not allowed",
+        path: ["taskIds"],
+      });
+    }
+  });
+export type ReorderProjectTasksInput = z.infer<typeof reorderProjectTasksSchema>;
+
 export const convertTaskToProjectSchema = updateTaskSchema.omit({
   projectId: true,
 });
@@ -422,7 +436,7 @@ export type BulkCopyTasksInput = z.infer<typeof bulkCopyTasksSchema>;
 export const bulkUpdateTasksSchema = z
   .object({
     taskIds: z.array(z.string().min(1)).min(1).max(200),
-    assigneeUserId: z.string().min(1).optional(),
+    assigneeUserId: z.string().min(1).nullable().optional(),
     dueDate: z.string().optional().nullable(),
     notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional().nullable(),
     priority: prioritySchema.optional(),
@@ -957,8 +971,14 @@ export function prepareLoopImportRow({
     mapping.taskExternalId,
   );
   const projectNotes = readMappedValue(normalizedRawRow, mapping.projectNotes);
-  const taskAssigneeValue = readMappedValue(normalizedRawRow, mapping.taskAssignee);
-  const taskDueDateValue = readMappedValue(normalizedRawRow, mapping.taskDueDate);
+  const taskAssigneeValue = readMappedValue(
+    normalizedRawRow,
+    mapping.taskAssignee,
+  );
+  const taskDueDateValue = readMappedValue(
+    normalizedRawRow,
+    mapping.taskDueDate,
+  );
   const taskNotes = readMappedValue(normalizedRawRow, mapping.taskNotes);
   const taskPriorityValue = readMappedValue(
     normalizedRawRow,
@@ -994,10 +1014,7 @@ export function prepareLoopImportRow({
     "Task priority",
     errors,
   );
-  const taskStatus = normalizeImportTaskStatus(
-    taskStatusValue,
-    errors,
-  );
+  const taskStatus = normalizeImportTaskStatus(taskStatusValue, errors);
   const projectOwnerCandidates = parseImportUserCandidates(
     readMappedValue(normalizedRawRow, mapping.projectOwner),
   );
@@ -1622,8 +1639,10 @@ function normalizePreparedLoopImportKey(value: string | null) {
 // ---------------------------------------------------------------------------
 
 export const notificationKindSchema = z.enum([
+  "daily_non_admin_digest",
   "task_assigned",
   "task_unassigned",
+  "task_updated",
   "task_due_date_added",
   "task_due_date_changed",
   "task_blocked",
@@ -1633,6 +1652,7 @@ export const notificationKindSchema = z.enum([
   "task_reopened",
   "task_completed",
   "task_moved",
+  "project_updated",
   "project_owner_assigned",
   "project_owner_changed",
   "project_owner_removed",
@@ -1701,7 +1721,12 @@ export function buildImmediateTaskNotifications(input: {
 
     notifications.push({
       kind,
-      payload: buildTaskNotificationPayload(actorName, previousTask, nextTask, payload),
+      payload: buildTaskNotificationPayload(
+        actorName,
+        previousTask,
+        nextTask,
+        payload,
+      ),
       recipientUserId,
     });
   };
@@ -1734,9 +1759,7 @@ export function buildImmediateTaskNotifications(input: {
     });
 
     queueForAssignee(
-      previousTask.assigneeUserId === null
-        ? "task_assigned"
-        : "task_assigned",
+      previousTask.assigneeUserId === null ? "task_assigned" : "task_assigned",
       nextTask.assigneeUserId,
       {
         previousAssigneeUserId: previousTask.assigneeUserId,
@@ -1850,11 +1873,17 @@ export function buildImmediateProjectNotifications(input: {
     );
   }
 
-  if (previousProject.status !== "blocked" && nextProject.status === "blocked") {
+  if (
+    previousProject.status !== "blocked" &&
+    nextProject.status === "blocked"
+  ) {
     queueForOwner("project_blocked", nextProject.ownerUserId);
   }
 
-  if (previousProject.status !== "on_hold" && nextProject.status === "on_hold") {
+  if (
+    previousProject.status !== "on_hold" &&
+    nextProject.status === "on_hold"
+  ) {
     queueForOwner("project_on_hold", nextProject.ownerUserId);
   } else if (
     previousProject.status === "on_hold" &&
@@ -1894,16 +1923,35 @@ function buildTaskNotificationPayload(
 // Email settings and SMTP status
 // ---------------------------------------------------------------------------
 
+export const dailyDigestTimeSchema = timeOfDaySchema;
+
 export const emailSettingsSchema = z.object({
   enabled: z.boolean(),
+  dailyDigestTime: dailyDigestTimeSchema,
 });
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
 export const updateEmailSettingsSchema = z.object({
   enabled: z.boolean(),
+  dailyDigestTime: dailyDigestTimeSchema,
 });
 export type UpdateEmailSettingsInput = z.infer<
   typeof updateEmailSettingsSchema
+>;
+
+export const notificationPreferencesSchema = z.object({
+  dailyDigestEnabled: z.boolean(),
+  dailyDigestTime: dailyDigestTimeSchema,
+});
+export type NotificationPreferences = z.infer<
+  typeof notificationPreferencesSchema
+>;
+
+export const updateNotificationPreferencesSchema = z.object({
+  dailyDigestEnabled: z.boolean(),
+});
+export type UpdateNotificationPreferencesInput = z.infer<
+  typeof updateNotificationPreferencesSchema
 >;
 
 export const smtpStatusSchema = z.object({
@@ -1913,5 +1961,166 @@ export const smtpStatusSchema = z.object({
   port: z.number().int().nullable(),
   secure: z.boolean(),
   fromAddress: z.string(),
+  dailyDigestTime: dailyDigestTimeSchema,
 });
 export type SmtpStatus = z.infer<typeof smtpStatusSchema>;
+
+export const backupFileSummarySchema = z.object({
+  createdAt: z.string().min(1),
+  fileName: z.string().min(1),
+  modifiedAt: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+});
+export type BackupFileSummary = z.infer<typeof backupFileSummarySchema>;
+
+export const backupStatusSchema = z.object({
+  backupDirectory: z.string().min(1),
+  backupDirectoryAccessible: z.boolean(),
+  backups: z.array(backupFileSummarySchema),
+  enabled: z.boolean(),
+  lastError: z.string().nullable(),
+  lastFailureAt: z.string().nullable(),
+  lastScheduledRunAt: z.string().nullable(),
+  lastSuccessAt: z.string().nullable(),
+  scheduleTime: timeOfDaySchema,
+});
+export type BackupStatus = z.infer<typeof backupStatusSchema>;
+
+export const updateBackupSettingsSchema = z.object({
+  enabled: z.boolean(),
+  scheduleTime: timeOfDaySchema,
+});
+export type UpdateBackupSettingsInput = z.infer<
+  typeof updateBackupSettingsSchema
+>;
+
+export const uploadBackupFileSchema = z.object({
+  content: z.string().min(1),
+  fileName: z.string().trim().min(1),
+});
+export type UploadBackupFileInput = z.infer<typeof uploadBackupFileSchema>;
+
+export const backupRestoreSourceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    fileName: z.string().trim().min(1),
+    kind: z.literal("stored"),
+  }),
+  z.object({
+    content: z.string().min(1),
+    fileName: z.string().trim().min(1),
+    kind: z.literal("upload"),
+  }),
+]);
+export type BackupRestoreSource = z.infer<typeof backupRestoreSourceSchema>;
+
+export const backupRestoreConflictActionSchema = z.enum(["skip", "replace"]);
+export type BackupRestoreConflictAction = z.infer<
+  typeof backupRestoreConflictActionSchema
+>;
+
+export const backupRestoreScopeSchema = z.enum([
+  "full",
+  "projects_tasks",
+  "users",
+]);
+export type BackupRestoreScope = z.infer<typeof backupRestoreScopeSchema>;
+
+export const backupRestoreConflictSchema = z.object({
+  existingEmail: z.string().nullable().optional(),
+  existingId: z.string().nullable().optional(),
+  existingTitle: z.string().nullable().optional(),
+  kind: z.enum(["email", "id", "none", "source_identity"]),
+  matchedBy: z.enum(["email", "id", "source_identity"]).nullable().optional(),
+});
+export type BackupRestoreConflict = z.infer<typeof backupRestoreConflictSchema>;
+
+export const backupRestoreProjectPreviewSchema = z.object({
+  backupId: z.string().min(1),
+  conflict: backupRestoreConflictSchema,
+  dueDate: z.string().nullable(),
+  missingAssigneeCount: z.number().int().nonnegative(),
+  missingOwner: z.boolean(),
+  ownerName: z.string().nullable(),
+  taskCount: z.number().int().nonnegative(),
+  title: z.string().min(1),
+});
+export type BackupRestoreProjectPreview = z.infer<
+  typeof backupRestoreProjectPreviewSchema
+>;
+
+export const backupRestoreUserPreviewSchema = z.object({
+  backupId: z.string().min(1),
+  conflict: backupRestoreConflictSchema,
+  email: emailAddressSchema,
+  name: localAccountNameSchema,
+  role: roleSchema,
+});
+export type BackupRestoreUserPreview = z.infer<
+  typeof backupRestoreUserPreviewSchema
+>;
+
+export const backupSnapshotCountsSchema = z.object({
+  auditEvents: z.number().int().nonnegative(),
+  backupSettings: z.number().int().nonnegative(),
+  emailSettings: z.number().int().nonnegative(),
+  importJobs: z.number().int().nonnegative(),
+  importRows: z.number().int().nonnegative(),
+  notificationDeliveryAttempts: z.number().int().nonnegative(),
+  notificationEvents: z.number().int().nonnegative(),
+  projects: z.number().int().nonnegative(),
+  roleAssignments: z.number().int().nonnegative(),
+  savedViews: z.number().int().nonnegative(),
+  tasks: z.number().int().nonnegative(),
+  users: z.number().int().nonnegative(),
+});
+export type BackupSnapshotCounts = z.infer<typeof backupSnapshotCountsSchema>;
+
+export const backupRestorePreviewSchema = z.object({
+  counts: backupSnapshotCountsSchema,
+  createdAt: z.string().min(1),
+  fileName: z.string().min(1),
+  format: z.string().min(1),
+  projects: z.array(backupRestoreProjectPreviewSchema),
+  sourceLabel: z.string().min(1),
+  users: z.array(backupRestoreUserPreviewSchema),
+});
+export type BackupRestorePreview = z.infer<typeof backupRestorePreviewSchema>;
+
+export const previewBackupRestoreSchema = z.object({
+  source: backupRestoreSourceSchema,
+});
+export type PreviewBackupRestoreInput = z.infer<
+  typeof previewBackupRestoreSchema
+>;
+
+export const applyBackupRestoreSchema = z.object({
+  projectConflictResolutions: z
+    .record(z.string(), backupRestoreConflictActionSchema)
+    .optional(),
+  projectIds: z.array(z.string().min(1)).optional(),
+  scope: backupRestoreScopeSchema,
+  source: backupRestoreSourceSchema,
+  userConflictResolutions: z
+    .record(z.string(), backupRestoreConflictActionSchema)
+    .optional(),
+  userIds: z.array(z.string().min(1)).optional(),
+});
+export type ApplyBackupRestoreInput = z.infer<typeof applyBackupRestoreSchema>;
+
+export const applyBackupRestoreResultSchema = z.object({
+  reauthenticateRequired: z.boolean(),
+  scope: backupRestoreScopeSchema,
+  summary: z.object({
+    fullRestoreApplied: z.boolean(),
+    projectsCreated: z.number().int().nonnegative(),
+    projectsReplaced: z.number().int().nonnegative(),
+    projectsSkipped: z.number().int().nonnegative(),
+    tasksCreated: z.number().int().nonnegative(),
+    usersCreated: z.number().int().nonnegative(),
+    usersReplaced: z.number().int().nonnegative(),
+    usersSkipped: z.number().int().nonnegative(),
+  }),
+});
+export type ApplyBackupRestoreResult = z.infer<
+  typeof applyBackupRestoreResultSchema
+>;

@@ -1,9 +1,13 @@
 import type { AuditEntityType } from "@tavi/schemas";
 import type {
+  ApplyBackupRestorePayload,
+  ApplyBackupRestoreResult,
   AuditChangesQueryPayload,
   AuditHistoryEvent,
   AuditLogRetentionPolicy,
   AuditLoginsQueryPayload,
+  BackupRestorePreview,
+  BackupStatus,
   BulkCopyTasksPayload,
   BulkDeleteTasksPayload,
   BulkUpdateTasksPayload,
@@ -26,6 +30,7 @@ import type {
   LocalAccountsResponse,
   LoopImportJob,
   LoopImportJobSummary,
+  NotificationPreferences,
   PurgeAuditLogsPayload,
   PurgeAuditLogsResponse,
   ResetDefaultLocalAccountsResponse,
@@ -34,6 +39,7 @@ import type {
   SetOwnPasswordPayload,
   SmtpStatus,
   UpdateEmailSettingsPayload,
+  UpdateNotificationPreferencesPayload,
   UpdateProjectPayload,
   UpdateLoopImportMappingPayload,
   UpdateLoopImportRowDecisionsPayload,
@@ -46,7 +52,10 @@ import type {
   SavedView,
   SavedViewPayload,
   SuccessResponse,
+  UpdateBackupSettingsPayload,
+  UploadBackupFileInput,
   WorkspaceResponse,
+  PreviewBackupRestorePayload,
 } from "./types";
 import { getApiBaseUrl } from "./runtime-config";
 
@@ -82,10 +91,7 @@ type ApiErrorPayload = {
   message?: string | string[];
 };
 
-function toApiErrorMessage(
-  payload: ApiErrorPayload,
-  fallback: string,
-): string {
+function toApiErrorMessage(payload: ApiErrorPayload, fallback: string): string {
   if (typeof payload.message === "string") {
     return payload.message;
   }
@@ -152,9 +158,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   return (await response.json()) as T;
 }
 
-function toQueryString(
-  params: Record<string, number | string | undefined>,
-) {
+function toQueryString(params: Record<string, number | string | undefined>) {
   const searchParams = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -268,10 +272,13 @@ export const convertProjectToTask = (
   projectId: string,
   payload: UpdateProjectPayload,
 ) =>
-  request<ConvertProjectToTaskResponse>(`/projects/${projectId}/convert-to-task`, {
-    method: "POST",
-    body: payload,
-  });
+  request<ConvertProjectToTaskResponse>(
+    `/projects/${projectId}/convert-to-task`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 
 export const deleteProject = (projectId: string) =>
   request<DeleteProjectResponse>(`/projects/${projectId}`, {
@@ -281,6 +288,15 @@ export const deleteProject = (projectId: string) =>
 export const createTask = (projectId: string, payload: CreateTaskPayload) =>
   request(`/projects/${projectId}/tasks`, {
     method: "POST",
+    body: payload,
+  });
+
+export const reorderProjectTasks = (
+  projectId: string,
+  payload: { taskIds: string[] },
+) =>
+  request<SuccessResponse>(`/projects/${projectId}/tasks/reorder`, {
+    method: "PATCH",
     body: payload,
   });
 
@@ -419,10 +435,13 @@ export const updateLoopImportRowDecisions = (
   rowNumber: number,
   payload: UpdateLoopImportRowDecisionsPayload,
 ) =>
-  request<LoopImportJob>(`/imports/${importId}/rows/${rowNumber.toString()}/decisions`, {
-    method: "PATCH",
-    body: payload,
-  });
+  request<LoopImportJob>(
+    `/imports/${importId}/rows/${rowNumber.toString()}/decisions`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 
 export const commitLoopImport = (importId: string) =>
   request<LoopImportJob>(`/imports/${importId}/commit`, {
@@ -437,5 +456,81 @@ export const updateEmailSettings = (payload: UpdateEmailSettingsPayload) =>
     body: payload,
   });
 
-export const getSmtpStatus = () =>
-  request<SmtpStatus>("/auth/email/status");
+export const getSmtpStatus = () => request<SmtpStatus>("/auth/email/status");
+
+export const getBackupStatus = () => request<BackupStatus>("/backups");
+
+export const updateBackupSettings = (payload: UpdateBackupSettingsPayload) =>
+  request<BackupStatus>("/backups", {
+    method: "PUT",
+    body: payload,
+  });
+
+export const createBackupNow = () =>
+  request<BackupStatus>("/backups/create", {
+    method: "POST",
+  });
+
+export const uploadBackupFile = (payload: UploadBackupFileInput) =>
+  request<BackupStatus>("/backups/upload", {
+    method: "POST",
+    body: payload,
+  });
+
+export const deleteBackupFile = (fileName: string) =>
+  request<BackupStatus>(`/backups/${encodeURIComponent(fileName)}`, {
+    method: "DELETE",
+  });
+
+export async function downloadBackupFile(fileName: string) {
+  const response = await fetch(
+    `${getApiBaseUrl()}/backups/${encodeURIComponent(fileName)}/download`,
+    {
+      credentials: "include",
+    },
+  );
+
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+
+    try {
+      const payload = (await response.json()) as ApiErrorPayload;
+      message = toApiErrorMessage(payload, message);
+    } catch {
+      // Fall back to the HTTP status when the response body is not JSON.
+    }
+
+    throw new ApiError(response.status, message);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.click();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
+export const previewBackupRestore = (payload: PreviewBackupRestorePayload) =>
+  request<BackupRestorePreview>("/backups/restore/preview", {
+    method: "POST",
+    body: payload,
+  });
+
+export const applyBackupRestore = (payload: ApplyBackupRestorePayload) =>
+  request<ApplyBackupRestoreResult>("/backups/restore/apply", {
+    method: "POST",
+    body: payload,
+  });
+
+export const getNotificationPreferences = () =>
+  request<NotificationPreferences>("/auth/notification/preferences");
+
+export const updateNotificationPreferences = (
+  payload: UpdateNotificationPreferencesPayload,
+) =>
+  request<NotificationPreferences>("/auth/notification/preferences", {
+    method: "PUT",
+    body: payload,
+  });

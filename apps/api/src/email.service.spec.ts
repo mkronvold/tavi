@@ -5,16 +5,20 @@ import type { PrismaService } from './prisma.service';
 describe('EmailService', () => {
   const createService = (enabled: boolean | null = true) => {
     let currentEnabled = enabled;
+    let currentDailyDigestTime = '09:00';
     const upsertMock = jest.fn(
       ({
         create,
         update,
       }: {
-        create: { enabled: boolean };
-        update: { enabled: boolean };
+        create: { dailyDigestTime: string; enabled: boolean };
+        update: { dailyDigestTime: string; enabled: boolean };
       }) => {
         currentEnabled = update.enabled ?? create.enabled;
+        currentDailyDigestTime =
+          update.dailyDigestTime ?? create.dailyDigestTime;
         return Promise.resolve({
+          dailyDigestTime: currentDailyDigestTime,
           enabled: currentEnabled,
         });
       },
@@ -26,6 +30,7 @@ describe('EmailService', () => {
             currentEnabled === null
               ? null
               : {
+                  dailyDigestTime: currentDailyDigestTime,
                   enabled: currentEnabled,
                 },
           ),
@@ -69,6 +74,7 @@ describe('EmailService', () => {
 
     await expect(service.getSmtpStatus()).resolves.toEqual({
       configured: true,
+      dailyDigestTime: '09:00',
       enabled: true,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
@@ -82,6 +88,7 @@ describe('EmailService', () => {
 
     await expect(service.setEmailEnabled(false)).resolves.toEqual({
       configured: true,
+      dailyDigestTime: '09:00',
       enabled: false,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
@@ -90,10 +97,40 @@ describe('EmailService', () => {
     });
     expect(upsertMock).toHaveBeenCalledWith({
       where: { id: 'global' },
-      update: { enabled: false },
+      update: { dailyDigestTime: '09:00', enabled: false },
       create: {
+        dailyDigestTime: '09:00',
         id: 'global',
         enabled: false,
+      },
+    });
+  });
+
+  it('persists the global daily digest send time', async () => {
+    const { service, upsertMock } = createService(true);
+
+    await expect(
+      service.updateEmailSettings({
+        dailyDigestTime: '14:30',
+        enabled: true,
+      }),
+    ).resolves.toEqual({
+      configured: true,
+      dailyDigestTime: '14:30',
+      enabled: true,
+      fromAddress: 'noreply@tavi.local',
+      host: '10.120.64.99',
+      port: 25,
+      secure: false,
+    });
+
+    expect(upsertMock).toHaveBeenCalledWith({
+      where: { id: 'global' },
+      update: { dailyDigestTime: '14:30', enabled: true },
+      create: {
+        dailyDigestTime: '14:30',
+        id: 'global',
+        enabled: true,
       },
     });
   });
