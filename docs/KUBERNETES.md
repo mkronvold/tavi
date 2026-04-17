@@ -44,6 +44,16 @@ Each variant README follows the same pattern:
 4. Apply the manifests from that folder only.
 5. Verify the rollout for the app deployments and, if present, the database workload.
 
+The web image now defaults to serving built assets through its static server. If you intentionally need `vite preview` for a temporary diagnostic deployment, override the web container args instead of changing the image:
+
+```yaml
+containers:
+  - name: web
+    args: ["start:preview"]
+```
+
+Keep that override out of steady-state production deployments.
+
 ## Backups and restore
 
 Each deployment path now mounts a shared backup directory into both the API and worker at `/var/tavi/backups`.

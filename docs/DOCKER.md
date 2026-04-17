@@ -151,6 +151,18 @@ docker run -d \
   ghcr.io/mkronvold/tavi-web:${TAVI_TAG}
 ```
 
+The web image now defaults to the production static server. If you explicitly want Vite preview instead, override the container command at run time:
+
+```bash
+docker run -d \
+  --name tavi-web-preview \
+  --network tavi-net \
+  -e VITE_API_BASE_URL="http://localhost:4000/api" \
+  -e TAVI_HOME_URL="http://localhost:5173" \
+  -p 5173:4173 \
+  ghcr.io/mkronvold/tavi-web:${TAVI_TAG} start:preview
+```
+
 ## Open the app
 
 After the containers are up, open:

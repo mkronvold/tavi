@@ -19,10 +19,12 @@ RUN pnpm --filter @tavi/config build \
   && pnpm --filter @tavi/schemas build \
   && pnpm --filter @tavi/web build
 
-RUN mkdir -p /app/apps/web/dist \
-  && touch /app/apps/web/dist/runtime-config.js \
-  && chown 1000:1000 /app/apps/web/dist /app/apps/web/dist/runtime-config.js
+RUN mkdir -p /app/apps/web/node_modules/.vite-temp \
+  && chown 1000:1000 /app/apps/web/node_modules/.vite-temp \
+  && rm -f /app/apps/web/dist/runtime-config.js \
+  && ln -s /tmp/tavi-runtime-config.js /app/apps/web/dist/runtime-config.js
 
 USER 1000:1000
 
-CMD ["bash", "infra/docker/web-entrypoint.sh"]
+ENTRYPOINT ["bash", "infra/docker/web-entrypoint.sh"]
+CMD ["start"]
