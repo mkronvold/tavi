@@ -37,9 +37,11 @@ spec:
           resources:
             requests:
               cpu: 100m
+              ephemeral-storage: 64Mi
               memory: 128Mi
             limits:
               cpu: 500m
+              ephemeral-storage: 256Mi
               memory: 256Mi
           command: ["pnpm", "--filter", "@tavi/api", "prisma:migrate"]
           env:
@@ -81,9 +83,11 @@ spec:
           resources:
             requests:
               cpu: 200m
+              ephemeral-storage: 64Mi
               memory: 256Mi
             limits:
               cpu: 1000m
+              ephemeral-storage: 256Mi
               memory: 512Mi
           ports:
             - containerPort: 4000
