@@ -18,6 +18,6 @@ RUN pnpm --filter @tavi/config build \
   && pnpm --filter @tavi/api prisma:generate \
   && pnpm --filter @tavi/api build
 
-USER node
+USER 1000:1000
 
 CMD ["pnpm", "--filter", "@tavi/api", "start"]
