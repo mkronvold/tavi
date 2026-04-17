@@ -28,6 +28,11 @@ enum TaskStatus {
   canceled
 }
 
+enum PersonalTodoStatus {
+  todo
+  done
+}
+
 enum ProjectStatus {
   not_started
   in_progress
@@ -62,6 +67,11 @@ enum NotificationKind {
   task_due_tomorrow
   task_due_today
   task_overdue
+  personal_todo_due_7_days
+  personal_todo_due_3_days
+  personal_todo_due_tomorrow
+  personal_todo_due_today
+  personal_todo_overdue
   daily_task_summary
   daily_project_summary
 }
@@ -123,6 +133,7 @@ model User {
   roleAssignment RoleAssignment?
   ownedProjects  Project[]       @relation("ProjectOwner")
   assignedTasks  Task[]          @relation("TaskAssignee")
+  personalTodos  PersonalTodo[]
   createdImports ImportJob[]     @relation("ImportCreator")
   savedViews     SavedView[]
   auditEvents    AuditEvent[]    @relation("AuditActor")
@@ -195,6 +206,24 @@ model Task {
   @@index([projectId, sortOrder])
   @@index([assigneeUserId])
   @@index([status])
+}
+
+model PersonalTodo {
+  id          String             @id @default(cuid())
+  userId      String
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  notes       String?
+  dueDate     DateTime?
+  status      PersonalTodoStatus @default(todo)
+  sortOrder   Int                @default(0)
+  completedAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([userId, sortOrder])
+  @@index([userId, dueDate])
+  @@index([userId, status])
 }
 
 model SavedView {

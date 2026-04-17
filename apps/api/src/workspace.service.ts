@@ -17,7 +17,8 @@ export class WorkspaceService {
   ) {}
 
   async getWorkspace(currentUser: SessionUser) {
-    const [users, projects, savedViews, emailSettings] = await Promise.all([
+    const [users, projects, savedViews, emailSettings, personalTodos] =
+      await Promise.all([
       this.prisma.user.findMany({
         include: { roleAssignment: true },
         orderBy: { name: 'asc' },
@@ -44,6 +45,12 @@ export class WorkspaceService {
       this.prisma.emailSettings.findUnique({
         where: { id: 'global' },
         select: { dragHandlesEnabled: true },
+      }),
+      this.prisma.personalTodo.findMany({
+        where: {
+          userId: currentUser.id,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       }),
     ]);
 
@@ -98,6 +105,17 @@ export class WorkspaceService {
         })),
       })),
       savedViews,
+      personalTodos: personalTodos.map((todo) => ({
+        id: todo.id,
+        title: todo.title,
+        notes: todo.notes,
+        dueDate: todo.dueDate,
+        status: todo.status,
+        sortOrder: todo.sortOrder,
+        completedAt: todo.completedAt,
+        createdAt: todo.createdAt,
+        updatedAt: todo.updatedAt,
+      })),
       workspaceSettings: {
         dragHandlesEnabled: emailSettings?.dragHandlesEnabled ?? true,
       },

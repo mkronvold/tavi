@@ -17,6 +17,11 @@ type ScheduledNotificationKind =
   | "daily_non_admin_digest"
   | "daily_project_summary"
   | "daily_task_summary"
+  | "personal_todo_due_3_days"
+  | "personal_todo_due_7_days"
+  | "personal_todo_due_today"
+  | "personal_todo_due_tomorrow"
+  | "personal_todo_overdue"
   | "task_due_3_days"
   | "task_due_7_days"
   | "task_due_today"
@@ -376,38 +381,54 @@ export class NotificationWorker {
 
   private async queueDueDateNotifications(now: Date) {
     const dayKey = formatUtcDate(now);
-    const tasks = await this.prisma.task.findMany({
-      where: {
-        assignee: {
-          is: {
-            dailyDigestEnabled: false,
+    const [tasks, personalTodos] = await Promise.all([
+      this.prisma.task.findMany({
+        where: {
+          assignee: {
+            is: {
+              dailyDigestEnabled: false,
+            },
+          },
+          archivedAt: null,
+          assigneeUserId: {
+            not: null,
+          },
+          dueDate: {
+            not: null,
+          },
+          status: {
+            notIn: ["canceled", "done", "on_hold"],
           },
         },
-        archivedAt: null,
-        assigneeUserId: {
-          not: null,
-        },
-        dueDate: {
-          not: null,
-        },
-        status: {
-          notIn: ["canceled", "done", "on_hold"],
-        },
-      },
-      select: {
-        assigneeUserId: true,
-        dueDate: true,
-        id: true,
-        title: true,
-        project: {
-          select: {
-            title: true,
+        select: {
+          assigneeUserId: true,
+          dueDate: true,
+          id: true,
+          title: true,
+          project: {
+            select: {
+              title: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.personalTodo.findMany({
+        where: {
+          dueDate: {
+            not: null,
+          },
+          status: "todo",
+        },
+        select: {
+          dueDate: true,
+          id: true,
+          title: true,
+          userId: true,
+        },
+      }),
+    ]);
 
-    const events = tasks
+    const taskEvents = tasks
       .map((task) => {
         const kind = getDueReminderKind(task.dueDate!, now);
 
@@ -428,6 +449,26 @@ export class NotificationWorker {
         };
       })
       .filter((event): event is NonNullable<typeof event> => event !== null);
+    const personalTodoEvents = personalTodos
+      .map((todo) => {
+        const kind = getPersonalTodoDueReminderKind(todo.dueDate!, now);
+
+        if (!kind) {
+          return null;
+        }
+
+        return {
+          dedupeKey: `${kind}:${todo.id}:${todo.userId}:${dayKey}`,
+          kind,
+          payload: {
+            dueDate: todo.dueDate!.toISOString(),
+            taskTitle: todo.title,
+          },
+          recipientUserId: todo.userId,
+        };
+      })
+      .filter((event): event is NonNullable<typeof event> => event !== null);
+    const events = [...taskEvents, ...personalTodoEvents];
 
     return this.queueEvents(events);
   }
@@ -927,6 +968,15 @@ function buildNotificationContent(kind: string, payload: Record<string, unknown>
         bodyHtml: `<strong>${taskTitle}</strong> in <strong>${projectTitle}</strong> is ${dueReminderBody(kind, dueDate)}.`,
         subject: `${dueReminderSubject(kind)}: ${taskTitle}`,
       };
+    case "personal_todo_due_7_days":
+    case "personal_todo_due_3_days":
+    case "personal_todo_due_tomorrow":
+    case "personal_todo_due_today":
+    case "personal_todo_overdue":
+      return {
+        bodyHtml: `<strong>${taskTitle}</strong> is ${dueReminderBody(toTaskDueReminderKind(kind), dueDate)}.`,
+        subject: `${dueReminderSubject(toTaskDueReminderKind(kind))}: ${taskTitle}`,
+      };
     case "daily_non_admin_digest":
       return {
         bodyHtml: buildDailyNonAdminDigestBody(payload),
@@ -1235,6 +1285,38 @@ function getDueReminderKind(
   }
 }
 
+function getPersonalTodoDueReminderKind(
+  dueDate: Date | null,
+  now: Date,
+): Exclude<
+  ScheduledNotificationKind,
+  | "daily_non_admin_digest"
+  | "daily_project_summary"
+  | "daily_task_summary"
+  | "task_due_3_days"
+  | "task_due_7_days"
+  | "task_due_today"
+  | "task_due_tomorrow"
+  | "task_overdue"
+> | null {
+  const kind = getDueReminderKind(dueDate, now);
+
+  switch (kind) {
+    case "task_due_7_days":
+      return "personal_todo_due_7_days";
+    case "task_due_3_days":
+      return "personal_todo_due_3_days";
+    case "task_due_tomorrow":
+      return "personal_todo_due_tomorrow";
+    case "task_due_today":
+      return "personal_todo_due_today";
+    case "task_overdue":
+      return "personal_todo_overdue";
+    default:
+      return null;
+  }
+}
+
 function dayDifferenceUtc(left: Date, right: Date) {
   const leftStart = Date.UTC(
     left.getUTCFullYear(),
@@ -1330,7 +1412,28 @@ function readStringArray(value: unknown) {
 }
 
 function shouldBatchIntoDailyDigest(kind: string) {
-  return kind !== "daily_non_admin_digest";
+  return (
+    kind !== "daily_non_admin_digest" &&
+    !kind.startsWith("personal_todo_due_") &&
+    kind !== "personal_todo_overdue"
+  );
+}
+
+function toTaskDueReminderKind(kind: string) {
+  switch (kind) {
+    case "personal_todo_due_7_days":
+      return "task_due_7_days";
+    case "personal_todo_due_3_days":
+      return "task_due_3_days";
+    case "personal_todo_due_tomorrow":
+      return "task_due_tomorrow";
+    case "personal_todo_due_today":
+      return "task_due_today";
+    case "personal_todo_overdue":
+      return "task_overdue";
+    default:
+      return kind;
+  }
 }
 
 function getDigestWindow(now: Date, digestTime: string) {

@@ -22,6 +22,7 @@ describe('WorkspaceService', () => {
     const countTasksMock = jest.fn();
     const createTaskMock = jest.fn();
     const findEmailSettingsMock = jest.fn();
+    const findPersonalTodosMock = jest.fn();
     const transactionMock = jest.fn((callback: (tx: unknown) => unknown) =>
       Promise.resolve(
         callback({
@@ -53,6 +54,9 @@ describe('WorkspaceService', () => {
       emailSettings: {
         findUnique: findEmailSettingsMock,
       },
+      personalTodo: {
+        findMany: findPersonalTodosMock,
+      },
     } as unknown as PrismaService;
     const savedViewsService = {
       listSavedViews: listSavedViewsMock,
@@ -74,6 +78,7 @@ describe('WorkspaceService', () => {
         createTaskMock,
         deleteProjectsMock,
         findEmailSettingsMock,
+        findPersonalTodosMock,
         findProjectsMock,
         findUsersMock,
         listSavedViewsMock,
@@ -132,6 +137,19 @@ describe('WorkspaceService', () => {
     mocks.findEmailSettingsMock.mockResolvedValue({
       dragHandlesEnabled: false,
     });
+    mocks.findPersonalTodosMock.mockResolvedValue([
+      {
+        id: 'todo-1',
+        title: 'Private follow-up',
+        notes: 'Only visible to me',
+        dueDate: null,
+        status: 'todo',
+        sortOrder: 0,
+        completedAt: null,
+        createdAt: new Date('2026-04-03T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-03T09:00:00.000Z'),
+      },
+    ]);
     mocks.listSavedViewsMock.mockResolvedValue([]);
 
     const result = await service.getWorkspace(currentUser);
@@ -143,6 +161,12 @@ describe('WorkspaceService', () => {
       expect.objectContaining({
         id: 'project-1',
         references: 'https://tracker.example.com/projects/roadmap-refresh',
+      }),
+    ]);
+    expect(result.personalTodos).toEqual([
+      expect.objectContaining({
+        id: 'todo-1',
+        title: 'Private follow-up',
       }),
     ]);
   });

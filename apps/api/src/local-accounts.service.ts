@@ -16,6 +16,7 @@ import type {
   SetLocalAccountPasswordInput,
   SetOwnPasswordInput,
   UpdateLocalAccountInput,
+  UpdateOwnProfileInput,
 } from '@tavi/schemas';
 import { Role } from '@prisma/client';
 import type { SessionUser } from './auth.types';
@@ -520,6 +521,94 @@ export class LocalAccountsService {
     };
   }
 
+  async updateOwnProfile(
+    input: UpdateOwnProfileInput,
+    actor: SessionUser,
+  ): Promise<{ account: LocalAccount; notificationEmailSent: boolean }> {
+    this.authService.requireLocalAuthMode();
+
+    const existing = await this.findAccountOrThrow(actor.id);
+    const nextEmail = input.email ?? existing.email;
+    const nextName = input.name ?? existing.name;
+    const changedFields: string[] = [];
+
+    if (nextEmail !== existing.email) {
+      await this.assertEmailAvailable(nextEmail, actor.id);
+      changedFields.push('email');
+    }
+
+    if (nextName !== existing.name) {
+      changedFields.push('name');
+    }
+
+    if (input.password !== undefined) {
+      await this.authService.reauthenticateCurrentUser(
+        actor.id,
+        input.currentPassword!,
+      );
+      changedFields.push('password');
+    }
+
+    if (changedFields.length === 0) {
+      return {
+        account: this.toLocalAccount(existing),
+        notificationEmailSent: false,
+      };
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      let user = existing;
+
+      if (nextEmail !== existing.email || nextName !== existing.name) {
+        user = await tx.user.update({
+          where: { id: actor.id },
+          data: {
+            email: nextEmail,
+            name: nextName,
+          },
+          include: { roleAssignment: true },
+        });
+      }
+
+      if (input.password !== undefined) {
+        const passwordHash = await this.authService.hashPassword(input.password);
+
+        user = await tx.user.update({
+          where: { id: actor.id },
+          data: {
+            passwordHash,
+          },
+          include: { roleAssignment: true },
+        });
+      }
+
+      await this.authService.recordAudit(
+        actor,
+        'auth',
+        actor.id,
+        'account_update',
+        {
+          changedFields,
+          email: user.email,
+          name: user.name,
+          previousEmail: existing.email,
+          previousName: existing.name,
+          role: user.roleAssignment?.role ?? Role.viewer,
+          previousRole: existing.roleAssignment?.role ?? Role.viewer,
+          scope: 'self',
+        },
+        tx,
+      );
+
+      return user;
+    });
+
+    return {
+      account: this.toLocalAccount(updated),
+      notificationEmailSent: false,
+    };
+  }
+
   async deleteAccount(
     userId: string,
     input: DeleteLocalAccountInput,
@@ -636,6 +725,10 @@ export class LocalAccountsService {
 
   async setOwnPassword(input: SetOwnPasswordInput, actor: SessionUser) {
     this.authService.requireLocalAuthMode();
+    await this.authService.reauthenticateCurrentUser(
+      actor.id,
+      input.currentPassword,
+    );
     await this.updatePassword(
       actor.id,
       input.password,

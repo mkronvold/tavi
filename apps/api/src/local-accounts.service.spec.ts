@@ -768,12 +768,14 @@ describe('LocalAccountsService', () => {
     expect(mocks.createAuditEventTxMock).toHaveBeenCalledTimes(1);
   });
 
-  it('changes the current user password without requiring the current password', async () => {
+  it('changes the current user password after reauthenticating with the current password', async () => {
     const { mocks, service } = createService();
+    const passwordHash = await bcrypt.hash('current-password-123', 10);
     const existing = createUserFixture({
       id: editorActor.id,
       email: editorActor.email,
       name: editorActor.name,
+      passwordHash,
     });
 
     mocks.findUniqueUserMock.mockResolvedValue(existing);
@@ -781,6 +783,7 @@ describe('LocalAccountsService', () => {
 
     await service.setOwnPassword(
       {
+        currentPassword: 'current-password-123',
         password: 'password-456',
       },
       editorActor,
@@ -797,6 +800,68 @@ describe('LocalAccountsService', () => {
     expect(updatePasswordCall.where).toEqual({ id: editorActor.id });
     expect(typeof updatePasswordCall.data.passwordHash).toBe('string');
     expect(mocks.createAuditEventTxMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates the current user profile and password in one self-service request', async () => {
+    const { mocks, service } = createService();
+    const passwordHash = await bcrypt.hash('current-password-123', 10);
+    const existing = createUserFixture({
+      id: editorActor.id,
+      email: editorActor.email,
+      name: editorActor.name,
+      passwordHash,
+      roleAssignment: {
+        role: Role.editor,
+      },
+    });
+    const updated = createUserFixture({
+      id: editorActor.id,
+      email: 'renamed@tavi.local',
+      name: 'Renamed Editor',
+      roleAssignment: {
+        role: Role.editor,
+      },
+    });
+
+    mocks.findUniqueUserMock
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existing);
+    mocks.updateUserMock
+      .mockResolvedValueOnce(updated)
+      .mockResolvedValueOnce(updated);
+
+    const result = await service.updateOwnProfile(
+      {
+        currentPassword: 'current-password-123',
+        email: 'renamed@tavi.local',
+        name: 'Renamed Editor',
+        password: 'password-456',
+      },
+      editorActor,
+    );
+
+    expect(result.notificationEmailSent).toBe(false);
+    expect(result.account.email).toBe('renamed@tavi.local');
+    expect(result.account.name).toBe('Renamed Editor');
+    expect(mocks.updateUserMock).toHaveBeenCalledTimes(2);
+    expect(mocks.updateUserMock).toHaveBeenNthCalledWith(1, {
+      where: { id: editorActor.id },
+      data: {
+        email: 'renamed@tavi.local',
+        name: 'Renamed Editor',
+      },
+      include: { roleAssignment: true },
+    });
+    expect(mocks.updateUserMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: { id: editorActor.id },
+        include: { roleAssignment: true },
+      }),
+    );
+    expect(mocks.createAuditEventTxMock).toHaveBeenCalledTimes(1);
+    expect(mocks.sendAccountUpdateEmailMock).not.toHaveBeenCalled();
   });
 
   it('blocks non-admins from setting another user password', async () => {
@@ -830,6 +895,7 @@ describe('LocalAccountsService', () => {
     await expect(
       service.setOwnPassword(
         {
+          currentPassword: 'password-123',
           password: 'password-123',
         },
         editorActor,

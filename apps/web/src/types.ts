@@ -1,8 +1,10 @@
 import type {
   ApplyBackupRestoreInput,
   AuditEntityType,
+  CreatePersonalTodoInput,
   CreateLocalAccountInput,
   GroupBy,
+  ImportPersonalTodosInput,
   ImportLocalAccountsInput,
   ImportRowOutcome,
   LoopImportField,
@@ -12,6 +14,8 @@ import type {
   LoopImportJobStatus,
   ProjectSortField,
   Priority,
+  PersonalTodo,
+  ReorderPersonalTodosInput,
   ProjectStatus,
   ResetWorkspaceExamplesInput,
   Role,
@@ -19,6 +23,8 @@ import type {
   SetOwnPasswordInput,
   TaskStatus,
   UpdateLocalAccountInput,
+  UpdateOwnProfileInput,
+  UpdatePersonalTodoInput,
   UpdateNotificationPreferencesInput,
   UpdateLoopImportRowDecisionsInput,
   UpdateEmailSettingsInput,
@@ -38,10 +44,12 @@ export type {
   ConvertTaskToProjectResponse,
   DeleteLocalAccountInput as DeleteLocalAccountPayload,
   DeleteLocalAccountResponse,
+  DeletePersonalTodoResponse,
   DeleteProjectResponse,
   DeleteTaskResponse,
   EmailSettings,
   ExportLocalAccountsResponse,
+  ImportPersonalTodosResponse,
   GroupBy,
   ImportLocalAccountsResponse,
   ImportRowOutcome,
@@ -55,6 +63,8 @@ export type {
   LoopImportOverlapAction,
   LoopImportJobStatus,
   NotificationPreferences,
+  PersonalTodo,
+  PersonalTodoStatus,
   ProjectSortField,
   Priority,
   ProjectStatus,
@@ -92,6 +102,8 @@ export type WorkspaceTask = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+export type WorkspacePersonalTodo = PersonalTodo;
 
 export type WorkspaceProject = {
   id: string;
@@ -137,6 +149,7 @@ export type WorkspaceSettings = {
 
 export type WorkspaceResponse = {
   currentUser: WorkspaceUser;
+  personalTodos: WorkspacePersonalTodo[];
   users: WorkspaceUser[];
   projects: WorkspaceProject[];
   savedViews: SavedView[];
@@ -173,6 +186,8 @@ export type SetLocalAccountPasswordPayload = SetLocalAccountPasswordInput;
 
 export type SetOwnPasswordPayload = SetOwnPasswordInput;
 
+export type UpdateOwnProfilePayload = UpdateOwnProfileInput;
+
 export type ImportLocalAccountsPayload = ImportLocalAccountsInput;
 
 export type ResetWorkspaceExamplesPayload = ResetWorkspaceExamplesInput;
@@ -205,6 +220,8 @@ export type CreateTaskPayload = {
   status: TaskStatus;
 };
 
+export type CreatePersonalTodoPayload = CreatePersonalTodoInput;
+
 export type UpdateTaskPayload = Omit<
   Partial<CreateTaskPayload>,
   "assigneeUserId" | "notes"
@@ -212,6 +229,12 @@ export type UpdateTaskPayload = Omit<
   assigneeUserId?: string | null;
   notes?: string | null;
 };
+
+export type UpdatePersonalTodoPayload = UpdatePersonalTodoInput;
+
+export type ImportPersonalTodosPayload = ImportPersonalTodosInput;
+
+export type ReorderPersonalTodosPayload = ReorderPersonalTodosInput;
 
 export type BulkUpdateTasksPayload = {
   taskIds: string[];

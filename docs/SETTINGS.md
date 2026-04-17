@@ -1,37 +1,44 @@
 # Settings Guide
 
-The `Settings` panel is the control hub for browser-local preferences, user-specific backend settings, and admin-only controls. It also launches the dedicated `Import/Export`, `Backups`, local-account, and audit panels.
+Tavi now splits personal controls from workspace administration:
+
+1. `User Profile` opens from the signed-in user name in the header and holds self-service account editing plus personal preferences.
+2. `Settings` stays visible only for admins and holds workspace-wide controls plus admin tools.
 
 ## Layout
 
-Settings are grouped in this order:
-
-1. Browser-local controls first.
-2. User-specific backend settings second.
-3. Admin-only controls last.
-
 Most launcher cards and audit cards are whole-card click targets. If a card opens another panel, that panel also has an explicit `Close` button in its header.
 
-## Settings available today
+## User Profile
 
-| Section | Setting | What it changes |
-| --- | --- | --- |
-| Browser-local | Theme | Switches between light and dark mode |
-| Browser-local | Auto Collapse | Expands one project at a time by collapsing the rest automatically |
-| Browser-local | Bulk Actions | Shows task selection checkboxes and the bulk action bar |
-| Browser-local | Full Width | Lets the workspace use the full browser width |
-| User-specific | Daily Digest | Replaces immediate non-admin email notifications for the current user with one daily digest email |
-| Browser-local | Clear Local Storage | Removes only tavi-owned browser preferences after confirmation |
-| Browser-local | My Auth History | Opens the login and auth event history for the current signed-in identity |
-| Admin-only | Email Notifications | Controls the global outbound email switch |
-| Admin-only | Daily Digest Time | Sets the shared digest send time in server local time |
-| Admin-only | Task Drag Handles | Shows or hides manual task-reorder handles for every user in the workspace |
-| Admin-only | Backups | Opens the dedicated backup and restore panel |
-| Admin-only | Import/Export | Opens the dedicated import and export panel |
-| Admin-only | Local Accounts | Opens the local-auth management panel |
-| Admin-only | Audit Logins | Opens system-wide sign-in audit history |
-| Admin-only | Audit Changes | Opens system-wide change audit history |
-| Meta | Version | Shows the current app version and repository link |
+| Section       | Setting                                              | What it changes                                                                                   |
+| ------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Account       | Name / Email                                         | Updates the current signed-in local account                                                       |
+| Account       | Current password + Change password + Repeat password | Lets the current signed-in local account rotate its password                                      |
+| Browser-local | Theme                                                | Cycles through the Light, Sepia, Spring, Ocean, Forest, Autumn, and Night workspace themes        |
+| Browser-local | Auto Collapse                                        | Expands one project at a time by collapsing the rest automatically                                |
+| Browser-local | Bulk Actions                                         | Shows task selection checkboxes and the bulk action bar                                           |
+| Browser-local | Full Width                                           | Lets the workspace use the full browser width                                                     |
+| User-specific | Daily Digest                                         | Replaces immediate non-admin email notifications for the current user with one daily digest email |
+| Browser-local | Clear Local Storage                                  | Removes only tavi-owned browser preferences after confirmation                                    |
+| Browser-local | User History                                         | Opens the login and auth event history for the current signed-in identity                         |
+| User tool     | Import/Export                                        | Opens the dedicated import and export panel for non-admin users                                   |
+
+Saving profile edits closes the panel after the update is accepted.
+
+## Admin Settings
+
+| Section    | Setting             | What it changes                                                            |
+| ---------- | ------------------- | -------------------------------------------------------------------------- |
+| Admin-only | Email Notifications | Controls the global outbound email switch                                  |
+| Admin-only | Daily Digest Time   | Sets the shared digest send time in server local time                      |
+| Admin-only | Task Drag Handles   | Shows or hides manual task-reorder handles for every user in the workspace |
+| Admin-only | Backups             | Opens the dedicated backup and restore panel                               |
+| Admin-only | Import/Export       | Opens the dedicated import and export panel                                |
+| Admin-only | Local Accounts      | Opens the local-auth management panel                                      |
+| Admin-only | Audit Logins        | Opens system-wide sign-in audit history                                    |
+| Admin-only | Audit Changes       | Opens system-wide change audit history                                     |
+| Meta       | Version             | Shows the current app version and repository link                          |
 
 ## Recommended use
 
@@ -48,8 +55,8 @@ Most launcher cards and audit cards are whole-card click targets. If a card open
 
 Behavior depends on role:
 
-1. Admins can manage all local accounts.
-2. Non-admins only get self-service password controls.
+1. Admins can manage all local accounts from `Settings`.
+2. Non-admins use `User Profile` for their own name, email, and password changes instead.
 
 ## Clear Local Storage
 
@@ -61,6 +68,7 @@ Behavior depends on role:
 4. Full Width
 5. Panel open or closed state
 6. Per-project `Add Task` visibility
+7. Per-project and personal `hide done` toggles
 
 It does not delete projects, tasks, imports, backups, or accounts.
 
@@ -74,6 +82,7 @@ It does not delete projects, tasks, imports, backups, or accounts.
 ## Non-obvious behavior
 
 1. Saved views are not the same as browser-local settings. Resetting local storage does not delete saved views from the server.
-2. `My Auth History` is for the current user identity, not a full system-wide audit report.
+2. `User History` is for the current user identity, not a full system-wide audit report.
 3. `Daily Digest` applies only to non-admin notification emails. Administrative account emails still send immediately when global email is enabled.
 4. Admin-only email controls do not force users into digest mode. Each user still chooses whether non-admin notifications arrive immediately or in the daily digest.
+5. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its local `hide done` preference is still cleared by `Clear Local Storage`.

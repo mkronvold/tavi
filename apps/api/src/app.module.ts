@@ -15,6 +15,8 @@ import { ImportsService } from './imports.service';
 import { NotificationEventsService } from './notification-events.service';
 import { LocalAccountsController } from './local-accounts.controller';
 import { LocalAccountsService } from './local-accounts.service';
+import { PersonalTodosController } from './personal-todos.controller';
+import { PersonalTodosService } from './personal-todos.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
@@ -36,6 +38,7 @@ import { WorkspaceService } from './workspace.service';
     ImportsController,
     LocalAccountsController,
     MetricsController,
+    PersonalTodosController,
     ProjectsController,
     TasksController,
     ViewsController,
@@ -52,6 +55,7 @@ import { WorkspaceService } from './workspace.service';
     ImportsService,
     LocalAccountsService,
     NotificationEventsService,
+    PersonalTodosService,
     ProjectsService,
     SavedViewsService,
     SessionGuard,

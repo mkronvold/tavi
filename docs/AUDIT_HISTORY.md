@@ -9,7 +9,7 @@ tavi records audit history for key entities so you can confirm what changed, who
 | Project history | `History` on a project row |
 | Task history | `History` on a task row |
 | Saved-view history | `View` panel, then `History` on the selected saved view |
-| Auth history | `Settings`, then `My Auth History` |
+| Auth history | Click the signed-in user name, then `User History` |
 
 ## What you will see
 

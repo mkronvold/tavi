@@ -12,6 +12,7 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 | Status | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects |
 | Assignee | Multi-select task filter for one or more assignees |
 | View | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state |
+| Personal ToDo | Opens the current user's private personal task panel without changing the shared workspace list |
 | New Project | Opens the inline project-creation panel |
 | Settings | Opens browser-local preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
 
@@ -59,6 +60,18 @@ Use `History` on a task row when you need to confirm who changed status, assignm
 
 Use `Delete` inside task edit when a single task should be removed without using bulk actions.
 
+## Personal ToDo panel
+
+`Personal ToDo` opens a private per-user task list that does not appear in the shared project workspace.
+
+Inside the panel you can:
+
+1. Add a private task with only `Task name`, `Notes`, and `Due date`.
+2. Reorder visible personal items with the compact drag handle.
+3. Toggle completion with the checkbox and hide or show done items with the compact `D` toggle.
+4. Import or export only your personal to-do list without affecting shared workspace data.
+5. Delete a personal item from the panel with the `X` action.
+
 ## Bulk task actions
 
 Bulk actions are optional and stay hidden until enabled in [`SETTINGS.md`](./SETTINGS.md).
@@ -87,12 +100,13 @@ Once enabled:
 3. `Group by`, `Sort by`, `Status`, and `Assignee` selections are stored in browser-local Tavi storage and can also be captured in a saved view.
 4. `Add Task` visibility is stored in the browser, not in a saved view.
 5. Auto-collapse behavior is controlled from [`SETTINGS.md`](./SETTINGS.md), not from the workspace row actions.
-6. Viewer users can browse and search the workspace, but they cannot edit projects or tasks.
+6. Viewer users can browse and search the workspace, cannot edit shared projects or tasks, and can still use `Personal ToDo`.
 7. Project and task delete actions ask for confirmation before the workspace removes them.
 8. Project-to-task conversion is only available when the source project has no active tasks, so existing task lists are never dropped silently.
 9. When outbound email is enabled, saving a project emails the current project owner plus all active task assignees for that project. Saving a task emails the current task assignee plus the current project owner. Update emails include side-by-side `From:` and `To:` change blocks instead of just the edited field.
 10. [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) and [`BACKUPS.md`](./BACKUPS.md) are opened from [`SETTINGS.md`](./SETTINGS.md), not from the top workspace toolbar.
 11. When auto-collapse switches from one expanded project to another, Tavi scrolls the newly expanded project back into view so the screen focus stays on the open project.
+12. The `Personal ToDo` panel is private to the signed-in user, and its `hide done` toggle is stored only in that browser's local Tavi storage.
 
 ## Derived project status
 

@@ -167,17 +167,21 @@ export function downloadWorkspaceJson(context: ExportContext) {
     projects: context.projects,
   };
 
-  downloadBlob(
-    buildFileName("workspace", "json"),
-    new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json;charset=utf-8",
-    }),
-  );
+  downloadJsonFile("workspace", payload);
 }
 
 export function downloadLoopCsv(projects: WorkspaceProject[]) {
   const rows = buildLoopExportRows(projects);
   downloadCsvFile("loop-export", rows, LOOP_EXPORT_COLUMNS);
+}
+
+export function downloadJsonFile(prefix: string, payload: unknown) {
+  downloadBlob(
+    buildFileName(prefix, "json"),
+    new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8",
+    }),
+  );
 }
 
 function flattenProjects(projects: WorkspaceProject[]): FlattenedProjectRow[] {

@@ -26,11 +26,11 @@ The product is optimized for review-heavy team workflows where people need to sc
 
 ## 4. Intended Users
 
-| Role | Primary Use | Permissions |
-|---|---|---|
-| Admin | Configure access, manage local accounts, manage imports, resolve data issues | Full access, role assignment, local account management, import administration, export of visible data, archive/restore |
-| Editor | Create and manage project/task data | Create, edit, regroup, update status, save views, export visible data |
-| Viewer | Follow progress and join reviews | Read-only access to projects, tasks, and saved views, plus export of visible data |
+| Role   | Primary Use                                                                  | Permissions                                                                                                            |
+| ------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Admin  | Configure access, manage local accounts, manage imports, resolve data issues | Full access, role assignment, local account management, import administration, export of visible data, archive/restore |
+| Editor | Create and manage project/task data                                          | Create, edit, regroup, update status, save views, export visible data                                                  |
+| Viewer | Follow progress and join reviews                                             | Read-only access to projects, tasks, and saved views, plus export of visible data                                      |
 
 ## 5. Core Domain Model
 
@@ -87,7 +87,7 @@ Milestone 4A scope:
 - Visible columns, density, and other future display settings are deferred.
 
 Panel toggle state for View, Import/Export, New Project, Settings, and per-project Add Task is browser-local UI state and is not part of saved views.
-Theme mode, Auto Collapse, Bulk Actions visibility, and Full Width are also browser-local preferences and are not part of saved views.
+Theme choice, Auto Collapse, Bulk Actions visibility, and Full Width are also browser-local preferences and are not part of saved views.
 
 ### Import Job
 
@@ -219,7 +219,8 @@ Rollup details shown in the UI should include:
 
 - Users can create, edit, reorder, and archive tasks within a project.
 - Tasks must support assignee, due date, priority, status, labels, and notes.
-- Tasks exist only under a project in v1.
+- Shared workspace tasks exist only under a project in v1.
+- Users also need a private `Personal ToDo` list that is scoped to the signed-in user and kept out of the shared project hierarchy.
 
 ### FR-04 Dense Primary Workspace
 
@@ -230,8 +231,9 @@ Rollup details shown in the UI should include:
 - Settings must allow Bulk Actions to be shown or hidden so task-selection checkboxes can stay out of the way when multi-select editing is not needed.
 - Settings must allow Full Width so the workspace can expand past the default centered reading width on large screens.
 - Search, grouping, task-status, and assignee controls should float left without a framed card.
-- Compact toggle buttons for View, Import/Export, New Project, and Settings should float to the right on the same row when space allows.
+- Compact toggle buttons for View, Personal ToDo, New Project, and Settings should float to the right on the same row when space allows.
 - Per-project Add Task UI should stay hidden behind a lightweight toggle until needed.
+- The Personal ToDo panel should support compact create, edit, reorder, delete, import, and export actions without showing project ownership fields.
 
 ### FR-05 Inline Editing
 
@@ -306,7 +308,7 @@ Rollup details shown in the UI should include:
 - Compact row density with minimal visual chrome.
 - Secondary actions should be visually quiet until hover or focus.
 - Common edits should happen inline or in lightweight drawers/modals.
-- Theme mode should be switchable between light and dark in Settings and persist per browser.
+- Theme should be selectable from a named cycle of Light, Sepia, Spring, Ocean, Forest, Autumn, and Night in User Profile and persist per browser.
 
 ### Visualization Requirements
 
@@ -336,8 +338,9 @@ Rollup details shown in the UI should include:
 6. Imported records should preserve source metadata for traceability.
 7. Panel toggle state should persist locally per browser and be clearable without removing unrelated site data.
 8. Exports should only include data visible to the authenticated user at export time.
-9. Theme mode, Auto Collapse, Bulk Actions visibility, and Full Width preferences should persist locally per browser and not affect saved views.
+9. Theme choice, Auto Collapse, Bulk Actions visibility, and Full Width preferences should persist locally per browser and not affect saved views.
 10. References are optional project metadata stored as newline-delimited entries. URL values should open externally rather than embedding another tracker inside Tavi, display without protocol/query/fragment noise, and plain-text entries should remain visible as metadata.
+11. Personal ToDo items are private to their owner, do not appear in the shared workspace list, and can send only due-date reminder emails.
 
 ## 11. v1 Scope
 
@@ -351,9 +354,10 @@ Rollup details shown in the UI should include:
 - Filtering, sorting, regrouping, saved views
 - Derived project status with manual override
 - Project references as newline-delimited links or reference text
+- Private Personal ToDo panel with reorder, private import/export, and owner-only due reminders
 - CSV/export-based Loop import
 - CSV, XLSX, JSON, and Loop-oriented exports of the current filtered workspace
-- Settings panel with local account management, theme mode, Auto Collapse, Bulk Actions visibility, and Full Width in local-auth mode
+- Settings and User Profile panels with local account management, named workspace themes, Auto Collapse, Bulk Actions visibility, and Full Width in local-auth mode
 - Audit history
 
 ### Nice to Have if Time Allows

@@ -1,6 +1,8 @@
 import {
   type DragEvent as ReactDragEvent,
+  type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   isValidElement,
   type ReactNode,
   useEffect,
@@ -50,6 +52,7 @@ import {
   reorderProjectTasks,
   setAuditLogRetention,
   updateEmailSettings,
+  updateMyProfile,
   updateNotificationPreferences,
   updateProject,
   updateSavedView,
@@ -60,6 +63,7 @@ import { ExportPanel } from "./ExportPanel";
 import { downloadCsvFile } from "./export-utils";
 import { ImportPanel } from "./ImportPanel";
 import { LocalAccountsPanel } from "./LocalAccountsPanel";
+import { PersonalTodoPanel } from "./PersonalTodoPanel";
 import { getAppHomeUrl } from "./runtime-config";
 import {
   clearTaviStorage,
@@ -78,6 +82,7 @@ import type {
   ProjectSortField,
   SavedView,
   SmtpStatus,
+  UpdateOwnProfilePayload,
   WorkspaceUser,
   UpdateProjectPayload,
   UpdateTaskPayload,
@@ -145,11 +150,23 @@ type WorkspacePanelState = {
   backups: boolean;
   importExport: boolean;
   newProject: boolean;
+  personalTodo: boolean;
+  profile: boolean;
   settings: boolean;
   view: boolean;
 };
 
-type WorkspaceTheme = "dark" | "light";
+const WORKSPACE_THEMES = [
+  "light",
+  "sepia",
+  "spring",
+  "ocean",
+  "forest",
+  "autumn",
+  "night",
+] as const;
+
+type WorkspaceTheme = (typeof WORKSPACE_THEMES)[number];
 
 type WorkspaceFilterState = {
   assigneeUserIds: string[];
@@ -252,15 +269,32 @@ const DEFAULT_WORKSPACE_PANEL_STATE: WorkspacePanelState = {
   backups: false,
   importExport: false,
   newProject: false,
+  personalTodo: false,
+  profile: false,
   settings: false,
   view: false,
 };
+
+const DEFAULT_WORKSPACE_THEME: WorkspaceTheme = "light";
 
 const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
   autoCollapse: true,
   bulkActions: true,
   fullWidth: false,
-  theme: "light",
+  theme: DEFAULT_WORKSPACE_THEME,
+};
+
+const WORKSPACE_THEME_META: Record<
+  WorkspaceTheme,
+  { colorScheme: "dark" | "light"; label: string }
+> = {
+  autumn: { colorScheme: "dark", label: "Autumn" },
+  forest: { colorScheme: "dark", label: "Forest" },
+  light: { colorScheme: "light", label: "Light" },
+  night: { colorScheme: "dark", label: "Night" },
+  ocean: { colorScheme: "dark", label: "Ocean" },
+  sepia: { colorScheme: "light", label: "Sepia" },
+  spring: { colorScheme: "light", label: "Spring" },
 };
 
 const PANEL_STORAGE_KEY = "workspace.panels";
@@ -269,6 +303,8 @@ const PREFERENCES_STORAGE_KEY = "workspace.preferences";
 const FILTER_STORAGE_KEY = "workspace.filters";
 const COLLAPSED_GROUPS_STORAGE_KEY = "workspace.collapsedGroups";
 const NOTE_EDITOR_HEIGHTS_STORAGE_KEY = "workspace.noteEditorHeights";
+const HIDE_DONE_TASKS_STORAGE_KEY = "workspace.hideDoneTasks";
+const HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY = "workspace.personalTodos.hideDone";
 const UNASSIGNED_PROJECT_TITLE = "Unassigned";
 const UNASSIGNED_FILTER_VALUE = "__unassigned__";
 const CONVERT_TASK_TO_PROJECT_VALUE = "__convert-task-to-project__";
@@ -321,7 +357,8 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = workspacePreferences.theme;
-    document.documentElement.style.colorScheme = workspacePreferences.theme;
+    document.documentElement.style.colorScheme =
+      WORKSPACE_THEME_META[workspacePreferences.theme].colorScheme;
 
     return () => {
       delete document.documentElement.dataset.theme;
@@ -578,7 +615,15 @@ function WorkspaceScreen({
   >({});
   const [hideDoneTasksByProject, setHideDoneTasksByProject] = useState<
     Record<string, boolean>
-  >({});
+  >(() =>
+    normalizeBooleanSelection(
+      readTaviStorage<Record<string, boolean>>(HIDE_DONE_TASKS_STORAGE_KEY, {}),
+    ),
+  );
+  const [hideDonePersonalTodos, setHideDonePersonalTodos] = useState(() =>
+    readTaviStorage<boolean>(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY, false) ===
+    true,
+  );
   const [projectForm, setProjectForm] = useState<CreateProjectPayload>({
     ...EMPTY_PROJECT_FORM,
     ownerUserId: data.currentUser.id,
@@ -633,8 +678,8 @@ function WorkspaceScreen({
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(
     null,
   );
-  const [showScrollToTop, setShowScrollToTop] = useState(() =>
-    readViewportScrollOffset() > SCROLL_TO_TOP_VISIBILITY_OFFSET,
+  const [showScrollToTop, setShowScrollToTop] = useState(
+    () => readViewportScrollOffset() > SCROLL_TO_TOP_VISIBILITY_OFFSET,
   );
   const canEditWorkspace = data.currentUser.role !== "viewer";
   const appHomeUrl = getAppHomeUrl();
@@ -834,6 +879,21 @@ function WorkspaceScreen({
   }, [panelState]);
 
   useEffect(() => {
+    if (data.currentUser.role === "admin" || !panelState.settings) {
+      return;
+    }
+
+    setPanelState((current) =>
+      current.settings
+        ? {
+            ...current,
+            settings: false,
+          }
+        : current,
+    );
+  }, [data.currentUser.role, panelState.settings]);
+
+  useEffect(() => {
     const activeAddTaskPanels = activeBooleanSelection(addTaskPanels);
 
     if (Object.keys(activeAddTaskPanels).length === 0) {
@@ -843,6 +903,26 @@ function WorkspaceScreen({
 
     writeTaviStorage(ADD_TASK_PANEL_STORAGE_KEY, activeAddTaskPanels);
   }, [addTaskPanels]);
+
+  useEffect(() => {
+    const activeHiddenDoneTasks = activeBooleanSelection(hideDoneTasksByProject);
+
+    if (Object.keys(activeHiddenDoneTasks).length === 0) {
+      removeTaviStorage(HIDE_DONE_TASKS_STORAGE_KEY);
+      return;
+    }
+
+    writeTaviStorage(HIDE_DONE_TASKS_STORAGE_KEY, activeHiddenDoneTasks);
+  }, [hideDoneTasksByProject]);
+
+  useEffect(() => {
+    if (!hideDonePersonalTodos) {
+      removeTaviStorage(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY);
+      return;
+    }
+
+    writeTaviStorage(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY, true);
+  }, [hideDonePersonalTodos]);
 
   useEffect(() => {
     const syncScrollToTopVisibility = () => {
@@ -1298,10 +1378,16 @@ function WorkspaceScreen({
     onMutate: async (variables) => {
       setWorkspaceNotice(null);
       await queryClient.cancelQueries({ queryKey: ["workspace"] });
-      const previous = queryClient.getQueryData<WorkspaceResponse>(["workspace"]);
+      const previous = queryClient.getQueryData<WorkspaceResponse>([
+        "workspace",
+      ]);
 
       queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
-        reorderWorkspaceProjectTasks(current, variables.projectId, variables.taskIds),
+        reorderWorkspaceProjectTasks(
+          current,
+          variables.projectId,
+          variables.taskIds,
+        ),
       );
 
       return { previous };
@@ -1484,10 +1570,9 @@ function WorkspaceScreen({
   );
   const fullProjectById = useMemo(
     () =>
-      Object.fromEntries(data.projects.map((project) => [project.id, project])) as Record<
-        string,
-        WorkspaceProject
-      >,
+      Object.fromEntries(
+        data.projects.map((project) => [project.id, project]),
+      ) as Record<string, WorkspaceProject>,
     [data.projects],
   );
   const hiddenDoneTaskIds = useMemo(
@@ -1640,6 +1725,20 @@ function WorkspaceScreen({
       [panel]: !current[panel],
     }));
   };
+  const setWorkspacePanelOpen = (
+    panel: keyof WorkspacePanelState,
+    isOpen: boolean,
+  ) => {
+    setWorkspaceNotice(null);
+    setPanelState((current) =>
+      current[panel] === isOpen
+        ? current
+        : {
+            ...current,
+            [panel]: isOpen,
+          },
+    );
+  };
 
   const setAddTaskPanelOpen = (projectId: string, nextValue: boolean) => {
     setWorkspaceNotice(null);
@@ -1678,6 +1777,8 @@ function WorkspaceScreen({
     setCollapsedGroupsByGroup({});
     setPanelState({ ...DEFAULT_WORKSPACE_PANEL_STATE });
     setAddTaskPanels({});
+    setHideDoneTasksByProject({});
+    setHideDonePersonalTodos(false);
     onResetPreferences();
     setWorkspaceNotice(
       clearedKeyCount === 0
@@ -1753,7 +1854,16 @@ function WorkspaceScreen({
         </div>
 
         <div className="header-actions">
-          <span className="header-user">{data.currentUser.name}</span>
+          <button
+            type="button"
+            className={`header-user header-user-button${panelState.profile ? " is-active" : ""}`}
+            aria-pressed={panelState.profile}
+            onClick={() =>
+              setWorkspacePanelOpen("profile", !panelState.profile)
+            }
+          >
+            {data.currentUser.name}
+          </button>
           <button type="button" className="ghost-button" onClick={onLogout}>
             Sign out
           </button>
@@ -1821,6 +1931,14 @@ function WorkspaceScreen({
             </button>
             <button
               type="button"
+              className={`ghost-button compact-button panel-toggle-button${panelState.personalTodo ? " is-active" : ""}`}
+              aria-pressed={panelState.personalTodo}
+              onClick={() => toggleWorkspacePanel("personalTodo")}
+            >
+              Personal ToDo
+            </button>
+            <button
+              type="button"
               className={`ghost-button compact-button panel-toggle-button${panelState.newProject ? " is-active" : ""}`}
               aria-pressed={panelState.newProject}
               disabled={!canEditWorkspace}
@@ -1828,14 +1946,16 @@ function WorkspaceScreen({
             >
               New Project
             </button>
-            <button
-              type="button"
-              className={`ghost-button compact-button panel-toggle-button${panelState.settings ? " is-active" : ""}`}
-              aria-pressed={panelState.settings}
-              onClick={() => toggleWorkspacePanel("settings")}
-            >
-              Settings
-            </button>
+            {data.currentUser.role === "admin" ? (
+              <button
+                type="button"
+                className={`ghost-button compact-button panel-toggle-button${panelState.settings ? " is-active" : ""}`}
+                aria-pressed={panelState.settings}
+                onClick={() => toggleWorkspacePanel("settings")}
+              >
+                Settings
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1845,12 +1965,55 @@ function WorkspaceScreen({
 
         {!canEditWorkspace ? (
           <p className="toolbar-hint">
-            Viewer access is read-only for projects and tasks. Filters, saved
-            views, and audit history remain available.
+            Viewer access is read-only for shared projects and tasks. Personal
+            ToDo, filters, saved views, and audit history remain available.
           </p>
         ) : null}
 
         <div className="workspace-panel-stack">
+          {panelState.profile ? (
+            <ProfilePanel
+              autoCollapse={autoCollapse}
+              bulkActions={bulkActions}
+              currentUser={data.currentUser}
+              fullWidth={fullWidth}
+              isAdmin={data.currentUser.role === "admin"}
+              isImportExportOpen={panelState.importExport}
+              isUserHistoryOpen={
+                auditTarget?.entityType === "auth" &&
+                auditTarget.entityId === data.currentUser.id
+              }
+              onAutoCollapseChange={onAutoCollapseChange}
+              onBulkActionsChange={handleBulkActionsChange}
+              onClearLocalStorage={handleClearLocalStorage}
+              onClose={() => setWorkspacePanelOpen("profile", false)}
+              onFullWidthChange={onFullWidthChange}
+              onNotice={setWorkspaceNotice}
+              onThemeChange={onThemeChange}
+              onToggleImportExportPanel={() =>
+                toggleWorkspacePanel("importExport")
+              }
+              onToggleUserHistory={() => {
+                if (
+                  auditTarget?.entityType === "auth" &&
+                  auditTarget.entityId === data.currentUser.id
+                ) {
+                  setAuditTarget(null);
+                  return;
+                }
+
+                openAuditHistory({
+                  emptyMessage: "No sign-in events yet for this account.",
+                  entityId: data.currentUser.id,
+                  entityType: "auth",
+                  subtitle: data.currentUser.email,
+                  title: "User History",
+                });
+              }}
+              theme={theme}
+            />
+          ) : null}
+
           {panelState.view ? (
             <section className="workspace-panel-card">
               <header className="panel-header">
@@ -2019,6 +2182,16 @@ function WorkspaceScreen({
             </section>
           ) : null}
 
+          {panelState.personalTodo ? (
+            <PersonalTodoPanel
+              hideDoneTodos={hideDonePersonalTodos}
+              onClose={() => setWorkspacePanelOpen("personalTodo", false)}
+              onHideDoneChange={setHideDonePersonalTodos}
+              onNotice={setWorkspaceNotice}
+              personalTodos={data.personalTodos}
+            />
+          ) : null}
+
           {panelState.newProject && canEditWorkspace ? (
             <section className="workspace-panel-card">
               <header className="panel-header">
@@ -2122,45 +2295,15 @@ function WorkspaceScreen({
 
           {panelState.settings ? (
             <SettingsPanel
-              autoCollapse={autoCollapse}
-              bulkActions={bulkActions}
               currentUser={data.currentUser}
-              fullWidth={fullWidth}
-              isAuthHistoryOpen={
-                auditTarget?.entityType === "auth" &&
-                auditTarget.entityId === data.currentUser.id
-              }
               isBackupsOpen={panelState.backups}
               isAdmin={data.currentUser.role === "admin"}
               isImportExportOpen={panelState.importExport}
-              onClearLocalStorage={handleClearLocalStorage}
-              onAutoCollapseChange={onAutoCollapseChange}
               onToggleBackupsPanel={() => toggleWorkspacePanel("backups")}
-              onBulkActionsChange={handleBulkActionsChange}
-              onFullWidthChange={onFullWidthChange}
               onToggleImportExportPanel={() =>
                 toggleWorkspacePanel("importExport")
               }
               onNotice={setWorkspaceNotice}
-              onThemeChange={onThemeChange}
-              onViewAuthHistory={() => {
-                if (
-                  auditTarget?.entityType === "auth" &&
-                  auditTarget.entityId === data.currentUser.id
-                ) {
-                  setAuditTarget(null);
-                  return;
-                }
-
-                openAuditHistory({
-                  emptyMessage: "No sign-in events yet for this account.",
-                  entityId: data.currentUser.id,
-                  entityType: "auth",
-                  subtitle: data.currentUser.email,
-                  title: "My Auth History",
-                });
-              }}
-              theme={theme}
               users={data.users}
             />
           ) : null}
@@ -2233,7 +2376,10 @@ function WorkspaceScreen({
                 </div>
               </header>
 
-              <BackupSettingsCard onNotice={setWorkspaceNotice} variant="panel" />
+              <BackupSettingsCard
+                onNotice={setWorkspaceNotice}
+                variant="panel"
+              />
             </section>
           ) : null}
         </div>
@@ -2332,7 +2478,8 @@ function WorkspaceScreen({
                           ? "clear"
                           : "set",
                     assigneeUserId:
-                      nextValue === "" || nextValue === BULK_CLEAR_ASSIGNEE_VALUE
+                      nextValue === "" ||
+                      nextValue === BULK_CLEAR_ASSIGNEE_VALUE
                         ? ""
                         : nextValue,
                   }));
@@ -2503,7 +2650,8 @@ function WorkspaceScreen({
               {group.projects.map((project) => {
                 const expanded = expandedProjects[project.id] ?? false;
                 const fullProject = fullProjectById[project.id] ?? project;
-                const hideDoneTasks = hideDoneTasksByProject[project.id] ?? false;
+                const hideDoneTasks =
+                  hideDoneTasksByProject[project.id] ?? false;
                 const showDoneTasks = !hideDoneTasks;
                 const addTaskOpen = addTaskPanels[project.id] ?? false;
                 const taskDraftValue =
@@ -2512,16 +2660,21 @@ function WorkspaceScreen({
                 const doneProjectTaskIds = project.tasks
                   .filter((task) => task.status === "done")
                   .map((task) => task.id);
-                const tasksAreFiltered = fullProject.tasks.length !== project.tasks.length;
+                const tasksAreFiltered =
+                  fullProject.tasks.length !== project.tasks.length;
                 const visibleProjectTasks = hideDoneTasks
                   ? project.tasks.filter((task) => task.status !== "done")
                   : project.tasks;
-                const projectTaskIds = visibleProjectTasks.map((task) => task.id);
+                const projectTaskIds = visibleProjectTasks.map(
+                  (task) => task.id,
+                );
                 const showTaskReorderColumn =
                   canEditWorkspace &&
                   (data.workspaceSettings?.dragHandlesEnabled ?? true);
                 const taskTableColumnCount =
-                  (canSelectTasks ? 1 : 0) + (showTaskReorderColumn ? 1 : 0) + 6;
+                  (canSelectTasks ? 1 : 0) +
+                  (showTaskReorderColumn ? 1 : 0) +
+                  6;
                 const taskReorderDisabledReason = !showTaskReorderColumn
                   ? null
                   : reorderProjectTasksMutation.isPending
@@ -2533,9 +2686,12 @@ function WorkspaceScreen({
                         : fullProject.tasks.length < 2
                           ? "At least two tasks are required to reorder."
                           : null;
-                const canReorderProjectTasks = taskReorderDisabledReason === null;
+                const canReorderProjectTasks =
+                  taskReorderDisabledReason === null;
                 const activeTaskDragState =
-                  taskDragState?.projectId === project.id ? taskDragState : null;
+                  taskDragState?.projectId === project.id
+                    ? taskDragState
+                    : null;
                 const selectedProjectTaskCount = projectTaskIds.filter(
                   (taskId) => selectedTasks[taskId],
                 ).length;
@@ -2950,7 +3106,10 @@ function WorkspaceScreen({
                                 </th>
                               ) : null}
                               {showTaskReorderColumn ? (
-                                <th className="task-reorder-column" aria-hidden="true" />
+                                <th
+                                  className="task-reorder-column"
+                                  aria-hidden="true"
+                                />
                               ) : null}
                               <th>Task</th>
                               <th>Assignee</th>
@@ -3171,14 +3330,18 @@ function WorkspaceScreen({
                                 editRowRef={taskEditRowRef}
                                 editingTaskId={editingTaskId}
                                 isSelected={selectedTasks[task.id] ?? false}
-                                isTaskDragging={activeTaskDragState?.taskId === task.id}
+                                isTaskDragging={
+                                  activeTaskDragState?.taskId === task.id
+                                }
                                 key={task.id}
                                 onEdit={(selectedTask) =>
                                   openTaskEditor(project.id, selectedTask)
                                 }
                                 onFinishTaskDrag={() => {
                                   setTaskDragState((current) =>
-                                    current?.projectId === project.id ? null : current,
+                                    current?.projectId === project.id
+                                      ? null
+                                      : current,
                                   );
                                 }}
                                 onSave={(payload) => {
@@ -3281,7 +3444,9 @@ function WorkspaceScreen({
                                     position,
                                   );
 
-                                  if (sameStringArray(currentTaskIds, nextTaskIds)) {
+                                  if (
+                                    sameStringArray(currentTaskIds, nextTaskIds)
+                                  ) {
                                     setTaskDragState((current) =>
                                       current?.projectId === project.id
                                         ? null
@@ -3729,180 +3894,94 @@ function TaskRow({
   );
 }
 
-type SettingsPanelProps = {
+function settingsCardButtonProps(action: () => void) {
+  return {
+    onClick: action,
+    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        action();
+      }
+    },
+    role: "button" as const,
+    tabIndex: 0,
+  };
+}
+
+type ProfilePanelProps = {
   autoCollapse: boolean;
   bulkActions: boolean;
   currentUser: WorkspaceUser;
   fullWidth: boolean;
-  isAuthHistoryOpen: boolean;
-  isBackupsOpen: boolean;
   isAdmin: boolean;
   isImportExportOpen: boolean;
-  onClearLocalStorage: () => void;
+  isUserHistoryOpen: boolean;
   onAutoCollapseChange: (autoCollapse: boolean) => void;
-  onToggleBackupsPanel: () => void;
   onBulkActionsChange: (bulkActions: boolean) => void;
+  onClearLocalStorage: () => void;
+  onClose: () => void;
   onFullWidthChange: (fullWidth: boolean) => void;
-  onToggleImportExportPanel: () => void;
   onNotice: (message: string) => void;
   onThemeChange: (theme: WorkspaceTheme) => void;
-  onViewAuthHistory: () => void;
+  onToggleImportExportPanel: () => void;
+  onToggleUserHistory: () => void;
   theme: WorkspaceTheme;
-  users: WorkspaceUser[];
 };
 
-function SettingsPanel({
+function ProfilePanel({
   autoCollapse,
   bulkActions,
   currentUser,
   fullWidth,
-  isAuthHistoryOpen,
-  isBackupsOpen,
   isAdmin,
   isImportExportOpen,
-  onClearLocalStorage,
+  isUserHistoryOpen,
   onAutoCollapseChange,
-  onToggleBackupsPanel,
   onBulkActionsChange,
+  onClearLocalStorage,
+  onClose,
   onFullWidthChange,
-  onToggleImportExportPanel,
   onNotice,
   onThemeChange,
-  onViewAuthHistory,
+  onToggleImportExportPanel,
+  onToggleUserHistory,
   theme,
-  users,
-}: SettingsPanelProps) {
-  const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
-  const [adminAuditPanel, setAdminAuditPanel] =
-    useState<AdminAuditReportType | null>(null);
-  const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
-  const [digestPrefError, setDigestPrefError] = useState<string | null>(null);
-  const [dailyDigestTimeDraft, setDailyDigestTimeDraft] = useState("09:00");
-
+}: ProfilePanelProps) {
   const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState(currentUser.name);
+  const [emailDraft, setEmailDraft] = useState(currentUser.email);
+  const [currentPasswordDraft, setCurrentPasswordDraft] = useState("");
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [digestPrefError, setDigestPrefError] = useState<string | null>(null);
   const notificationPreferencesQuery = useQuery({
     queryFn: getNotificationPreferences,
     queryKey: ["notification-preferences"],
     staleTime: 60_000,
   });
-  const smtpStatusQuery = useQuery({
-    enabled: isAdmin,
-    queryFn: getSmtpStatus,
-    queryKey: ["smtp-status"],
-    staleTime: 60_000,
-  });
-  const smtpServer =
-    smtpStatusQuery.data?.host && smtpStatusQuery.data?.port != null
-      ? `${smtpStatusQuery.data.secure ? "smtps" : "smtp"}://${smtpStatusQuery.data.host}:${smtpStatusQuery.data.port}`
-      : null;
-  const configuredDigestTime =
-    smtpStatusQuery.data?.dailyDigestTime ??
-    notificationPreferencesQuery.data?.dailyDigestTime ??
-    "09:00";
-  const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
-  const dragHandlesEnabled = smtpStatusQuery.data?.dragHandlesEnabled ?? true;
   const dailyDigestEnabled =
     notificationPreferencesQuery.data?.dailyDigestEnabled ?? false;
+  const configuredDigestTime =
+    notificationPreferencesQuery.data?.dailyDigestTime ?? "09:00";
+  const currentThemeLabel = getWorkspaceThemeLabel(theme);
+  const nextTheme = getNextWorkspaceTheme(theme);
+  const nextThemeLabel = getWorkspaceThemeLabel(nextTheme);
+  const resetProfileDraft = () => {
+    setNameDraft(currentUser.name);
+    setEmailDraft(currentUser.email);
+    setCurrentPasswordDraft("");
+    setPasswordDraft("");
+    setPasswordConfirmation("");
+    setProfileError(null);
+  };
 
   useEffect(() => {
-    setDailyDigestTimeDraft(configuredDigestTime);
-  }, [configuredDigestTime]);
-
-  const syncWorkspaceDragHandlesEnabled = (enabled: boolean) => {
-    queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
-          current
-        ? {
-            ...current,
-            workspaceSettings: {
-              dragHandlesEnabled: enabled,
-            },
-          }
-        : current,
-    );
-  };
-
-  const emailSettingsMutation = useMutation({
-    mutationFn: updateEmailSettings,
-    onMutate: async (variables) => {
-      setEmailPrefError(null);
-      const previous = queryClient.getQueryData<SmtpStatus>(["smtp-status"]);
-      const previousWorkspace = queryClient.getQueryData<WorkspaceResponse>([
-        "workspace",
-      ]);
-      queryClient.setQueryData<SmtpStatus>(["smtp-status"], (current) =>
-        current
-          ? {
-              ...current,
-              dailyDigestTime: variables.dailyDigestTime,
-              dragHandlesEnabled: variables.dragHandlesEnabled,
-              enabled: variables.enabled,
-            }
-          : current,
-      );
-      syncWorkspaceDragHandlesEnabled(variables.dragHandlesEnabled);
-      return { previous, previousWorkspace };
-    },
-    onSuccess: (status) => {
-      queryClient.setQueryData(["smtp-status"], status);
-      syncWorkspaceDragHandlesEnabled(status.dragHandlesEnabled);
-      queryClient.setQueryData<NotificationPreferences>(
-        ["notification-preferences"],
-        (current) =>
-          current
-            ? {
-                ...current,
-                dailyDigestTime: status.dailyDigestTime,
-              }
-            : current,
-      );
-    },
-    onError: (error, _variables, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["smtp-status"], context.previous);
-      }
-      if (context?.previousWorkspace) {
-        queryClient.setQueryData(["workspace"], context.previousWorkspace);
-      }
-      setEmailPrefError(
-        error instanceof ApiError
-          ? error.message
-          : "Unable to update email notifications.",
-      );
-    },
-  });
-  const toggleEmailNotifications = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
-      return;
+    if (!isEditing) {
+      resetProfileDraft();
     }
-
-    emailSettingsMutation.mutate({
-      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
-      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: !smtpStatusQuery.data.enabled,
-    });
-  };
-  const saveDailyDigestTime = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
-      return;
-    }
-
-    emailSettingsMutation.mutate({
-      dailyDigestTime: dailyDigestTimeDraft,
-      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: smtpStatusQuery.data.enabled,
-    });
-  };
-  const toggleDragHandles = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
-      return;
-    }
-
-    emailSettingsMutation.mutate({
-      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
-      dragHandlesEnabled: !smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: smtpStatusQuery.data.enabled,
-    });
-  };
+  }, [currentUser.email, currentUser.name, isEditing]);
 
   const notificationPreferencesMutation = useMutation({
     mutationFn: updateNotificationPreferences,
@@ -3949,85 +4028,268 @@ function SettingsPanel({
       dailyDigestEnabled: !dailyDigestEnabled,
     });
   };
-  const toggleLocalAccounts = () => {
-    setLocalAccountsOpen((current) => !current);
-  };
-  const toggleAdminAuditPanel = (panel: AdminAuditReportType) => {
-    setAdminAuditPanel((current) => (current === panel ? null : panel));
-  };
-  const settingsCardButtonProps = (action: () => void) => ({
-    onClick: action,
-    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        action();
-      }
+  const updateProfileMutation = useMutation({
+    mutationFn: updateMyProfile,
+    onSuccess: async ({ account }) => {
+      setProfileError(null);
+      setIsEditing(false);
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        current
+          ? {
+              ...current,
+              currentUser: {
+                ...current.currentUser,
+                email: account.email,
+                name: account.name,
+                role: account.role,
+              },
+              users: current.users.map((user) =>
+                user.id === account.id
+                  ? {
+                      ...user,
+                      email: account.email,
+                      name: account.name,
+                      role: account.role,
+                    }
+                  : user,
+              ),
+            }
+          : current,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["workspace"] });
+      resetProfileDraft();
+      onNotice("Updated your profile.");
+      onClose();
     },
-    role: "button" as const,
-    tabIndex: 0,
+    onError: (error) => {
+      setProfileError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update your profile.",
+      );
+    },
   });
+  const submitProfile = (event: ReactFormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedName = nameDraft.trim();
+    const trimmedEmail = emailDraft.trim();
+    const hasPasswordInput =
+      currentPasswordDraft.trim().length > 0 ||
+      passwordDraft.trim().length > 0 ||
+      passwordConfirmation.trim().length > 0;
+
+    if (!trimmedName) {
+      setProfileError("Enter your name");
+      return;
+    }
+
+    if (!trimmedEmail) {
+      setProfileError("Enter your email");
+      return;
+    }
+
+    if (hasPasswordInput) {
+      if (!currentPasswordDraft.trim()) {
+        setProfileError("Enter your current password");
+        return;
+      }
+
+      if (!passwordDraft.trim()) {
+        setProfileError("Enter a new password");
+        return;
+      }
+
+      if (passwordDraft !== passwordConfirmation) {
+        setProfileError("Passwords must match");
+        return;
+      }
+    }
+
+    const payload: UpdateOwnProfilePayload = {};
+
+    if (trimmedName !== currentUser.name) {
+      payload.name = trimmedName;
+    }
+
+    if (trimmedEmail !== currentUser.email) {
+      payload.email = trimmedEmail;
+    }
+
+    if (hasPasswordInput) {
+      payload.currentPassword = currentPasswordDraft;
+      payload.password = passwordDraft;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setIsEditing(false);
+      onClose();
+      return;
+    }
+
+    setProfileError(null);
+    updateProfileMutation.mutate(payload);
+  };
+  const beginEditing = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setProfileError(null);
+    queueMicrotask(() => setIsEditing(true));
+  };
 
   return (
     <section className="workspace-panel-card">
       <header className="panel-header">
         <div>
-          <strong>Settings</strong>
+          <strong>User Profile</strong>
           <span>
-            Browser-local preferences first, followed by account settings and
-            admin controls.
+            Your account details, self-service password changes, and personal
+            workspace preferences.
           </span>
         </div>
-        <div className="settings-version">
-          <div className="settings-version-row">
-            <span>{`${appName} v${appVersion}`}</span>
-            <a
-              className="settings-link"
-              href={appRepositoryUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              github
-            </a>
-          </div>
-          {isAdmin && smtpServer ? (
-            <span className="settings-version-detail">{smtpServer}</span>
-          ) : null}
-          {isAdmin && smtpStatusQuery.data?.fromAddress ? (
-            <span className="settings-version-detail">
-              {smtpStatusQuery.data.fromAddress}
-            </span>
-          ) : null}
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            onClick={onClose}
+          >
+            Close
+          </button>
         </div>
       </header>
 
       <div className="settings-grid">
-        <div
-          className="settings-item settings-item-toggle"
-          onClick={() => onThemeChange(theme === "dark" ? "light" : "dark")}
-        >
+        <div className="settings-item settings-item-wide">
+          <div className="settings-item-header">
+            <strong>Account</strong>
+            <span>{currentUser.role}</span>
+          </div>
+
+          <form className="profile-form" onSubmit={submitProfile}>
+            <div className="profile-form-grid">
+              <label>
+                Name
+                {isEditing ? (
+                  <input
+                    value={nameDraft}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    placeholder="Your name"
+                  />
+                ) : (
+                  <span className="profile-summary-value">
+                    {currentUser.name}
+                  </span>
+                )}
+              </label>
+              <label>
+                Email
+                {isEditing ? (
+                  <input
+                    type="email"
+                    value={emailDraft}
+                    onChange={(event) => setEmailDraft(event.target.value)}
+                    placeholder="you@example.com"
+                  />
+                ) : (
+                  <span className="profile-summary-value">
+                    {currentUser.email}
+                  </span>
+                )}
+              </label>
+              {isEditing ? (
+                <>
+                  <label>
+                    Current password
+                    <input
+                      type="password"
+                      value={currentPasswordDraft}
+                      onChange={(event) =>
+                        setCurrentPasswordDraft(event.target.value)
+                      }
+                      placeholder="Current password"
+                    />
+                  </label>
+                  <label>
+                    Change password
+                    <input
+                      type="password"
+                      value={passwordDraft}
+                      onChange={(event) => setPasswordDraft(event.target.value)}
+                      placeholder="New password"
+                    />
+                  </label>
+                  <label>
+                    Repeat password
+                    <input
+                      type="password"
+                      value={passwordConfirmation}
+                      onChange={(event) =>
+                        setPasswordConfirmation(event.target.value)
+                      }
+                      placeholder="Repeat new password"
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
+
+            {profileError ? (
+              <p className="error-banner">{profileError}</p>
+            ) : null}
+
+            <div className="settings-actions">
+              {isEditing ? (
+                <>
+                  <button
+                    type="submit"
+                    disabled={updateProfileMutation.isPending}
+                  >
+                    {updateProfileMutation.isPending ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button compact-button"
+                    disabled={updateProfileMutation.isPending}
+                    onClick={() => {
+                      setIsEditing(false);
+                      resetProfileDraft();
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  onClick={beginEditing}
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        <div className="settings-item">
           <div className="settings-item-header">
             <strong>Theme</strong>
-            <span>{theme === "dark" ? "Dark mode" : "Light mode"}</span>
+            <span>{currentThemeLabel}</span>
           </div>
           <p className="toolbar-hint">
             Keep the workspace compact and readable without leaving the browser.
           </p>
-          <label
-            className="settings-switch"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <span className="settings-switch-label">Dark mode</span>
-            <input
-              aria-label="Dark mode"
-              checked={theme === "dark"}
-              className="settings-switch-input"
-              onChange={(event) =>
-                onThemeChange(event.target.checked ? "dark" : "light")
-              }
-              role="switch"
-              type="checkbox"
-            />
-          </label>
+          <div className="theme-cycle-controls">
+            <button
+              type="button"
+              className="ghost-button theme-cycle-button"
+              onClick={() => onThemeChange(nextTheme)}
+              title={`Next theme: ${nextThemeLabel}`}
+            >
+              {currentThemeLabel}
+            </button>
+            <span className="theme-cycle-note">Next: {nextThemeLabel}</span>
+          </div>
         </div>
 
         <div
@@ -4163,12 +4425,12 @@ function SettingsPanel({
         </div>
 
         <div
-          aria-expanded={isAuthHistoryOpen}
+          aria-expanded={isUserHistoryOpen}
           className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(onViewAuthHistory)}
+          {...settingsCardButtonProps(onToggleUserHistory)}
         >
           <div className="settings-item-header">
-            <strong>My Auth History</strong>
+            <strong>User History</strong>
             <span>{currentUser.name}</span>
           </div>
           <p className="toolbar-hint">
@@ -4177,220 +4439,367 @@ function SettingsPanel({
         </div>
 
         {!isAdmin ? (
-          <>
-            <div
-              aria-expanded={isImportExportOpen}
-              className="settings-item settings-item-toggle"
-              {...settingsCardButtonProps(onToggleImportExportPanel)}
-            >
-              <div className="settings-item-header">
-                <strong>Import/Export</strong>
-                <span>{isImportExportOpen ? "Open" : "Closed"}</span>
-              </div>
-              <p className="toolbar-hint">
-                Open workspace export tools and, for admins, the Loop import staging
-                panel.
-              </p>
-            </div>
-            <div
-              aria-expanded={localAccountsOpen}
-              className="settings-item settings-item-toggle"
-              {...settingsCardButtonProps(toggleLocalAccounts)}
-            >
-              <div className="settings-item-header">
-                <strong>Local Accounts</strong>
-                <span>Self-service</span>
-              </div>
-              <p className="toolbar-hint">
-                Only your own password is available here.
-              </p>
-            </div>
-          </>
-        ) : null}
-
-        {isAdmin ? (
-          <>
-            <div
-              className="settings-item settings-item-toggle"
-              onClick={toggleEmailNotifications}
-            >
-              <div className="settings-item-header">
-                <strong>Email Notifications</strong>
-                <span>{emailEnabled ? "On" : "Off"}</span>
-              </div>
-              <p className="toolbar-hint">
-                Enable or disable all Tavi email delivery for every user.
-              </p>
-              {emailPrefError ? (
-                <p className="error-banner">{emailPrefError}</p>
-              ) : null}
-              <label
-                className="settings-switch"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="settings-switch-label">
-                  Email Notifications
-                </span>
-                <input
-                  aria-label="Email Notifications"
-                  checked={emailEnabled}
-                  className="settings-switch-input"
-                  onChange={toggleEmailNotifications}
-                  role="switch"
-                  type="checkbox"
-                />
-              </label>
-            </div>
-            <div className="settings-item">
-              <div className="settings-item-header">
-                <strong>Daily Digest Time</strong>
-                <span>{configuredDigestTime}</span>
-              </div>
-              <p className="toolbar-hint">
-                Choose when daily digest emails are sent in server local time.
-              </p>
-              {emailPrefError ? (
-                <p className="error-banner">{emailPrefError}</p>
-              ) : null}
-              <div className="settings-time-controls">
-                <label className="settings-time-field">
-                  <input
-                    aria-label="Daily digest time"
-                    onChange={(event) =>
-                      setDailyDigestTimeDraft(event.target.value)
-                    }
-                    type="time"
-                    value={dailyDigestTimeDraft}
-                  />
-                </label>
-                <div className="settings-actions">
-                  <button
-                    type="button"
-                    className="ghost-button compact-button"
-                    disabled={
-                      emailSettingsMutation.isPending ||
-                      !smtpStatusQuery.data ||
-                      dailyDigestTimeDraft ===
-                        smtpStatusQuery.data.dailyDigestTime
-                    }
-                    onClick={saveDailyDigestTime}
-                  >
-                    Save digest time
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div
-              className="settings-item settings-item-toggle"
-              onClick={toggleDragHandles}
-            >
-              <div className="settings-item-header">
-                <strong>Task Drag Handles</strong>
-                <span>{dragHandlesEnabled ? "On" : "Off"}</span>
-              </div>
-              <p className="toolbar-hint">
-                Show or hide manual task-reorder handles for the whole workspace.
-              </p>
-              {emailPrefError ? (
-                <p className="error-banner">{emailPrefError}</p>
-              ) : null}
-              <label
-                className="settings-switch"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <span className="settings-switch-label">Task Drag Handles</span>
-                <input
-                  aria-label="Task Drag Handles"
-                  checked={dragHandlesEnabled}
-                  className="settings-switch-input"
-                  disabled={
-                    emailSettingsMutation.isPending || !smtpStatusQuery.data
-                  }
-                  onChange={toggleDragHandles}
-                  role="switch"
-                  type="checkbox"
-                />
-              </label>
-            </div>
-            <div
-              aria-expanded={isBackupsOpen}
-              className="settings-item settings-item-toggle"
-              {...settingsCardButtonProps(onToggleBackupsPanel)}
-            >
-              <div className="settings-item-header">
-                <strong>Backups</strong>
-                <span>{isBackupsOpen ? "Open" : "Closed"}</span>
-              </div>
-              <p className="toolbar-hint">
-                Open the backups panel to manage scheduled snapshots and restore
-                backups.
-              </p>
-            </div>
-            <div
-              aria-expanded={isImportExportOpen}
-              className="settings-item settings-item-toggle"
-              {...settingsCardButtonProps(onToggleImportExportPanel)}
-            >
-              <div className="settings-item-header">
-                <strong>Import/Export</strong>
-                <span>{isImportExportOpen ? "Open" : "Closed"}</span>
-              </div>
-              <p className="toolbar-hint">
-                Open workspace export tools and, for admins, the Loop import staging
-                panel.
-              </p>
-            </div>
-            <div
-              aria-expanded={localAccountsOpen}
-              className="settings-item settings-item-toggle"
-              {...settingsCardButtonProps(toggleLocalAccounts)}
-            >
-              <div className="settings-item-header">
-                <strong>Local Accounts</strong>
-                <span>Local auth</span>
-              </div>
-              <p className="toolbar-hint">
-                Create, import, export, reset, edit, remove, and set passwords
-                for local accounts.
-              </p>
-            </div>
-          </>
-        ) : null}
-
-        {isAdmin ? (
           <div
-            aria-expanded={adminAuditPanel === "logins"}
+            aria-expanded={isImportExportOpen}
             className="settings-item settings-item-toggle"
-            {...settingsCardButtonProps(() => toggleAdminAuditPanel("logins"))}
+            {...settingsCardButtonProps(onToggleImportExportPanel)}
           >
             <div className="settings-item-header">
-              <strong>Audit logins</strong>
-              <span>All users</span>
+              <strong>Import/Export</strong>
+              <span>{isImportExportOpen ? "Open" : "Closed"}</span>
             </div>
             <p className="toolbar-hint">
-              Review sign-in and sign-out history for every account with search,
-              date filters, and export.
+              Open workspace export tools and, for admins, the Loop import
+              staging panel.
             </p>
           </div>
         ) : null}
+      </div>
+    </section>
+  );
+}
 
-        {isAdmin ? (
-          <div
-            aria-expanded={adminAuditPanel === "changes"}
-            className="settings-item settings-item-toggle"
-            {...settingsCardButtonProps(() => toggleAdminAuditPanel("changes"))}
-          >
-            <div className="settings-item-header">
-              <strong>Audit changes</strong>
-              <span>Projects and tasks</span>
-            </div>
-            <p className="toolbar-hint">
-              Review project and task changes across the workspace with search,
-              filters, and export.
-            </p>
+type SettingsPanelProps = {
+  currentUser: WorkspaceUser;
+  isBackupsOpen: boolean;
+  isAdmin: boolean;
+  isImportExportOpen: boolean;
+  onNotice: (message: string) => void;
+  onToggleBackupsPanel: () => void;
+  onToggleImportExportPanel: () => void;
+  users: WorkspaceUser[];
+};
+
+function SettingsPanel({
+  currentUser,
+  isBackupsOpen,
+  isAdmin,
+  isImportExportOpen,
+  onNotice,
+  onToggleBackupsPanel,
+  onToggleImportExportPanel,
+  users,
+}: SettingsPanelProps) {
+  if (!isAdmin) {
+    return null;
+  }
+
+  const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
+  const [adminAuditPanel, setAdminAuditPanel] =
+    useState<AdminAuditReportType | null>(null);
+  const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
+  const [dailyDigestTimeDraft, setDailyDigestTimeDraft] = useState("09:00");
+
+  const queryClient = useQueryClient();
+  const smtpStatusQuery = useQuery({
+    queryFn: getSmtpStatus,
+    queryKey: ["smtp-status"],
+    staleTime: 60_000,
+  });
+  const smtpServer =
+    smtpStatusQuery.data?.host && smtpStatusQuery.data?.port != null
+      ? `${smtpStatusQuery.data.secure ? "smtps" : "smtp"}://${smtpStatusQuery.data.host}:${smtpStatusQuery.data.port}`
+      : null;
+  const configuredDigestTime = smtpStatusQuery.data?.dailyDigestTime ?? "09:00";
+  const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
+  const dragHandlesEnabled = smtpStatusQuery.data?.dragHandlesEnabled ?? true;
+
+  useEffect(() => {
+    setDailyDigestTimeDraft(configuredDigestTime);
+  }, [configuredDigestTime]);
+
+  const syncWorkspaceDragHandlesEnabled = (enabled: boolean) => {
+    queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+      current
+        ? {
+            ...current,
+            workspaceSettings: {
+              dragHandlesEnabled: enabled,
+            },
+          }
+        : current,
+    );
+  };
+
+  const emailSettingsMutation = useMutation({
+    mutationFn: updateEmailSettings,
+    onMutate: async (variables) => {
+      setEmailPrefError(null);
+      const previous = queryClient.getQueryData<SmtpStatus>(["smtp-status"]);
+      const previousWorkspace = queryClient.getQueryData<WorkspaceResponse>([
+        "workspace",
+      ]);
+      queryClient.setQueryData<SmtpStatus>(["smtp-status"], (current) =>
+        current
+          ? {
+              ...current,
+              dailyDigestTime: variables.dailyDigestTime,
+              dragHandlesEnabled: variables.dragHandlesEnabled,
+              enabled: variables.enabled,
+            }
+          : current,
+      );
+      syncWorkspaceDragHandlesEnabled(variables.dragHandlesEnabled);
+      return { previous, previousWorkspace };
+    },
+    onSuccess: (status) => {
+      queryClient.setQueryData(["smtp-status"], status);
+      syncWorkspaceDragHandlesEnabled(status.dragHandlesEnabled);
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["smtp-status"], context.previous);
+      }
+      if (context?.previousWorkspace) {
+        queryClient.setQueryData(["workspace"], context.previousWorkspace);
+      }
+      setEmailPrefError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update email notifications.",
+      );
+    },
+  });
+  const toggleEmailNotifications = () => {
+    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+      return;
+    }
+
+    emailSettingsMutation.mutate({
+      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
+      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
+      enabled: !smtpStatusQuery.data.enabled,
+    });
+  };
+  const saveDailyDigestTime = () => {
+    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+      return;
+    }
+
+    emailSettingsMutation.mutate({
+      dailyDigestTime: dailyDigestTimeDraft,
+      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
+      enabled: smtpStatusQuery.data.enabled,
+    });
+  };
+  const toggleDragHandles = () => {
+    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+      return;
+    }
+
+    emailSettingsMutation.mutate({
+      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
+      dragHandlesEnabled: !smtpStatusQuery.data.dragHandlesEnabled,
+      enabled: smtpStatusQuery.data.enabled,
+    });
+  };
+
+  const toggleLocalAccounts = () => {
+    setLocalAccountsOpen((current) => !current);
+  };
+  const toggleAdminAuditPanel = (panel: AdminAuditReportType) => {
+    setAdminAuditPanel((current) => (current === panel ? null : panel));
+  };
+
+  return (
+    <section className="workspace-panel-card">
+      <header className="panel-header">
+        <div>
+          <strong>Settings</strong>
+          <span>Workspace-wide admin controls, tools, and system reports.</span>
+        </div>
+        <div className="settings-version">
+          <div className="settings-version-row">
+            <span>{`${appName} v${appVersion}`}</span>
+            <a
+              className="settings-link"
+              href={appRepositoryUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              github
+            </a>
           </div>
-        ) : null}
+          {isAdmin && smtpServer ? (
+            <span className="settings-version-detail">{smtpServer}</span>
+          ) : null}
+          {isAdmin && smtpStatusQuery.data?.fromAddress ? (
+            <span className="settings-version-detail">
+              {smtpStatusQuery.data.fromAddress}
+            </span>
+          ) : null}
+        </div>
+      </header>
 
+      <div className="settings-grid">
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={toggleEmailNotifications}
+        >
+          <div className="settings-item-header">
+            <strong>Email Notifications</strong>
+            <span>{emailEnabled ? "On" : "Off"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Enable or disable all Tavi email delivery for every user.
+          </p>
+          {emailPrefError ? (
+            <p className="error-banner">{emailPrefError}</p>
+          ) : null}
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Email Notifications</span>
+            <input
+              aria-label="Email Notifications"
+              checked={emailEnabled}
+              className="settings-switch-input"
+              onChange={toggleEmailNotifications}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+        <div className="settings-item">
+          <div className="settings-item-header">
+            <strong>Daily Digest Time</strong>
+            <span>{configuredDigestTime}</span>
+          </div>
+          <p className="toolbar-hint">
+            Choose when daily digest emails are sent in server local time.
+          </p>
+          {emailPrefError ? (
+            <p className="error-banner">{emailPrefError}</p>
+          ) : null}
+          <div className="settings-time-controls">
+            <label className="settings-time-field">
+              <input
+                aria-label="Daily digest time"
+                onChange={(event) =>
+                  setDailyDigestTimeDraft(event.target.value)
+                }
+                type="time"
+                value={dailyDigestTimeDraft}
+              />
+            </label>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                disabled={
+                  emailSettingsMutation.isPending ||
+                  !smtpStatusQuery.data ||
+                  dailyDigestTimeDraft === smtpStatusQuery.data.dailyDigestTime
+                }
+                onClick={saveDailyDigestTime}
+              >
+                Save digest time
+              </button>
+            </div>
+          </div>
+        </div>
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={toggleDragHandles}
+        >
+          <div className="settings-item-header">
+            <strong>Task Drag Handles</strong>
+            <span>{dragHandlesEnabled ? "On" : "Off"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Show or hide manual task-reorder handles for the whole workspace.
+          </p>
+          {emailPrefError ? (
+            <p className="error-banner">{emailPrefError}</p>
+          ) : null}
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Task Drag Handles</span>
+            <input
+              aria-label="Task Drag Handles"
+              checked={dragHandlesEnabled}
+              className="settings-switch-input"
+              disabled={
+                emailSettingsMutation.isPending || !smtpStatusQuery.data
+              }
+              onChange={toggleDragHandles}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+        <div
+          aria-expanded={isBackupsOpen}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(onToggleBackupsPanel)}
+        >
+          <div className="settings-item-header">
+            <strong>Backups</strong>
+            <span>{isBackupsOpen ? "Open" : "Closed"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Open the backups panel to manage scheduled snapshots and restore
+            backups.
+          </p>
+        </div>
+        <div
+          aria-expanded={isImportExportOpen}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(onToggleImportExportPanel)}
+        >
+          <div className="settings-item-header">
+            <strong>Import/Export</strong>
+            <span>{isImportExportOpen ? "Open" : "Closed"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Open workspace export tools and the Loop import staging panel.
+          </p>
+        </div>
+        <div
+          aria-expanded={localAccountsOpen}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(toggleLocalAccounts)}
+        >
+          <div className="settings-item-header">
+            <strong>Local Accounts</strong>
+            <span>Local auth</span>
+          </div>
+          <p className="toolbar-hint">
+            Create, import, export, reset, edit, remove, and set passwords for
+            local accounts.
+          </p>
+        </div>
+        <div
+          aria-expanded={adminAuditPanel === "logins"}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(() => toggleAdminAuditPanel("logins"))}
+        >
+          <div className="settings-item-header">
+            <strong>Audit logins</strong>
+            <span>All users</span>
+          </div>
+          <p className="toolbar-hint">
+            Review sign-in and sign-out history for every account with search,
+            date filters, and export.
+          </p>
+        </div>
+        <div
+          aria-expanded={adminAuditPanel === "changes"}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(() => toggleAdminAuditPanel("changes"))}
+        >
+          <div className="settings-item-header">
+            <strong>Audit changes</strong>
+            <span>Projects and tasks</span>
+          </div>
+          <p className="toolbar-hint">
+            Review project and task changes across the workspace with search,
+            filters, and export.
+          </p>
+        </div>
       </div>
 
       {localAccountsOpen ? (
@@ -4921,6 +5330,8 @@ function normalizeWorkspacePanelState(
     backups: value?.backups === true,
     importExport: value?.importExport === true,
     newProject: value?.newProject === true,
+    personalTodo: value?.personalTodo === true,
+    profile: value?.profile === true,
     settings: value?.settings === true,
     view: value?.view === true,
   };
@@ -4947,8 +5358,35 @@ function normalizeWorkspacePreferences(
     autoCollapse: value?.autoCollapse !== false,
     bulkActions: value?.bulkActions !== false,
     fullWidth: value?.fullWidth === true,
-    theme: value?.theme === "dark" ? "dark" : "light",
+    theme: normalizeWorkspaceTheme(value?.theme),
   };
+}
+
+function getNextWorkspaceTheme(theme: WorkspaceTheme): WorkspaceTheme {
+  const currentIndex = WORKSPACE_THEMES.indexOf(theme);
+  const nextIndex =
+    currentIndex === -1 ? 0 : (currentIndex + 1) % WORKSPACE_THEMES.length;
+
+  return WORKSPACE_THEMES[nextIndex];
+}
+
+function getWorkspaceThemeLabel(theme: WorkspaceTheme) {
+  return WORKSPACE_THEME_META[theme].label;
+}
+
+function normalizeWorkspaceTheme(value: unknown): WorkspaceTheme {
+  if (value === "dark") {
+    return "ocean";
+  }
+
+  if (
+    typeof value === "string" &&
+    WORKSPACE_THEMES.includes(value as WorkspaceTheme)
+  ) {
+    return value as WorkspaceTheme;
+  }
+
+  return DEFAULT_WORKSPACE_THEME;
 }
 
 function formatTaskCompletionPercent(doneCount: number, totalCount: number) {

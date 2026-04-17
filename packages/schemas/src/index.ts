@@ -88,6 +88,9 @@ export const taskStatusSchema = z.enum([
 ]);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
+export const personalTodoStatusSchema = z.enum(["todo", "done"]);
+export type PersonalTodoStatus = z.infer<typeof personalTodoStatusSchema>;
+
 export const projectStatusSchema = z.enum([
   "not_started",
   "in_progress",
@@ -199,8 +202,49 @@ export type SetLocalAccountPasswordInput = z.infer<
   typeof setLocalAccountPasswordSchema
 >;
 
-export const setOwnPasswordSchema = setLocalAccountPasswordSchema;
+export const setOwnPasswordSchema = z.object({
+  currentPassword: localPasswordSchema,
+  password: localPasswordSchema,
+});
 export type SetOwnPasswordInput = z.infer<typeof setOwnPasswordSchema>;
+
+export const updateOwnProfileSchema = z
+  .object({
+    email: emailAddressSchema.optional(),
+    name: localAccountNameSchema.optional(),
+    currentPassword: localPasswordSchema.optional(),
+    password: localPasswordSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.email === undefined &&
+      value.name === undefined &&
+      value.password === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one profile field must be provided",
+        path: ["email"],
+      });
+    }
+
+    if (value.password !== undefined && value.currentPassword === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Current password is required to change your password",
+        path: ["currentPassword"],
+      });
+    }
+
+    if (value.currentPassword !== undefined && value.password === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "New password is required when current password is provided",
+        path: ["password"],
+      });
+    }
+  });
+export type UpdateOwnProfileInput = z.infer<typeof updateOwnProfileSchema>;
 
 export const deleteLocalAccountSchema = z.object({
   nextProjectOwnerUserId: nullableUserIdSchema,
@@ -371,6 +415,91 @@ export const updateTaskSchema = createTaskSchema.partial().extend({
   notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional().nullable(),
 });
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+
+export const personalTodoSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  notes: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  status: personalTodoStatusSchema,
+  sortOrder: z.number().int(),
+  completedAt: z.string().nullable(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+export type PersonalTodo = z.infer<typeof personalTodoSchema>;
+
+export const createPersonalTodoSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional(),
+  dueDate: z.string().optional(),
+});
+export type CreatePersonalTodoInput = z.infer<typeof createPersonalTodoSchema>;
+
+export const updatePersonalTodoSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120).optional(),
+    notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional().nullable(),
+    dueDate: z.string().optional().nullable(),
+    status: personalTodoStatusSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.title === undefined &&
+      value.notes === undefined &&
+      value.dueDate === undefined &&
+      value.status === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one personal todo field must be provided",
+        path: ["title"],
+      });
+    }
+  });
+export type UpdatePersonalTodoInput = z.infer<typeof updatePersonalTodoSchema>;
+
+export const reorderPersonalTodosSchema = z
+  .object({
+    todoIds: z.array(z.string().min(1)).max(500),
+  })
+  .superRefine((value, context) => {
+    if (new Set(value.todoIds).size !== value.todoIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Duplicate personal todo ids are not allowed",
+        path: ["todoIds"],
+      });
+    }
+  });
+export type ReorderPersonalTodosInput = z.infer<typeof reorderPersonalTodosSchema>;
+
+export const importPersonalTodoItemSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  notes: z.string().max(TASK_NOTES_MAX_LENGTH).optional(),
+  dueDate: z.string().optional().nullable(),
+  status: personalTodoStatusSchema.default("todo"),
+});
+export type ImportPersonalTodoItem = z.infer<typeof importPersonalTodoItemSchema>;
+
+export const importPersonalTodosSchema = z.object({
+  personalTodos: z.array(importPersonalTodoItemSchema).max(1_000),
+});
+export type ImportPersonalTodosInput = z.infer<typeof importPersonalTodosSchema>;
+
+export const importPersonalTodosResponseSchema = z.object({
+  importedCount: z.number().int().nonnegative(),
+});
+export type ImportPersonalTodosResponse = z.infer<
+  typeof importPersonalTodosResponseSchema
+>;
+
+export const deletePersonalTodoResponseSchema = z.object({
+  id: z.string().min(1),
+});
+export type DeletePersonalTodoResponse = z.infer<
+  typeof deletePersonalTodoResponseSchema
+>;
 
 export const reorderProjectTasksSchema = z
   .object({

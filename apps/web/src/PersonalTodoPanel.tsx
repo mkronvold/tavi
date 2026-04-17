@@ -1,0 +1,794 @@
+import { type DragEvent as ReactDragEvent, type FormEvent, useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { appName, appVersion } from "@tavi/config";
+import { importPersonalTodosSchema } from "@tavi/schemas";
+import {
+  ApiError,
+  createPersonalTodo,
+  deletePersonalTodo,
+  importPersonalTodos,
+  reorderPersonalTodos,
+  updatePersonalTodo,
+} from "./api";
+import { downloadJsonFile } from "./export-utils";
+import type {
+  CreatePersonalTodoPayload,
+  UpdatePersonalTodoPayload,
+  WorkspacePersonalTodo,
+  WorkspaceResponse,
+} from "./types";
+
+type PersonalTodoPanelProps = {
+  hideDoneTodos: boolean;
+  onClose: () => void;
+  onHideDoneChange: (hideDone: boolean) => void;
+  onNotice: (message: string) => void;
+  personalTodos: WorkspacePersonalTodo[];
+};
+
+type PersonalTodoDraft = {
+  dueDate: string;
+  notes: string;
+  title: string;
+};
+
+type PersonalTodoDragState = {
+  position: "after" | "before";
+  todoId: string;
+  overTodoId: string;
+};
+
+const EMPTY_PERSONAL_TODO_DRAFT: PersonalTodoDraft = {
+  dueDate: "",
+  notes: "",
+  title: "",
+};
+
+export function PersonalTodoPanel({
+  hideDoneTodos,
+  onClose,
+  onHideDoneChange,
+  onNotice,
+  personalTodos,
+}: PersonalTodoPanelProps) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [createDraft, setCreateDraft] = useState<PersonalTodoDraft>(
+    EMPTY_PERSONAL_TODO_DRAFT,
+  );
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<PersonalTodoDraft>(
+    EMPTY_PERSONAL_TODO_DRAFT,
+  );
+  const [panelError, setPanelError] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<PersonalTodoDragState | null>(null);
+  const doneTodoCount = personalTodos.filter((todo) => todo.status === "done").length;
+  const visibleTodos = useMemo(
+    () =>
+      hideDoneTodos
+        ? personalTodos.filter((todo) => todo.status !== "done")
+        : personalTodos,
+    [hideDoneTodos, personalTodos],
+  );
+
+  const invalidateWorkspace = () =>
+    queryClient.invalidateQueries({ queryKey: ["workspace"] });
+
+  const createPersonalTodoMutation = useMutation({
+    mutationFn: createPersonalTodo,
+    onSuccess: async () => {
+      setCreateDraft(EMPTY_PERSONAL_TODO_DRAFT);
+      setPanelError(null);
+      onNotice("Added a personal to do.");
+      await invalidateWorkspace();
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError ? error.message : "Unable to add personal to do.",
+      );
+    },
+  });
+
+  const updatePersonalTodoMutation = useMutation({
+    mutationFn: ({
+      payload,
+      todoId,
+    }: {
+      payload: UpdatePersonalTodoPayload;
+      todoId: string;
+    }) => updatePersonalTodo(todoId, payload),
+    onSuccess: async () => {
+      setEditingTodoId(null);
+      setPanelError(null);
+      await invalidateWorkspace();
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update personal to do.",
+      );
+    },
+  });
+
+  const deletePersonalTodoMutation = useMutation({
+    mutationFn: ({
+      todoId,
+    }: {
+      title: string;
+      todoId: string;
+    }) => deletePersonalTodo(todoId),
+    onSuccess: async (_result, variables) => {
+      if (editingTodoId === variables.todoId) {
+        setEditingTodoId(null);
+      }
+      setPanelError(null);
+      onNotice(`Deleted personal to do "${variables.title}".`);
+      await invalidateWorkspace();
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to delete personal to do.",
+      );
+    },
+  });
+
+  const reorderPersonalTodosMutation = useMutation({
+    mutationFn: reorderPersonalTodos,
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["workspace"] });
+      const previous = queryClient.getQueryData<WorkspaceResponse>(["workspace"]);
+
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        reorderWorkspacePersonalTodos(current, variables.todoIds),
+      );
+
+      return { previous };
+    },
+    onSuccess: async () => {
+      setPanelError(null);
+      await invalidateWorkspace();
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["workspace"], context.previous);
+      }
+
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reorder personal to dos.",
+      );
+    },
+    onSettled: () => {
+      setDragState(null);
+    },
+  });
+
+  const importPersonalTodosMutation = useMutation({
+    mutationFn: importPersonalTodos,
+    onSuccess: async (result) => {
+      setEditingTodoId(null);
+      setPanelError(null);
+      onNotice(
+        `Imported ${result.importedCount.toString()} personal to do${result.importedCount === 1 ? "" : "s"}.`,
+      );
+      await invalidateWorkspace();
+    },
+    onError: (error) => {
+      setPanelError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to import personal to dos.",
+      );
+    },
+  });
+  const reorderDisabledReason = reorderReason({
+    doneTodoCount,
+    hideDoneTodos,
+    isPending: reorderPersonalTodosMutation.isPending,
+    totalCount: personalTodos.length,
+  });
+  const canReorderTodos = reorderDisabledReason === null;
+
+  const beginEditing = (todo: WorkspacePersonalTodo) => {
+    setEditingTodoId(todo.id);
+    setEditDraft({
+      dueDate: toDateInput(todo.dueDate),
+      notes: todo.notes ?? "",
+      title: todo.title,
+    });
+    setPanelError(null);
+  };
+
+  const submitCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const payload = normalizeCreatePersonalTodoPayload(createDraft);
+
+    if (!payload.title) {
+      setPanelError("Enter a task name");
+      return;
+    }
+
+    setPanelError(null);
+    createPersonalTodoMutation.mutate(payload);
+  };
+
+  const submitEdit = (todo: WorkspacePersonalTodo) => {
+    const payload = buildPersonalTodoUpdatePayload(todo, editDraft);
+
+    if (!editDraft.title.trim()) {
+      setPanelError("Enter a task name");
+      return;
+    }
+
+    if (!payload) {
+      setEditingTodoId(null);
+      setPanelError(null);
+      return;
+    }
+
+    setPanelError(null);
+    updatePersonalTodoMutation.mutate({
+      payload,
+      todoId: todo.id,
+    });
+  };
+
+  const toggleTodoStatus = (todo: WorkspacePersonalTodo, checked: boolean) => {
+    setPanelError(null);
+    updatePersonalTodoMutation.mutate({
+      payload: {
+        status: checked ? "done" : "todo",
+      },
+      todoId: todo.id,
+    });
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = async (file: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    try {
+      const raw = JSON.parse(await file.text()) as {
+        personalTodos?: unknown;
+      };
+      if (typeof raw !== "object" || raw === null || !("personalTodos" in raw)) {
+        throw new Error("Import file must include a personalTodos array.");
+      }
+
+      const payload = importPersonalTodosSchema.parse(raw);
+
+      if (
+        !window.confirm(
+          "Importing personal to dos will replace your current list. Continue?",
+        )
+      ) {
+        return;
+      }
+
+      setPanelError(null);
+      importPersonalTodosMutation.mutate(payload);
+    } catch (error) {
+      setPanelError(
+        error instanceof Error
+          ? error.message
+          : "Unable to read the personal to do import file.",
+      );
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  return (
+    <section className="workspace-panel-card">
+      <header className="panel-header">
+        <div>
+          <strong>Personal ToDo</strong>
+          <span>Private tasks visible only to you.</span>
+        </div>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            onClick={handleImportClick}
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            onClick={() =>
+              downloadJsonFile("personal-todo", {
+                app: {
+                  name: appName,
+                  version: appVersion,
+                },
+                exportedAt: new Date().toISOString(),
+                personalTodos: personalTodos.map((todo) => ({
+                  dueDate: todo.dueDate,
+                  notes: todo.notes,
+                  status: todo.status,
+                  title: todo.title,
+                })),
+              })
+            }
+          >
+            Export
+          </button>
+          <button
+            type="button"
+            className="ghost-button compact-button"
+            onClick={onClose}
+          >
+            Close
+          </button>
+          <input
+            ref={fileInputRef}
+            accept="application/json"
+            className="hidden-file-input"
+            onChange={(event) => void handleImportFile(event.target.files?.[0] ?? null)}
+            type="file"
+          />
+        </div>
+      </header>
+
+      <form className="personal-todo-form" onSubmit={submitCreate}>
+        <input
+          value={createDraft.title}
+          onChange={(event) =>
+            setCreateDraft((current) => ({
+              ...current,
+              title: event.target.value,
+            }))
+          }
+          placeholder="Task name"
+        />
+        <textarea
+          value={createDraft.notes}
+          onChange={(event) =>
+            setCreateDraft((current) => ({
+              ...current,
+              notes: event.target.value,
+            }))
+          }
+          className="resizable-notes"
+          placeholder="Notes"
+          rows={2}
+        />
+        <input
+          type="date"
+          value={createDraft.dueDate}
+          onChange={(event) =>
+            setCreateDraft((current) => ({
+              ...current,
+              dueDate: event.target.value,
+            }))
+          }
+        />
+        <button
+          type="submit"
+          disabled={createPersonalTodoMutation.isPending}
+        >
+          {createPersonalTodoMutation.isPending ? "Adding..." : "Add"}
+        </button>
+      </form>
+
+      {panelError ? <p className="error-banner">{panelError}</p> : null}
+
+      <div className="task-panel personal-todo-panel">
+        <table className="task-table personal-todo-table">
+          <thead>
+            <tr>
+              <th className="task-reorder-cell" />
+              <th>Task</th>
+              <th>Due date</th>
+              <th className="personal-todo-complete-column">
+                <button
+                  type="button"
+                  className={`ghost-button compact-button task-done-toggle${hideDoneTodos ? " is-active" : ""}`}
+                  aria-label={
+                    hideDoneTodos
+                      ? "Show done personal to dos"
+                      : "Hide done personal to dos"
+                  }
+                  aria-pressed={hideDoneTodos}
+                  onClick={() => onHideDoneChange(!hideDoneTodos)}
+                  title={hideDoneTodos ? "Show done personal to dos" : "Hide done personal to dos"}
+                >
+                  D
+                </button>
+              </th>
+              <th className="task-action-cell">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visibleTodos.length === 0 ? (
+              <tr>
+                <td className="personal-todo-empty-state" colSpan={5}>
+                  {personalTodos.length === 0
+                    ? "No personal ToDo items yet."
+                    : "All done personal to dos are hidden."}
+                </td>
+              </tr>
+            ) : (
+              visibleTodos.map((todo) => {
+                const isEditing = editingTodoId === todo.id;
+                const isDragging = dragState?.todoId === todo.id;
+                const reorderIndicator =
+                  dragState?.overTodoId === todo.id ? dragState.position : null;
+
+                if (isEditing) {
+                  return (
+                    <tr key={todo.id}>
+                      <td className="task-reorder-cell" />
+                      <td>
+                        <input
+                          value={editDraft.title}
+                          onChange={(event) =>
+                            setEditDraft((current) => ({
+                              ...current,
+                              title: event.target.value,
+                            }))
+                          }
+                          placeholder="Task name"
+                        />
+                        <textarea
+                          value={editDraft.notes}
+                          onChange={(event) =>
+                            setEditDraft((current) => ({
+                              ...current,
+                              notes: event.target.value,
+                            }))
+                          }
+                          className="resizable-notes"
+                          placeholder="Notes"
+                          rows={2}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="date"
+                          value={editDraft.dueDate}
+                          onChange={(event) =>
+                            setEditDraft((current) => ({
+                              ...current,
+                              dueDate: event.target.value,
+                            }))
+                          }
+                        />
+                      </td>
+                      <td className="personal-todo-complete-column">
+                        <input
+                          aria-label={`Complete ${todo.title}`}
+                          checked={todo.status === "done"}
+                          onChange={(event) =>
+                            toggleTodoStatus(todo, event.target.checked)
+                          }
+                          type="checkbox"
+                        />
+                      </td>
+                      <td className="task-action-cell personal-todo-actions">
+                        <button
+                          type="button"
+                          className="compact-button mini-button"
+                          onClick={() => submitEdit(todo)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-button compact-button mini-button"
+                          onClick={() => {
+                            setEditingTodoId(null);
+                            setPanelError(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-button compact-button mini-button icon-compact-button"
+                          aria-label={`Delete ${todo.title}`}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                `Delete personal to do "${todo.title}"?`,
+                              )
+                            ) {
+                              return;
+                            }
+
+                            deletePersonalTodoMutation.mutate({
+                              title: todo.title,
+                              todoId: todo.id,
+                            });
+                          }}
+                        >
+                          X
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return (
+                  <tr
+                    key={todo.id}
+                    className={[
+                      isDragging ? "task-row--dragging" : null,
+                      reorderIndicator === "before" ? "task-row--drop-before" : null,
+                      reorderIndicator === "after" ? "task-row--drop-after" : null,
+                    ]
+                      .filter((value): value is string => Boolean(value))
+                      .join(" ") || undefined}
+                    onDragOver={(event) => {
+                      if (!canReorderTodos) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setDragState((current) =>
+                        current
+                          ? {
+                              ...current,
+                              overTodoId: todo.id,
+                              position: readDropPosition(event),
+                            }
+                          : current,
+                      );
+                    }}
+                    onDrop={(event) => {
+                      if (!canReorderTodos || !dragState) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const nextTodoIds = reorderTodoIds(
+                        personalTodos.map((item) => item.id),
+                        dragState.todoId,
+                        todo.id,
+                        readDropPosition(event),
+                      );
+
+                      reorderPersonalTodosMutation.mutate({ todoIds: nextTodoIds });
+                    }}
+                  >
+                    <td className="task-reorder-cell">
+                      <button
+                        type="button"
+                        className={`ghost-button compact-button task-reorder-handle${
+                          isDragging ? " is-active" : ""
+                        }`}
+                        aria-label={`Drag to reorder ${todo.title}`}
+                        title={reorderDisabledReason ?? "Drag to reorder"}
+                        disabled={!canReorderTodos}
+                        draggable={canReorderTodos}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onDragStart={(event) => {
+                          if (!canReorderTodos) {
+                            return;
+                          }
+
+                          event.stopPropagation();
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", todo.id);
+                          setDragState({
+                            todoId: todo.id,
+                            overTodoId: todo.id,
+                            position: "before",
+                          });
+                        }}
+                        onDragEnd={() => {
+                          setDragState(null);
+                        }}
+                      >
+                        ::
+                      </button>
+                    </td>
+                    <td className="personal-todo-title-cell">
+                      <strong>{todo.title}</strong>
+                      <div className="task-subtext">{todo.notes ?? "No notes"}</div>
+                    </td>
+                    <td>{formatDate(todo.dueDate)}</td>
+                    <td className="personal-todo-complete-column">
+                      <input
+                        aria-label={`Complete ${todo.title}`}
+                        checked={todo.status === "done"}
+                        onChange={(event) =>
+                          toggleTodoStatus(todo, event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                    </td>
+                    <td className="task-action-cell personal-todo-actions">
+                      <button
+                        type="button"
+                        className="ghost-button compact-button mini-button"
+                        onClick={() => beginEditing(todo)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-button compact-button mini-button icon-compact-button"
+                        aria-label={`Delete ${todo.title}`}
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `Delete personal to do "${todo.title}"?`,
+                            )
+                          ) {
+                            return;
+                          }
+
+                          deletePersonalTodoMutation.mutate({
+                            title: todo.title,
+                            todoId: todo.id,
+                          });
+                        }}
+                      >
+                        X
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function normalizeCreatePersonalTodoPayload(
+  draft: PersonalTodoDraft,
+): CreatePersonalTodoPayload {
+  return {
+    title: draft.title.trim(),
+    notes: draft.notes,
+    dueDate: draft.dueDate,
+  };
+}
+
+function buildPersonalTodoUpdatePayload(
+  todo: WorkspacePersonalTodo,
+  draft: PersonalTodoDraft,
+): UpdatePersonalTodoPayload | null {
+  const payload: UpdatePersonalTodoPayload = {};
+  const trimmedTitle = draft.title.trim();
+  const trimmedNotes = draft.notes.trim();
+  const nextDueDate = draft.dueDate || null;
+  const currentDueDate = toDateInput(todo.dueDate) || null;
+  const currentNotes = (todo.notes ?? "").trim();
+
+  if (trimmedTitle !== todo.title) {
+    payload.title = trimmedTitle;
+  }
+
+  if (trimmedNotes !== currentNotes) {
+    payload.notes = trimmedNotes.length > 0 ? trimmedNotes : null;
+  }
+
+  if (nextDueDate !== currentDueDate) {
+    payload.dueDate = nextDueDate;
+  }
+
+  return Object.keys(payload).length > 0 ? payload : null;
+}
+
+function reorderWorkspacePersonalTodos(
+  current: WorkspaceResponse | undefined,
+  todoIds: string[],
+) {
+  if (!current) {
+    return current;
+  }
+
+  const todoById = new Map(
+    current.personalTodos.map((todo) => [todo.id, todo] as const),
+  );
+  const orderedTodos = todoIds
+    .map((todoId, index) => {
+      const todo = todoById.get(todoId);
+
+      if (!todo) {
+        return null;
+      }
+
+      return {
+        ...todo,
+        sortOrder: index,
+      };
+    })
+    .filter((todo): todo is WorkspacePersonalTodo => todo !== null);
+
+  if (orderedTodos.length !== current.personalTodos.length) {
+    return current;
+  }
+
+  return {
+    ...current,
+    personalTodos: orderedTodos,
+  };
+}
+
+function reorderTodoIds(
+  todoIds: string[],
+  draggedTodoId: string,
+  targetTodoId: string,
+  position: "after" | "before",
+) {
+  if (draggedTodoId === targetTodoId) {
+    return todoIds;
+  }
+
+  const remainingTodoIds = todoIds.filter((todoId) => todoId !== draggedTodoId);
+  const targetIndex = remainingTodoIds.indexOf(targetTodoId);
+
+  if (targetIndex === -1) {
+    return todoIds;
+  }
+
+  const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+  const nextTodoIds = [...remainingTodoIds];
+
+  nextTodoIds.splice(insertIndex, 0, draggedTodoId);
+  return nextTodoIds;
+}
+
+function readDropPosition(event: ReactDragEvent<HTMLTableRowElement>) {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const midpoint = bounds.top + bounds.height / 2;
+  return event.clientY < midpoint ? "before" : "after";
+}
+
+function reorderReason(input: {
+  doneTodoCount: number;
+  hideDoneTodos: boolean;
+  isPending: boolean;
+  totalCount: number;
+}) {
+  if (input.isPending) {
+    return "Saving personal to do order...";
+  }
+
+  if (input.hideDoneTodos && input.doneTodoCount > 0) {
+    return "Show done personal to dos to reorder them.";
+  }
+
+  if (input.totalCount < 2) {
+    return "At least two personal to dos are required to reorder.";
+  }
+
+  return null;
+}
+
+function toDateInput(value: string | null) {
+  return value ? value.slice(0, 10) : "";
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "No due date";
+  }
+
+  return new Intl.DateTimeFormat(undefined, { timeZone: "UTC" }).format(
+    new Date(value),
+  );
+}

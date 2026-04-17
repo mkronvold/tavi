@@ -141,6 +141,24 @@
   white-space: nowrap;
 }
 
+.header-user-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.header-user-button:hover,
+.header-user-button.is-active {
+  color: var(--text-primary);
+}
+
+.header-user-button:focus-visible {
+  outline: 2px solid var(--brand-color);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
 .workspace-controls {
   display: grid;
   gap: 10px;
@@ -458,6 +476,24 @@
   grid-column: 1 / -1;
 }
 
+.profile-form {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.profile-summary-value {
+  display: block;
+  padding-top: 6px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
 .backup-settings-panel {
   display: grid;
   gap: 10px;
@@ -538,6 +574,31 @@
 .settings-switch-label {
   color: var(--text-secondary);
   font-size: 0.9rem;
+}
+
+.theme-cycle-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-cycle-button {
+  width: fit-content;
+  border-color: var(--border-color);
+  border-radius: 999px;
+  background: var(--ghost-bg);
+  color: var(--ghost-text);
+  font-weight: 600;
+}
+
+.theme-cycle-note {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .settings-time-controls {
@@ -1252,9 +1313,9 @@ button:disabled {
 }
 
 .project-card--expanded {
-  border-color: color-mix(in srgb, var(--brand-color) 55%, var(--border-strong));
+  border-color: var(--project-highlight-border);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--brand-color) 18%, transparent),
+    0 0 0 1px var(--project-highlight-ring),
     var(--shadow-card);
 }
 
@@ -1702,6 +1763,36 @@ button:disabled {
   display: none;
 }
 
+.personal-todo-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(220px, 1.2fr) minmax(
+      150px,
+      180px
+    )
+    auto;
+  align-items: start;
+}
+
+.personal-todo-table .personal-todo-complete-column {
+  width: 70px;
+  text-align: center;
+}
+
+.personal-todo-title-cell {
+  min-width: 220px;
+}
+
+.personal-todo-actions {
+  flex-wrap: nowrap;
+}
+
+.personal-todo-empty-state {
+  color: var(--text-subtle);
+  text-align: center;
+  font-style: italic;
+}
+
 .editing-row td {
   background: var(--card-bg-muted);
 }
@@ -1798,6 +1889,10 @@ button:disabled {
   .workspace-panel-toggles {
     align-items: stretch;
     justify-content: flex-start;
+  }
+
+  .personal-todo-form {
+    grid-template-columns: 1fr;
   }
 
   .bulk-action-card--sticky {

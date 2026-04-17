@@ -13,15 +13,19 @@ import type {
   BulkUpdateTasksPayload,
   ConvertProjectToTaskResponse,
   ConvertTaskToProjectResponse,
+  CreatePersonalTodoPayload,
   CreateLocalAccountPayload,
   CreateLoopImportPayload,
   CreateProjectPayload,
   CreateTaskPayload,
   DeleteLocalAccountPayload,
   DeleteLocalAccountResponse,
+  DeletePersonalTodoResponse,
   DeleteProjectResponse,
   DeleteTaskResponse,
   ExportLocalAccountsResponse,
+  ImportPersonalTodosPayload,
+  ImportPersonalTodosResponse,
   ImportLocalAccountsPayload,
   ImportLocalAccountsResponse,
   LoginPayload,
@@ -31,6 +35,7 @@ import type {
   LoopImportJob,
   LoopImportJobSummary,
   NotificationPreferences,
+  ReorderPersonalTodosPayload,
   PurgeAuditLogsPayload,
   PurgeAuditLogsResponse,
   ResetDefaultLocalAccountsResponse,
@@ -40,6 +45,8 @@ import type {
   SmtpStatus,
   UpdateEmailSettingsPayload,
   UpdateNotificationPreferencesPayload,
+  UpdateOwnProfilePayload,
+  UpdatePersonalTodoPayload,
   UpdateProjectPayload,
   UpdateLoopImportMappingPayload,
   UpdateLoopImportRowDecisionsPayload,
@@ -173,7 +180,20 @@ function toQueryString(params: Record<string, number | string | undefined>) {
   return query ? `?${query}` : "";
 }
 
-export const getWorkspace = () => request<WorkspaceResponse>("/workspace");
+export const getWorkspace = async () => {
+  const response = await request<
+    WorkspaceResponse & {
+      personalTodos?: WorkspaceResponse["personalTodos"];
+    }
+  >("/workspace");
+
+  return {
+    ...response,
+    personalTodos: Array.isArray(response.personalTodos)
+      ? response.personalTodos
+      : [],
+  } satisfies WorkspaceResponse;
+};
 
 export const resetWorkspaceExamples = (
   payload: ResetWorkspaceExamplesPayload,
@@ -253,6 +273,12 @@ export const setMyPassword = (payload: SetOwnPasswordPayload) =>
     body: payload,
   });
 
+export const updateMyProfile = (payload: UpdateOwnProfilePayload) =>
+  request<LocalAccountResponse>("/auth/me", {
+    method: "PATCH",
+    body: payload,
+  });
+
 export const createProject = (payload: CreateProjectPayload) =>
   request<{ id: string }>("/projects", {
     method: "POST",
@@ -291,6 +317,12 @@ export const createTask = (projectId: string, payload: CreateTaskPayload) =>
     body: payload,
   });
 
+export const createPersonalTodo = (payload: CreatePersonalTodoPayload) =>
+  request("/personal-todos", {
+    method: "POST",
+    body: payload,
+  });
+
 export const reorderProjectTasks = (
   projectId: string,
   payload: { taskIds: string[] },
@@ -300,8 +332,23 @@ export const reorderProjectTasks = (
     body: payload,
   });
 
+export const reorderPersonalTodos = (payload: ReorderPersonalTodosPayload) =>
+  request<SuccessResponse>("/personal-todos/reorder", {
+    method: "PATCH",
+    body: payload,
+  });
+
 export const updateTask = (taskId: string, payload: UpdateTaskPayload) =>
   request(`/tasks/${taskId}`, {
+    method: "PATCH",
+    body: payload,
+  });
+
+export const updatePersonalTodo = (
+  todoId: string,
+  payload: UpdatePersonalTodoPayload,
+) =>
+  request(`/personal-todos/${todoId}`, {
     method: "PATCH",
     body: payload,
   });
@@ -318,6 +365,17 @@ export const convertTaskToProject = (
 export const deleteTask = (taskId: string) =>
   request<DeleteTaskResponse>(`/tasks/${taskId}`, {
     method: "DELETE",
+  });
+
+export const deletePersonalTodo = (todoId: string) =>
+  request<DeletePersonalTodoResponse>(`/personal-todos/${todoId}`, {
+    method: "DELETE",
+  });
+
+export const importPersonalTodos = (payload: ImportPersonalTodosPayload) =>
+  request<ImportPersonalTodosResponse>("/personal-todos/import", {
+    method: "POST",
+    body: payload,
   });
 
 export const bulkUpdateTasks = (payload: BulkUpdateTasksPayload) =>

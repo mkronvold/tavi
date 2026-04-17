@@ -1,6 +1,6 @@
 # Notifications Guide
 
-Tavi supports immediate project and task update emails plus an optional daily digest for non-administrative notifications.
+Tavi supports immediate project and task update emails, an optional daily digest for non-administrative notifications, and direct due-date reminders for private `Personal ToDo` items.
 
 ## Global rules
 
@@ -20,7 +20,7 @@ Open `Settings` to manage:
 
 ### Any user
 
-Open `Settings` to manage:
+Open `User Profile` from the signed-in user name to manage:
 
 1. `Daily Digest` to choose digest delivery instead of immediate non-admin update emails.
 
@@ -54,6 +54,20 @@ Use digest mode when you want:
 
 Keep digest mode off when you want immediate update emails instead.
 
+## Personal ToDo reminders
+
+Private `Personal ToDo` items do not send project-update, task-update, assignment, or ownership emails.
+
+They can send only due-date reminder emails to their owner:
+
+1. 7 days before due
+2. 3 days before due
+3. Tomorrow
+4. Due today
+5. Overdue
+
+These reminder emails stay separate from the shared-work daily digest so a personal due reminder is not hidden inside the digest batch.
+
 ## Related workspace behavior
 
 1. Project and task saves still happen immediately in the UI; digest mode changes delivery timing, not save timing.
@@ -65,3 +79,4 @@ Keep digest mode off when you want immediate update emails instead.
 1. A user can enable daily digest only for themselves; admins do not force digest mode for everyone.
 2. The shared digest time is configured once by an admin, but each user independently chooses digest on or off.
 3. If global email is disabled, neither immediate update emails nor daily digests are sent.
+4. Personal ToDo reminder emails also depend on the global email switch, but they are not batched into the daily digest.

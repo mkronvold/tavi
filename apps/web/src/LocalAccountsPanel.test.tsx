@@ -618,6 +618,12 @@ describe("LocalAccountsPanel", () => {
   it("lets non-admins set only their own password", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
+        expect(init.body).toBe(
+          JSON.stringify({
+            currentPassword: "currentpassword123",
+            password: "newpassword123",
+          }),
+        );
         return createResponse({ success: true });
       }
 
@@ -628,6 +634,9 @@ describe("LocalAccountsPanel", () => {
 
     renderPanel(editorUser, false);
 
+    fireEvent.change(screen.getByPlaceholderText("Current password"), {
+      target: { value: "currentpassword123" },
+    });
     fireEvent.change(screen.getByPlaceholderText("New password"), {
       target: { value: "newpassword123" },
     });

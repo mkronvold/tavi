@@ -1,13 +1,13 @@
 # Local Accounts Guide
 
-Local Accounts is the admin surface for local-auth environments and the self-service password surface for non-admin users.
+Local Accounts is the admin surface for local-auth environments.
 
 ## Who can do what
 
 | User | What is available |
 | --- | --- |
 | Admin | Create, edit, remove, search, import, export, reset defaults, and set passwords for local accounts |
-| Editor or Viewer | Set only the current user's password |
+| Editor or Viewer | Use `User Profile` in the workspace header to update only their own name, email, and password |
 
 ## Create an account
 
@@ -51,6 +51,17 @@ Important rules:
 ## Export JSON and import JSON or CSV
 
 Admins can export local accounts as JSON, then import accounts later from either JSON or CSV.
+
+## Self-service profile edits
+
+Non-admin users no longer open `Local Accounts` for self-service changes.
+
+Use the signed-in user name in the workspace header to open `User Profile`, then:
+
+1. Select `Edit`.
+2. Update name and/or email inline.
+3. To change your password, enter your current password plus the new password twice.
+4. Select `Save`.
 
 Important rules:
 

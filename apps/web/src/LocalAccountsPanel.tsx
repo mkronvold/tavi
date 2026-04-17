@@ -95,6 +95,7 @@ export function LocalAccountsPanel({
   );
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [currentPasswordDraft, setCurrentPasswordDraft] = useState("");
   const [sendEmail, setSendEmail] = useState(false);
   const emailDeliveryAvailable = smtpConfigured && emailEnabled;
 
@@ -374,6 +375,7 @@ export function LocalAccountsPanel({
     mutationFn: (payload: SetOwnPasswordPayload) => setMyPassword(payload),
     onSuccess: async () => {
       setError(null);
+      setCurrentPasswordDraft("");
       setPasswordDraft("");
       setPasswordConfirmation("");
       await refreshAccountData();
@@ -389,6 +391,7 @@ export function LocalAccountsPanel({
   });
 
   const resetPasswordDrafts = () => {
+    setCurrentPasswordDraft("");
     setPasswordDraft("");
     setPasswordConfirmation("");
     setSendEmail(false);
@@ -695,7 +698,15 @@ export function LocalAccountsPanel({
       return;
     }
 
-    setMyPasswordMutation.mutate({ password: passwordDraft });
+    if (!currentPasswordDraft.trim()) {
+      setError("Enter your current password");
+      return;
+    }
+
+    setMyPasswordMutation.mutate({
+      currentPassword: currentPasswordDraft,
+      password: passwordDraft,
+    });
   };
 
   const generateDraftPassword = (
@@ -1471,6 +1482,12 @@ export function LocalAccountsPanel({
           }}
         >
           <strong>{`Set password · ${currentUser.name}`}</strong>
+          <input
+            type="password"
+            value={currentPasswordDraft}
+            onChange={(event) => setCurrentPasswordDraft(event.target.value)}
+            placeholder="Current password"
+          />
           <input
             type="password"
             value={passwordDraft}

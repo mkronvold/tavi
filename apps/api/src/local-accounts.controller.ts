@@ -16,6 +16,7 @@ import {
   setLocalAccountPasswordSchema,
   setOwnPasswordSchema,
   updateLocalAccountSchema,
+  updateOwnProfileSchema,
 } from '@tavi/schemas';
 import type { AuthenticatedRequest } from './auth.types';
 import { LocalAccountsService } from './local-accounts.service';
@@ -122,5 +123,15 @@ export class LocalAccountsController {
     await this.localAccountsService.setOwnPassword(input, request.user!);
 
     return { success: true as const };
+  }
+
+  @Patch('me')
+  async updateOwnProfile(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(updateOwnProfileSchema, body);
+
+    return this.localAccountsService.updateOwnProfile(input, request.user!);
   }
 }

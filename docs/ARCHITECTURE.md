@@ -108,20 +108,21 @@ Browser
 - Serves the React application
 - Reads session state from the API
 - Stores reusable workspace state in saved views and browser-local Tavi storage
-- Stores panel toggle state, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and per-project Add Task expansion in browser-local Tavi storage
+- Stores panel toggle state, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, per-project Add Task expansion, and Personal ToDo `hide done` visibility in browser-local Tavi storage
 - Reads deployment-specific browser entry URLs such as the temporary header home link from a small runtime config file so Docker and Kubernetes can override them without rebuilding the app
 
 ### API
 
 - Exposes authenticated JSON endpoints
 - Enforces RBAC
-- Persists projects, tasks, views, imports, and audit events
+- Persists projects, shared tasks, personal to-dos, views, imports, and audit events
 - Computes derived project rollups on write
 
 ### Worker
 
 - Processes heavy or asynchronous tasks
 - Keeps imports and other long-running operations off the request path
+- Schedules project/task notification delivery plus owner-only Personal ToDo due reminders
 
 ## 6. Data Model
 
@@ -131,6 +132,7 @@ Recommended primary tables:
 - `role_assignments`
 - `projects`
 - `tasks`
+- `personal_todos`
 - `labels`
 - `project_labels`
 - `task_labels`
@@ -146,7 +148,7 @@ Important columns:
 - `id`
 - `title`
 - `notes`
-- `tracker_link`
+- `references`
 - `owner_user_id`
 - `due_date`
 - `priority`
@@ -178,6 +180,21 @@ Important columns:
 - `priority`
 - `due_date`
 - `sort_order`
+
+### personal_todos
+
+Important columns:
+
+- `id`
+- `user_id`
+- `title`
+- `notes`
+- `due_date`
+- `status`
+- `sort_order`
+- `completed_at`
+- `created_at`
+- `updated_at`
 - `source_system`
 - `source_external_id`
 - `archived_at`
@@ -280,7 +297,7 @@ OpenAPI generation is recommended so the API contract remains explicit.
 
 - Server state comes from TanStack Query.
 - Local state stores expanded rows, transient editing state, and active inline editors.
-- Browser-local Tavi storage persists grouping, task filters, panel toggles, theme mode, Auto Collapse, Bulk Actions visibility, Full Width, and other local-only UI preferences.
+- Browser-local Tavi storage persists grouping, task filters, panel toggles, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, and other local-only UI preferences.
 - Saved views persist reusable workspace configurations.
 - Saved views intentionally do not persist local panel toggles or other browser-only preferences.
 

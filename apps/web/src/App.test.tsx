@@ -73,6 +73,30 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
       role: "viewer",
     },
   ],
+  personalTodos: [
+    {
+      id: "todo-1",
+      title: "Private draft",
+      notes: "Capture follow-up items",
+      dueDate: "2026-04-12T00:00:00.000Z",
+      status: "todo",
+      sortOrder: 0,
+      completedAt: null,
+      createdAt: "2026-04-02T08:00:00.000Z",
+      updatedAt: "2026-04-02T08:00:00.000Z",
+    },
+    {
+      id: "todo-2",
+      title: "Closed loop",
+      notes: "Already wrapped",
+      dueDate: null,
+      status: "done",
+      sortOrder: 1,
+      completedAt: "2026-04-03T08:00:00.000Z",
+      createdAt: "2026-04-03T08:00:00.000Z",
+      updatedAt: "2026-04-03T08:00:00.000Z",
+    },
+  ],
   projects: [
     {
       id: "project-1",
@@ -896,18 +920,16 @@ describe("App", () => {
       .mockReturnValue("LOCAL-DRIFT");
     const dateTimeFormatSpy = vi
       .spyOn(Intl, "DateTimeFormat")
-      .mockImplementation(
-        function DateTimeFormatMock(
-          this: Intl.DateTimeFormat,
-          _locales?: string | string[],
-          options?: Intl.DateTimeFormatOptions,
-        ) {
-          return {
-            format: () =>
-              options?.timeZone === "UTC" ? "UTC-STABLE-DATE" : "NON-UTC-DATE",
-          } as Intl.DateTimeFormat;
-        } as unknown as typeof Intl.DateTimeFormat,
-      );
+      .mockImplementation(function DateTimeFormatMock(
+        this: Intl.DateTimeFormat,
+        _locales?: string | string[],
+        options?: Intl.DateTimeFormatOptions,
+      ) {
+        return {
+          format: () =>
+            options?.timeZone === "UTC" ? "UTC-STABLE-DATE" : "NON-UTC-DATE",
+        } as Intl.DateTimeFormat;
+      } as unknown as typeof Intl.DateTimeFormat);
 
     vi.stubGlobal(
       "fetch",
@@ -1453,7 +1475,9 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole("button", { name: "To top" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "To top" }),
+    ).not.toBeInTheDocument();
 
     Object.defineProperty(window, "scrollY", {
       configurable: true,
@@ -1465,7 +1489,9 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "To top" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "To top" }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "To top" }));
@@ -1704,10 +1730,12 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
     fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     await waitFor(() => {
       expect(screen.getByLabelText("My view")).toBeInTheDocument();
+      expect(screen.getByText("Private draft")).toBeInTheDocument();
       expect(
         screen.getByPlaceholderText("New project title"),
       ).toBeInTheDocument();
@@ -1718,6 +1746,7 @@ describe("App", () => {
     ).toEqual(
       expect.objectContaining({
         newProject: true,
+        personalTodo: true,
         view: true,
       }),
     );
@@ -1728,9 +1757,106 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
       expect(screen.getByLabelText("My view")).toBeInTheDocument();
+      expect(screen.getByText("Private draft")).toBeInTheDocument();
       expect(
         screen.getByPlaceholderText("New project title"),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("opens Personal ToDo when older workspace payloads omit personal todos", async () => {
+    const workspacePayload = createWorkspacePayload() as WorkspaceResponse & {
+      personalTodos?: WorkspaceResponse["personalTodos"];
+    };
+    const { personalTodos: _personalTodos, ...legacyWorkspacePayload } =
+      workspacePayload;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(legacyWorkspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("No personal ToDo items yet."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("lets viewers use Personal ToDo and persists its done toggle across reloads", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.currentUser = {
+      ...workspacePayload.currentUser,
+      role: "viewer",
+    };
+    workspacePayload.users[0] = {
+      ...workspacePayload.users[0]!,
+      role: "viewer",
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+    localStorage.setItem(
+      "tavi.workspace.panels",
+      JSON.stringify({ personalTodo: true }),
+    );
+
+    const firstRender = renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const personalTodoButton = screen.getByRole("button", {
+      name: "Personal ToDo",
+    });
+
+    expect(personalTodoButton).not.toBeDisabled();
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Task name")).toBeInTheDocument();
+      expect(
+        screen.getByRole("checkbox", { name: "Complete Closed loop" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Hide done personal to dos",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Closed loop")).not.toBeInTheDocument();
+    });
+
+    expect(localStorage.getItem("tavi.workspace.personalTodos.hideDone")).toBe(
+      "true",
+    );
+
+    firstRender.unmount();
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Task name")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("checkbox", { name: "Complete Closed loop" }),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1825,7 +1951,18 @@ describe("App", () => {
   it("persists workspace preference toggles across reloads", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => createResponse(createWorkspacePayload())),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
+          });
+        }
+
+        return createResponse(createWorkspacePayload());
+      }),
     );
 
     const firstRender = renderApp();
@@ -1836,9 +1973,11 @@ describe("App", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
-    const darkModeSwitch = screen.getByRole("switch", { name: "Dark mode" });
+    const themeCard = screen
+      .getByText("Theme")
+      .closest(".settings-item") as HTMLElement | null;
     const autoCollapseSwitch = screen.getByRole("switch", {
       name: "Auto Collapse",
     });
@@ -1850,19 +1989,38 @@ describe("App", () => {
     });
     const workspaceShell = screen.getByRole("main");
 
-    expect(darkModeSwitch).not.toBeChecked();
+    expect(themeCard).not.toBeNull();
+    expect(
+      within(themeCard!).getByRole("button", { name: "Light" }),
+    ).toBeInTheDocument();
     expect(autoCollapseSwitch).toBeChecked();
     expect(bulkActionsSwitch).toBeChecked();
     expect(fullWidthSwitch).not.toBeChecked();
     expect(workspaceShell).not.toHaveClass("workspace-shell--full-width");
 
-    fireEvent.click(darkModeSwitch);
+    fireEvent.click(within(themeCard!).getByRole("button", { name: "Light" }));
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "sepia");
+      expect(
+        within(themeCard!).getByRole("button", { name: "Sepia" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(themeCard!).getByRole("button", { name: "Sepia" }));
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "spring");
+      expect(
+        within(themeCard!).getByRole("button", { name: "Spring" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(themeCard!).getByRole("button", { name: "Spring" }));
     fireEvent.click(autoCollapseSwitch);
     fireEvent.click(bulkActionsSwitch);
     fireEvent.click(fullWidthSwitch);
 
     await waitFor(() => {
-      expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+      expect(document.documentElement).toHaveAttribute("data-theme", "ocean");
       expect(workspaceShell).toHaveClass("workspace-shell--full-width");
       expect(
         JSON.parse(localStorage.getItem("tavi.workspace.preferences") ?? "{}"),
@@ -1870,7 +2028,7 @@ describe("App", () => {
         autoCollapse: false,
         bulkActions: false,
         fullWidth: true,
-        theme: "dark",
+        theme: "ocean",
       });
     });
 
@@ -1881,14 +2039,21 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    const settingsButton = screen.getByRole("button", { name: "Settings" });
+    const profileButton = screen.getByRole("button", { name: "Tavi Editor" });
 
-    if (settingsButton.getAttribute("aria-pressed") !== "true") {
-      fireEvent.click(settingsButton);
+    if (profileButton.getAttribute("aria-pressed") !== "true") {
+      fireEvent.click(profileButton);
     }
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(screen.getByRole("switch", { name: "Dark mode" })).toBeChecked();
+    const reloadedThemeCard = screen
+      .getByText("Theme")
+      .closest(".settings-item") as HTMLElement | null;
+
+    expect(reloadedThemeCard).not.toBeNull();
+    expect(document.documentElement).toHaveAttribute("data-theme", "ocean");
+    expect(
+      within(reloadedThemeCard!).getByRole("button", { name: "Ocean" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("switch", { name: "Auto Collapse" }),
     ).not.toBeChecked();
@@ -1897,6 +2062,46 @@ describe("App", () => {
     ).not.toBeChecked();
     expect(screen.getByRole("switch", { name: "Full Width" })).toBeChecked();
     expect(screen.getByRole("main")).toHaveClass("workspace-shell--full-width");
+
+    fireEvent.click(
+      within(reloadedThemeCard!).getByRole("button", { name: "Ocean" }),
+    );
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "forest");
+      expect(
+        within(reloadedThemeCard!).getByRole("button", { name: "Forest" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(reloadedThemeCard!).getByRole("button", { name: "Forest" }),
+    );
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "autumn");
+      expect(
+        within(reloadedThemeCard!).getByRole("button", { name: "Autumn" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(reloadedThemeCard!).getByRole("button", { name: "Autumn" }),
+    );
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "night");
+      expect(
+        within(reloadedThemeCard!).getByRole("button", { name: "Night" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(reloadedThemeCard!).getByRole("button", { name: "Night" }),
+    );
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "light");
+      expect(
+        within(reloadedThemeCard!).getByRole("button", { name: "Light" }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("keeps the global email notifications toggle in sync after saving", async () => {
@@ -2097,7 +2302,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
     const dailyDigestSwitch = screen.getByRole("switch", {
       name: "Daily Digest",
@@ -2119,7 +2324,7 @@ describe("App", () => {
     });
   });
 
-  it("hides the email notifications toggle for non-admins", async () => {
+  it("hides admin settings from non-admins", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -2142,7 +2347,11 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(
+      screen.queryByRole("button", { name: "Settings" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
     expect(
       screen.queryByRole("switch", { name: "Email Notifications" }),
@@ -2183,22 +2392,15 @@ describe("App", () => {
     );
 
     expect(settingsItems).not.toHaveLength(0);
-    expect(settingsItems).toHaveLength(15);
-    expect(settingsItems[0]?.textContent).toContain("Theme");
-    expect(settingsItems[1]?.textContent).toContain("Auto Collapse");
-    expect(settingsItems[2]?.textContent).toContain("Bulk Actions");
-    expect(settingsItems[3]?.textContent).toContain("Full Width");
-    expect(settingsItems[4]?.textContent).toContain("Daily Digest");
-    expect(settingsItems[5]?.textContent).toContain("Clear Local Storage");
-    expect(settingsItems[6]?.textContent).toContain("My Auth History");
-    expect(settingsItems[7]?.textContent).toContain("Email Notifications");
-    expect(settingsItems[8]?.textContent).toContain("Daily Digest Time");
-    expect(settingsItems[9]?.textContent).toContain("Task Drag Handles");
-    expect(settingsItems[10]?.textContent).toContain("Backups");
-    expect(settingsItems[11]?.textContent).toContain("Import/Export");
-    expect(settingsItems[12]?.textContent).toContain("Local Accounts");
-    expect(settingsItems[13]?.textContent).toContain("Audit logins");
-    expect(settingsItems[14]?.textContent).toContain("Audit changes");
+    expect(settingsItems).toHaveLength(8);
+    expect(settingsItems[0]?.textContent).toContain("Email Notifications");
+    expect(settingsItems[1]?.textContent).toContain("Daily Digest Time");
+    expect(settingsItems[2]?.textContent).toContain("Task Drag Handles");
+    expect(settingsItems[3]?.textContent).toContain("Backups");
+    expect(settingsItems[4]?.textContent).toContain("Import/Export");
+    expect(settingsItems[5]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[6]?.textContent).toContain("Audit logins");
+    expect(settingsItems[7]?.textContent).toContain("Audit changes");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
       appRepositoryUrl,
@@ -2255,8 +2457,9 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    const importExportCard =
-      screen.getByText("Import/Export").closest(".settings-item");
+    const importExportCard = screen
+      .getByText("Import/Export")
+      .closest(".settings-item");
     const backupsCard = screen.getByText("Backups").closest(".settings-item");
 
     expect(importExportCard).not.toBeNull();
@@ -2272,9 +2475,10 @@ describe("App", () => {
       ).toBeInTheDocument();
     });
 
-    const exportPanel = screen.getByText("Export").closest(".workspace-panel-card");
-    const importPanel =
-      screen.getByText("CSV import").closest(".toolbar-card");
+    const exportPanel = screen
+      .getByText("Export")
+      .closest(".workspace-panel-card");
+    const importPanel = screen.getByText("CSV import").closest(".toolbar-card");
 
     expect(exportPanel).not.toBeNull();
     expect(importPanel).not.toBeNull();
@@ -2302,7 +2506,9 @@ describe("App", () => {
     expect(backupsPanel).not.toBeNull();
 
     fireEvent.click(
-      within(backupsPanel as HTMLElement).getByRole("button", { name: "Close" }),
+      within(backupsPanel as HTMLElement).getByRole("button", {
+        name: "Close",
+      }),
     );
     fireEvent.click(
       within(exportPanel as HTMLElement).getByRole("button", { name: "Close" }),
@@ -2322,37 +2528,46 @@ describe("App", () => {
     });
   });
 
-  it("toggles the local accounts panel from the settings card", async () => {
+  it("opens import/export from the user profile panel for non-admins", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
     );
 
-    const { container } = renderApp();
+    renderApp();
 
     await waitFor(() => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    const localAccountsCard =
-      screen.getByText("Local Accounts").closest(".settings-item");
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+    const importExportCard = screen
+      .getByText("Import/Export")
+      .closest(".settings-item");
 
-    expect(localAccountsCard).not.toBeNull();
-    fireEvent.click(localAccountsCard as HTMLElement);
+    expect(importExportCard).not.toBeNull();
+    fireEvent.click(importExportCard as HTMLElement);
 
     await waitFor(() => {
-      expect(container.querySelector(".local-accounts-panel")).not.toBeNull();
+      expect(
+        screen.getByText(
+          "Download the current filtered workspace as CSV, XLSX, JSON, or a Loop-oriented CSV.",
+        ),
+      ).toBeInTheDocument();
     });
 
-    fireEvent.click(localAccountsCard as HTMLElement);
+    fireEvent.click(importExportCard as HTMLElement);
 
     await waitFor(() => {
-      expect(container.querySelector(".local-accounts-panel")).toBeNull();
+      expect(
+        screen.queryByText(
+          "Download the current filtered workspace as CSV, XLSX, JSON, or a Loop-oriented CSV.",
+        ),
+      ).not.toBeInTheDocument();
     });
   });
 
-  it("toggles my auth history from the settings card", async () => {
+  it("toggles user history from the profile card", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -2372,16 +2587,17 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    const authHistoryCard =
-      screen.getByText("My Auth History").closest(".settings-item");
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+    const authHistoryCard = screen
+      .getByText("User History")
+      .closest(".settings-item");
 
     expect(authHistoryCard).not.toBeNull();
     fireEvent.click(authHistoryCard as HTMLElement);
 
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: "My Auth History" }),
+        screen.getByRole("heading", { name: "User History" }),
       ).toBeInTheDocument();
     });
 
@@ -2389,8 +2605,136 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(
-        screen.queryByRole("heading", { name: "My Auth History" }),
+        screen.queryByRole("heading", { name: "User History" }),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the profile panel open when entering edit mode", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
+          });
+        }
+
+        return createResponse(createWorkspacePayload());
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+    const profilePanel = screen.getByText("User Profile").closest("section");
+
+    expect(profilePanel).not.toBeNull();
+    fireEvent.click(
+      within(profilePanel!).getByRole("button", { name: "Edit" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("User Profile")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText("Current password"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("saves profile edits from the user panel and closes it", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let updateProfileRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "09:00",
+          });
+        }
+
+        if (url.endsWith("/auth/me") && init?.method === "PATCH") {
+          updateProfileRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          workspacePayload.currentUser = {
+            ...workspacePayload.currentUser,
+            email: "renamed@tavi.local",
+            name: "Renamed Editor",
+          };
+          workspacePayload.users[0] = {
+            ...workspacePayload.users[0],
+            email: "renamed@tavi.local",
+            name: "Renamed Editor",
+          };
+          return createResponse({
+            account: {
+              id: "user-1",
+              email: "renamed@tavi.local",
+              name: "Renamed Editor",
+              role: "editor",
+              createdAt: "2026-02-01T10:00:00.000Z",
+              updatedAt: "2026-02-02T10:00:00.000Z",
+            },
+            notificationEmailSent: false,
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+    const profilePanel = screen.getByText("User Profile").closest("section");
+
+    expect(profilePanel).not.toBeNull();
+    fireEvent.click(
+      within(profilePanel!).getByRole("button", { name: "Edit" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Tavi Editor")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByDisplayValue("Tavi Editor"), {
+      target: { value: "Renamed Editor" },
+    });
+    fireEvent.change(screen.getByDisplayValue("editor@tavi.local"), {
+      target: { value: "renamed@tavi.local" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(JSON.parse(updateProfileRequestBody ?? "{}")).toEqual({
+        email: "renamed@tavi.local",
+        name: "Renamed Editor",
+      });
+      expect(
+        screen.getByRole("button", { name: "Renamed Editor" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("User Profile")).not.toBeInTheDocument();
     });
   });
 
@@ -2479,7 +2823,9 @@ describe("App", () => {
     toggleProjectByTitle("Roadmap refresh");
 
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText("New task title")).not.toBeInTheDocument();
+      expect(
+        screen.queryByPlaceholderText("New task title"),
+      ).not.toBeInTheDocument();
       expect(
         within(projectCard!).getByRole("button", { name: "Add Task" }),
       ).toHaveAttribute("aria-pressed", "false");
@@ -2599,9 +2945,7 @@ describe("App", () => {
     expect(refreshedTitleInput).toHaveValue("");
     expect(
       within(refreshedTaskCreateRow).getByDisplayValue("Tavi Viewer"),
-    ).toHaveValue(
-      "user-2",
-    );
+    ).toHaveValue("user-2");
     expect(
       within(refreshedTaskCreateRow).getByDisplayValue("High"),
     ).toHaveValue("high");
@@ -2763,7 +3107,9 @@ describe("App", () => {
             taskIds?: string[];
           };
           const taskById = new Map(
-            workspacePayload.projects[0]!.tasks.map((task) => [task.id, task] as const),
+            workspacePayload.projects[0]!.tasks.map(
+              (task) => [task.id, task] as const,
+            ),
           );
 
           workspacePayload.projects[0]!.tasks =
@@ -3677,7 +4023,7 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
     const projectCard = screen.getByText("Roadmap refresh").closest("article");
 
@@ -3694,8 +4040,9 @@ describe("App", () => {
       expect(screen.getByText("Clear Local Storage")).toBeInTheDocument();
     });
 
-    const clearLocalStorageCard =
-      screen.getByText("Clear Local Storage").closest(".settings-item");
+    const clearLocalStorageCard = screen
+      .getByText("Clear Local Storage")
+      .closest(".settings-item");
 
     expect(clearLocalStorageCard).not.toBeNull();
     fireEvent.click(clearLocalStorageCard as HTMLElement);
@@ -3797,8 +4144,9 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    const auditChangesCard =
-      screen.getByText("Audit changes").closest(".settings-item");
+    const auditChangesCard = screen
+      .getByText("Audit changes")
+      .closest(".settings-item");
 
     expect(auditChangesCard).not.toBeNull();
     fireEvent.click(auditChangesCard as HTMLElement);
@@ -3935,8 +4283,9 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    const auditLoginsCard =
-      screen.getByText("Audit logins").closest(".settings-item");
+    const auditLoginsCard = screen
+      .getByText("Audit logins")
+      .closest(".settings-item");
 
     expect(auditLoginsCard).not.toBeNull();
     fireEvent.click(auditLoginsCard as HTMLElement);
@@ -4066,7 +4415,7 @@ describe("App", () => {
       expect(screen.getByText("Draft brief")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
     fireEvent.click(screen.getByRole("switch", { name: "Auto Collapse" }));
 
     toggleProjectByTitle("Roadmap refresh");
@@ -4249,7 +4598,9 @@ describe("App", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Hide done tasks in Roadmap refresh" }),
+      screen.getByRole("button", {
+        name: "Hide done tasks in Roadmap refresh",
+      }),
     );
 
     await waitFor(() => {
@@ -4257,19 +4608,33 @@ describe("App", () => {
       expect(screen.queryByText("1 selected task")).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByLabelText("Select all tasks in Roadmap refresh"));
+    expect(
+      JSON.parse(localStorage.getItem("tavi.workspace.hideDoneTasks") ?? "{}"),
+    ).toEqual(
+      expect.objectContaining({
+        "project-1": true,
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByLabelText("Select all tasks in Roadmap refresh"),
+    );
 
     await waitFor(() => {
       expect(screen.getByText("2 selected tasks")).toBeInTheDocument();
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Show done tasks in Roadmap refresh" }),
+      screen.getByRole("button", {
+        name: "Show done tasks in Roadmap refresh",
+      }),
     );
 
     await waitFor(() => {
       expect(screen.getByText("Ship recap")).toBeInTheDocument();
     });
+
+    expect(localStorage.getItem("tavi.workspace.hideDoneTasks")).toBeNull();
 
     expect(screen.getByLabelText("Select task Kickoff")).toBeChecked();
     expect(screen.getByLabelText("Select task Review plan")).toBeChecked();
@@ -4327,7 +4692,7 @@ describe("App", () => {
       expect(screen.getByText("Beta rollout")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
     fireEvent.click(screen.getByRole("switch", { name: "Auto Collapse" }));
 
     toggleProjectByTitle("Roadmap refresh");
@@ -4396,7 +4761,7 @@ describe("App", () => {
       expect(screen.getByText("1 selected task")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
     const bulkActionsSwitch = screen.getByRole("switch", {
       name: "Bulk Actions",
