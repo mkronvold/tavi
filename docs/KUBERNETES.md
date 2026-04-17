@@ -13,7 +13,7 @@ Tavi now ships four complete raw-manifest deployment paths under `infra/k8s/`. P
 
 ## Shared requirements
 
-1. A Kubernetes cluster with a compatible ingress controller using `ingressClassName: nginx`.
+1. A Kubernetes cluster with a compatible ingress controller using `ingressClassName: contour` by default.
 2. `kubectl` access with permission to create resources in the `tavi` namespace.
 3. Access to:
    - `ghcr.io/mkronvold/tavi-api`

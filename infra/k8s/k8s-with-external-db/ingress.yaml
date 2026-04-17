@@ -4,7 +4,7 @@ metadata:
   name: tavi
   namespace: tavi
 spec:
-  ingressClassName: nginx
+  ingressClassName: contour
   rules:
     - host: tavi.example.com
       http:

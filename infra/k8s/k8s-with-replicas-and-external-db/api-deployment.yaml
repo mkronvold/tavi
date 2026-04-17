@@ -21,6 +21,22 @@ spec:
         - name: migrate
           image: ghcr.io/mkronvold/tavi-api:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           command: ["pnpm", "--filter", "@tavi/api", "prisma:migrate"]
           env:
             - name: PORT
@@ -47,6 +63,22 @@ spec:
         - name: api
           image: ghcr.io/mkronvold/tavi-api:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
           ports:
             - containerPort: 4000
           env:

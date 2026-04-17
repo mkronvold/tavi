@@ -20,7 +20,7 @@ Use this path when the cluster should run a single PostgreSQL instance for Tavi.
 ## Requirements
 
 1. A Kubernetes cluster with a default storage class or another `ReadWriteOnce` storage class available.
-2. A compatible ingress controller.
+2. A compatible ingress controller. The checked-in ingress manifest defaults to `ingressClassName: contour`.
 3. The Tavi GHCR images available to the cluster.
 
 ## Configure

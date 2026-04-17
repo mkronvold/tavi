@@ -17,6 +17,22 @@ spec:
         - name: web
           image: ghcr.io/mkronvold/tavi-web:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           ports:
             - containerPort: 4173
           env:

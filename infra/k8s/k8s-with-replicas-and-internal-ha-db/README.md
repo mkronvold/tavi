@@ -21,7 +21,7 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 
 1. The CloudNativePG operator and CRDs already installed in the cluster.
 2. A Kubernetes storage class suitable for CloudNativePG volumes.
-3. A compatible ingress controller.
+3. A compatible ingress controller. The checked-in ingress manifest defaults to `ingressClassName: contour`.
 4. Capacity for three API pods, three web pods, three worker pods, and a three-instance PostgreSQL cluster.
 
 ## Configure

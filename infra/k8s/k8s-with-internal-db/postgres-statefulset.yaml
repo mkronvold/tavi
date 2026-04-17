@@ -18,6 +18,22 @@ spec:
         - name: postgres
           image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
           ports:
             - containerPort: 5432
               name: postgres

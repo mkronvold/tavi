@@ -21,6 +21,22 @@ spec:
         - name: worker
           image: ghcr.io/mkronvold/tavi-worker:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
           ports:
             - containerPort: 4100
           env:

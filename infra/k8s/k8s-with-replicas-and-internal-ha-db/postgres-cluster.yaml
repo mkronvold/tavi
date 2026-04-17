@@ -6,6 +6,22 @@ metadata:
 spec:
   instances: 3
   primaryUpdateStrategy: unsupervised
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+    privileged: false
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    allowPrivilegeEscalation: false
   storage:
     size: 10Gi
   bootstrap:

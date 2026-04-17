@@ -19,7 +19,7 @@ Use this path when PostgreSQL already exists outside the cluster and Tavi only n
 ## Requirements
 
 1. A reachable PostgreSQL database for `DATABASE_URL`.
-2. A Kubernetes cluster with a compatible ingress controller.
+2. A Kubernetes cluster with a compatible ingress controller. The checked-in ingress manifest defaults to `ingressClassName: contour`.
 3. The Tavi GHCR images available to the cluster.
 
 ## Configure

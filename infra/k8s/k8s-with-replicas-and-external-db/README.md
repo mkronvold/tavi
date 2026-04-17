@@ -19,7 +19,7 @@ Use this path when PostgreSQL is external and the app workloads should start wit
 ## Requirements
 
 1. A reachable external PostgreSQL database for `DATABASE_URL`.
-2. A Kubernetes cluster with a compatible ingress controller.
+2. A Kubernetes cluster with a compatible ingress controller. The checked-in ingress manifest defaults to `ingressClassName: contour`.
 3. Capacity for three API pods, three web pods, and three worker pods.
 
 ## Configure
