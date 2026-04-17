@@ -58,6 +58,7 @@ const backupUserRecordSchema = z.object({
   id: z.string().min(1),
   name: localAccountNameSchema,
   passwordHash: z.string().min(1),
+  personalTodoRemindersEnabled: z.boolean().optional().default(true),
   updatedAt: z.string().min(1),
 });
 
@@ -758,6 +759,7 @@ export class BackupsService {
             id: user.id,
             name: user.name,
             passwordHash: user.passwordHash,
+            personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
             updatedAt: new Date(user.updatedAt),
           },
         });
@@ -1303,6 +1305,7 @@ export class BackupsService {
               email: user.email,
               name: user.name,
               passwordHash: user.passwordHash,
+              personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
               roleAssignment: roleAssignment
                 ? {
                     upsert: {
@@ -1325,6 +1328,7 @@ export class BackupsService {
             id: user.id,
             name: user.name,
             passwordHash: user.passwordHash,
+            personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
             roleAssignment: roleAssignment
               ? {
                   create: {
@@ -1681,6 +1685,7 @@ export class BackupsService {
           id: user.id,
           name: user.name,
           passwordHash: user.passwordHash,
+          personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
           updatedAt: user.updatedAt.toISOString(),
         })),
       },

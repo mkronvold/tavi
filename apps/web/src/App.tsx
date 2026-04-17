@@ -3,8 +3,6 @@ import {
   type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  isValidElement,
-  type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -19,9 +17,6 @@ import type {
   ProjectStatus,
   TaskStatus,
 } from "@tavi/schemas";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
 import "./App.css";
 import {
   ApiError,
@@ -63,6 +58,11 @@ import { ExportPanel } from "./ExportPanel";
 import { downloadCsvFile } from "./export-utils";
 import { ImportPanel } from "./ImportPanel";
 import { LocalAccountsPanel } from "./LocalAccountsPanel";
+import {
+  extractUrlFilename,
+  NotesMarkdown,
+  truncateDisplayLinkLabel,
+} from "./NotesMarkdown";
 import { PersonalTodoPanel } from "./PersonalTodoPanel";
 import { getAppHomeUrl } from "./runtime-config";
 import {
@@ -140,7 +140,6 @@ const BRAND_MARK = "ᴛᴀᴠi";
 const EDITOR_SCROLL_TOP_MARGIN = 132;
 const EDITOR_SCROLL_BOTTOM_MARGIN = 24;
 const SCROLL_TO_TOP_VISIBILITY_OFFSET = 240;
-const MAX_DISPLAY_LINK_LABEL_LENGTH = 35;
 const EDITOR_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 const ROW_EDIT_INTERACTIVE_SELECTOR =
@@ -3993,8 +3992,15 @@ function ProfilePanel({
       queryClient.setQueryData<NotificationPreferences>(
         ["notification-preferences"],
         (current) => ({
-          dailyDigestEnabled: variables.dailyDigestEnabled,
+          dailyDigestEnabled:
+            variables.dailyDigestEnabled ??
+            current?.dailyDigestEnabled ??
+            false,
           dailyDigestTime: current?.dailyDigestTime ?? configuredDigestTime,
+          personalTodoRemindersEnabled:
+            variables.personalTodoRemindersEnabled ??
+            current?.personalTodoRemindersEnabled ??
+            true,
         }),
       );
       return { previous };
@@ -6147,52 +6153,6 @@ function readTaskDropPosition(event: ReactDragEvent<HTMLTableRowElement>) {
   return event.clientY - bounds.top < bounds.height / 2 ? "before" : "after";
 }
 
-function NotesMarkdown({
-  className,
-  emptyLabel,
-  value,
-}: {
-  className?: string;
-  emptyLabel: string;
-  value: string | null | undefined;
-}) {
-  const normalizedValue = normalizeMarkdownDisplayValue(value);
-
-  if (!normalizedValue) {
-    return <div className={className}>{emptyLabel}</div>;
-  }
-
-  return (
-    <div className={className}>
-      <ReactMarkdown
-        components={{
-          a: ({ href, children }) => {
-            const externalHref = isExternalHref(href);
-            const displayChildren =
-              externalHref && typeof href === "string"
-                ? formatMarkdownLinkChildren(href, children)
-                : children;
-
-            return (
-              <a
-                href={href}
-                rel={externalHref ? "noopener noreferrer" : undefined}
-                target={externalHref ? "_blank" : undefined}
-                title={externalHref ? href : undefined}
-              >
-                {displayChildren}
-              </a>
-            );
-          },
-        }}
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-      >
-        {normalizedValue}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
 function normalizeCreateProjectPayload(
   project: CreateProjectPayload,
 ): CreateProjectPayload {
@@ -6234,12 +6194,6 @@ function normalizeProjectDraftPayload(
 
 function normalizeProjectReferences(value: string) {
   return parseProjectReferences(value).join("\n");
-}
-
-function normalizeMarkdownDisplayValue(value: string | null | undefined) {
-  const trimmedValue = value?.trim();
-
-  return trimmedValue ? trimmedValue.replace(/\r\n?/gu, "\n") : null;
 }
 
 function parseProjectReferences(value: string | null) {
@@ -6288,77 +6242,6 @@ function formatProjectReferenceLabel(reference: string) {
   return truncateDisplayLinkLabel(
     normalizedPath ? `${parsed.host}${normalizedPath}` : parsed.host,
   );
-}
-
-function isExternalHref(value: string | undefined) {
-  return typeof value === "string" && /^https?:\/\//iu.test(value);
-}
-
-function formatMarkdownLinkChildren(href: string, children: ReactNode) {
-  const childText = flattenTextContent(children);
-
-  if (childText !== href) {
-    return children;
-  }
-
-  return truncateDisplayLinkLabel(extractUrlFilename(href) ?? childText);
-}
-
-function flattenTextContent(value: ReactNode): string {
-  if (typeof value === "string" || typeof value === "number") {
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => flattenTextContent(item)).join("");
-  }
-
-  if (isValidElement<{ children?: ReactNode }>(value)) {
-    return flattenTextContent(value.props.children);
-  }
-
-  return "";
-}
-
-function extractUrlFilename(value: string) {
-  if (!isExternalHref(value)) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(value);
-    const normalizedPath = parsed.pathname.replace(/\/+$/u, "");
-    const segments = normalizedPath
-      .split("/")
-      .filter((segment) => segment.length > 0);
-    const lastSegment = segments.at(-1);
-
-    if (!lastSegment) {
-      return null;
-    }
-
-    const decodedSegment = decodeUrlPathSegment(lastSegment);
-
-    return /^[^./][^/]*\.[^./]+$/u.test(decodedSegment) ? decodedSegment : null;
-  } catch {
-    return null;
-  }
-}
-
-function decodeUrlPathSegment(value: string) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function truncateDisplayLinkLabel(value: string) {
-  if (value.length <= MAX_DISPLAY_LINK_LABEL_LENGTH) {
-    return value;
-  }
-
-  return `${value.slice(0, MAX_DISPLAY_LINK_LABEL_LENGTH - 3)}...`;
 }
 
 function normalizeTaskDraftPayload(

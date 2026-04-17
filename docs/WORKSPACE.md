@@ -22,7 +22,7 @@ The top search, grouping, filter, and bulk-action controls stay pinned while you
 
 Each project row shows the project title, notes, references, owner, due date, priority, status, and completion percentage. Expanded projects also get a highlighted border so the active discussion area is easier to track.
 
-Project and task notes render basic markdown in place. Tavi keeps line breaks, recognizes simple lists and emphasis, and turns plain URLs into clickable links.
+Project, task, and Personal ToDo notes render basic markdown in place. Tavi keeps line breaks, recognizes simple lists and emphasis, and turns plain URLs into clickable links.
 
 Project references support one line per entry. URL lines render as shortened external links, while plain-text lines stay visible as compact project metadata.
 
@@ -67,10 +67,13 @@ Use `Delete` inside task edit when a single task should be removed without using
 Inside the panel you can:
 
 1. Add a private task with only `Task name`, `Notes`, and `Due date`.
-2. Reorder visible personal items with the compact drag handle.
-3. Toggle completion with the checkbox and hide or show done items with the compact `D` toggle.
-4. Import or export only your personal to-do list without affecting shared workspace data.
-5. Delete a personal item from the panel with the `X` action.
+2. Start new Personal ToDo drafts with tomorrow as the default due date, while still allowing the date to be cleared or changed before saving.
+3. Read Personal ToDo notes as rendered markdown, matching the main project and task views.
+4. Toggle `Enable reminders` to control whether your private items send due-date reminder emails to you.
+5. Reorder visible personal items with the compact drag handle.
+6. Toggle completion with the checkbox and hide or show done items with the compact `D` toggle.
+7. Import or export only your personal to-do list without affecting shared workspace data.
+8. Delete a personal item from the panel with the `X` action.
 
 ## Bulk task actions
 

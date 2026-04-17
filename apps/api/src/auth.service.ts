@@ -236,6 +236,7 @@ export class AuthService {
         where: { id: userId },
         select: {
           dailyDigestEnabled: true,
+          personalTodoRemindersEnabled: true,
         },
       }),
       this.prisma.emailSettings.findUnique({
@@ -250,6 +251,7 @@ export class AuthService {
       dailyDigestEnabled: user?.dailyDigestEnabled ?? false,
       dailyDigestTime:
         emailSettings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      personalTodoRemindersEnabled: user?.personalTodoRemindersEnabled ?? true,
     };
   }
 
@@ -260,12 +262,28 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: actor.id },
       data: {
-        dailyDigestEnabled: input.dailyDigestEnabled,
+        ...(input.dailyDigestEnabled !== undefined
+          ? { dailyDigestEnabled: input.dailyDigestEnabled }
+          : {}),
+        ...(input.personalTodoRemindersEnabled !== undefined
+          ? {
+              personalTodoRemindersEnabled:
+                input.personalTodoRemindersEnabled,
+            }
+          : {}),
       },
     });
 
     await this.recordAudit(actor, 'auth', actor.id, 'notification_preferences_updated', {
-      dailyDigestEnabled: input.dailyDigestEnabled,
+      ...(input.dailyDigestEnabled !== undefined
+        ? { dailyDigestEnabled: input.dailyDigestEnabled }
+        : {}),
+      ...(input.personalTodoRemindersEnabled !== undefined
+        ? {
+            personalTodoRemindersEnabled:
+              input.personalTodoRemindersEnabled,
+          }
+        : {}),
     });
 
     return this.getNotificationPreferences(actor.id);

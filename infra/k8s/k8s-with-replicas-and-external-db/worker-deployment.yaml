@@ -17,6 +17,8 @@ spec:
       labels:
         app: tavi-worker
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: worker
           image: ghcr.io/mkronvold/tavi-worker:latest
@@ -26,6 +28,8 @@ spec:
               type: RuntimeDefault
             privileged: false
             runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             capabilities:
               drop:
                 - ALL

@@ -14,6 +14,8 @@ spec:
       labels:
         app: tavi-postgres
     spec:
+      securityContext:
+        fsGroup: 70
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -23,6 +25,8 @@ spec:
               type: RuntimeDefault
             privileged: false
             runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
             capabilities:
               drop:
                 - ALL

@@ -411,6 +411,7 @@ export class BackupWorker {
           id: user.id,
           name: user.name,
           passwordHash: user.passwordHash,
+          personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
           updatedAt: user.updatedAt.toISOString(),
         })),
       },

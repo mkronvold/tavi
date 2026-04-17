@@ -17,6 +17,8 @@ spec:
       labels:
         app: tavi-api
     spec:
+      securityContext:
+        fsGroup: 1000
       initContainers:
         - name: migrate
           image: ghcr.io/mkronvold/tavi-api:latest
@@ -26,6 +28,8 @@ spec:
               type: RuntimeDefault
             privileged: false
             runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             capabilities:
               drop:
                 - ALL
@@ -68,6 +72,8 @@ spec:
               type: RuntimeDefault
             privileged: false
             runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             capabilities:
               drop:
                 - ALL

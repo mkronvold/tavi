@@ -19,4 +19,10 @@ RUN pnpm --filter @tavi/config build \
   && pnpm --filter @tavi/schemas build \
   && pnpm --filter @tavi/web build
 
+RUN mkdir -p /app/apps/web/dist \
+  && touch /app/apps/web/dist/runtime-config.js \
+  && chown node:node /app/apps/web/dist /app/apps/web/dist/runtime-config.js
+
+USER node
+
 CMD ["bash", "infra/docker/web-entrypoint.sh"]

@@ -1,18 +1,22 @@
 import { type DragEvent as ReactDragEvent, type FormEvent, useMemo, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appName, appVersion } from "@tavi/config";
 import { importPersonalTodosSchema } from "@tavi/schemas";
 import {
   ApiError,
   createPersonalTodo,
   deletePersonalTodo,
+  getNotificationPreferences,
   importPersonalTodos,
   reorderPersonalTodos,
+  updateNotificationPreferences,
   updatePersonalTodo,
 } from "./api";
 import { downloadJsonFile } from "./export-utils";
+import { NotesMarkdown } from "./NotesMarkdown";
 import type {
   CreatePersonalTodoPayload,
+  NotificationPreferences,
   UpdatePersonalTodoPayload,
   WorkspacePersonalTodo,
   WorkspaceResponse,
@@ -38,11 +42,11 @@ type PersonalTodoDragState = {
   overTodoId: string;
 };
 
-const EMPTY_PERSONAL_TODO_DRAFT: PersonalTodoDraft = {
-  dueDate: "",
+const createEmptyPersonalTodoDraft = (): PersonalTodoDraft => ({
+  dueDate: getTomorrowDateInput(),
   notes: "",
   title: "",
-};
+});
 
 export function PersonalTodoPanel({
   hideDoneTodos,
@@ -54,13 +58,14 @@ export function PersonalTodoPanel({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [createDraft, setCreateDraft] = useState<PersonalTodoDraft>(
-    EMPTY_PERSONAL_TODO_DRAFT,
+    () => createEmptyPersonalTodoDraft(),
   );
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PersonalTodoDraft>(
-    EMPTY_PERSONAL_TODO_DRAFT,
+    createEmptyPersonalTodoDraft(),
   );
   const [panelError, setPanelError] = useState<string | null>(null);
+  const [remindersError, setRemindersError] = useState<string | null>(null);
   const [dragState, setDragState] = useState<PersonalTodoDragState | null>(null);
   const doneTodoCount = personalTodos.filter((todo) => todo.status === "done").length;
   const visibleTodos = useMemo(
@@ -73,11 +78,62 @@ export function PersonalTodoPanel({
 
   const invalidateWorkspace = () =>
     queryClient.invalidateQueries({ queryKey: ["workspace"] });
+  const notificationPreferencesQuery = useQuery({
+    queryFn: getNotificationPreferences,
+    queryKey: ["notification-preferences"],
+    staleTime: 60_000,
+  });
+  const personalTodoRemindersEnabled =
+    notificationPreferencesQuery.data?.personalTodoRemindersEnabled ?? true;
+
+  const notificationPreferencesMutation = useMutation({
+    mutationFn: updateNotificationPreferences,
+    onMutate: async (variables) => {
+      setRemindersError(null);
+      const previous = queryClient.getQueryData<NotificationPreferences>([
+        "notification-preferences",
+      ]);
+
+      queryClient.setQueryData<NotificationPreferences>(
+        ["notification-preferences"],
+        (current) => ({
+          dailyDigestEnabled:
+            variables.dailyDigestEnabled ??
+            current?.dailyDigestEnabled ??
+            false,
+          dailyDigestTime: current?.dailyDigestTime ?? "09:00",
+          personalTodoRemindersEnabled:
+            variables.personalTodoRemindersEnabled ??
+            current?.personalTodoRemindersEnabled ??
+            true,
+        }),
+      );
+
+      return { previous };
+    },
+    onSuccess: (preferences) => {
+      queryClient.setQueryData(["notification-preferences"], preferences);
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          ["notification-preferences"],
+          context.previous,
+        );
+      }
+
+      setRemindersError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to update personal to do reminders.",
+      );
+    },
+  });
 
   const createPersonalTodoMutation = useMutation({
     mutationFn: createPersonalTodo,
     onSuccess: async () => {
-      setCreateDraft(EMPTY_PERSONAL_TODO_DRAFT);
+      setCreateDraft(createEmptyPersonalTodoDraft());
       setPanelError(null);
       onNotice("Added a personal to do.");
       await invalidateWorkspace();
@@ -342,6 +398,28 @@ export function PersonalTodoPanel({
         </div>
       </header>
 
+      <div className="personal-todo-toolbar">
+        <label className="personal-todo-inline-toggle">
+          <span>Enable reminders</span>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Enable reminders"
+            className="settings-switch-input"
+            checked={personalTodoRemindersEnabled}
+            disabled={
+              notificationPreferencesMutation.isPending ||
+              notificationPreferencesQuery.isPending
+            }
+            onChange={() =>
+              notificationPreferencesMutation.mutate({
+                personalTodoRemindersEnabled: !personalTodoRemindersEnabled,
+              })
+            }
+          />
+        </label>
+      </div>
+
       <form className="personal-todo-form" onSubmit={submitCreate}>
         <input
           value={createDraft.title}
@@ -384,6 +462,7 @@ export function PersonalTodoPanel({
       </form>
 
       {panelError ? <p className="error-banner">{panelError}</p> : null}
+      {remindersError ? <p className="error-banner">{remindersError}</p> : null}
 
       <div className="task-panel personal-todo-panel">
         <table className="task-table personal-todo-table">
@@ -602,7 +681,11 @@ export function PersonalTodoPanel({
                     </td>
                     <td className="personal-todo-title-cell">
                       <strong>{todo.title}</strong>
-                      <div className="task-subtext">{todo.notes ?? "No notes"}</div>
+                      <NotesMarkdown
+                        className="formatted-notes formatted-notes--task task-subtext"
+                        emptyLabel="No notes"
+                        value={todo.notes}
+                      />
                     </td>
                     <td>{formatDate(todo.dueDate)}</td>
                     <td className="personal-todo-complete-column">
@@ -777,6 +860,21 @@ function reorderReason(input: {
   }
 
   return null;
+}
+
+function getTomorrowDateInput() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return formatDateInput(tomorrow);
+}
+
+function formatDateInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+
+  return `${year.toString()}-${month}-${day}`;
 }
 
 function toDateInput(value: string | null) {

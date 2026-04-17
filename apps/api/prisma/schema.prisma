@@ -130,6 +130,7 @@ model User {
   name           String
   passwordHash   String
   dailyDigestEnabled Boolean     @default(false)
+  personalTodoRemindersEnabled Boolean @default(true)
   roleAssignment RoleAssignment?
   ownedProjects  Project[]       @relation("ProjectOwner")
   assignedTasks  Task[]          @relation("TaskAssignee")

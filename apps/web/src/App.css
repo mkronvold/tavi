@@ -1774,6 +1774,21 @@ button:disabled {
   align-items: start;
 }
 
+.personal-todo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.personal-todo-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
 .personal-todo-table .personal-todo-complete-column {
   width: 70px;
   text-align: center;

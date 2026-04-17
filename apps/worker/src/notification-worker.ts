@@ -39,6 +39,7 @@ type NotificationRecipient = {
   email: string;
   id: string;
   name: string;
+  personalTodoRemindersEnabled: boolean;
 };
 
 export class NotificationWorker {
@@ -123,6 +124,7 @@ export class NotificationWorker {
               email: true,
               id: true,
               name: true,
+              personalTodoRemindersEnabled: true,
             },
           },
         },
@@ -376,6 +378,13 @@ export class NotificationWorker {
       return "batched_into_digest";
     }
 
+    if (
+      isPersonalTodoReminderKind(kind) &&
+      !recipient.personalTodoRemindersEnabled
+    ) {
+      return "personal_todo_reminders_disabled";
+    }
+
     return null;
   }
 
@@ -418,6 +427,11 @@ export class NotificationWorker {
             not: null,
           },
           status: "todo",
+          user: {
+            is: {
+              personalTodoRemindersEnabled: true,
+            },
+          },
         },
         select: {
           dueDate: true,
@@ -1417,6 +1431,10 @@ function shouldBatchIntoDailyDigest(kind: string) {
     !kind.startsWith("personal_todo_due_") &&
     kind !== "personal_todo_overdue"
   );
+}
+
+function isPersonalTodoReminderKind(kind: string) {
+  return kind.startsWith("personal_todo_due_") || kind === "personal_todo_overdue";
 }
 
 function toTaskDueReminderKind(kind: string) {

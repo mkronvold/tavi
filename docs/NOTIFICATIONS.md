@@ -68,6 +68,8 @@ They can send only due-date reminder emails to their owner:
 
 These reminder emails stay separate from the shared-work daily digest so a personal due reminder is not hidden inside the digest batch.
 
+Use the `Enable reminders` switch at the top of the `Personal ToDo` panel to turn these owner-only reminder emails on or off. It defaults to on so existing reminder behavior stays unchanged until a user chooses otherwise.
+
 ## Related workspace behavior
 
 1. Project and task saves still happen immediately in the UI; digest mode changes delivery timing, not save timing.

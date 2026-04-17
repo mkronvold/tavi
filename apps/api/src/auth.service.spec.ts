@@ -203,6 +203,7 @@ describe('AuthService', () => {
 
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: true,
+      personalTodoRemindersEnabled: false,
     });
     findUniqueEmailSettingsMock.mockResolvedValue({
       dailyDigestTime: '14:30',
@@ -211,6 +212,7 @@ describe('AuthService', () => {
     await expect(service.getNotificationPreferences('user-1')).resolves.toEqual({
       dailyDigestEnabled: true,
       dailyDigestTime: '14:30',
+      personalTodoRemindersEnabled: false,
     });
   });
 
@@ -233,6 +235,7 @@ describe('AuthService', () => {
     });
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: true,
+      personalTodoRemindersEnabled: false,
     });
     findUniqueEmailSettingsMock.mockResolvedValue({
       dailyDigestTime: '09:00',
@@ -245,12 +248,56 @@ describe('AuthService', () => {
     ).resolves.toEqual({
       dailyDigestEnabled: true,
       dailyDigestTime: '09:00',
+      personalTodoRemindersEnabled: false,
     });
 
     expect(updateUserMock).toHaveBeenCalledWith({
       where: { id: actor.id },
       data: {
         dailyDigestEnabled: true,
+      },
+    });
+  });
+
+  it('updates personal to do reminders without changing digest settings', async () => {
+    const {
+      findUniqueEmailSettingsMock,
+      findUniqueUserMock,
+      updateUserMock,
+      service,
+    } = createService();
+    const actor = {
+      id: 'user-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor' as const,
+    };
+
+    updateUserMock.mockResolvedValue({
+      id: actor.id,
+    });
+    findUniqueUserMock.mockResolvedValue({
+      dailyDigestEnabled: false,
+      personalTodoRemindersEnabled: false,
+    });
+    findUniqueEmailSettingsMock.mockResolvedValue({
+      dailyDigestTime: '09:00',
+    });
+
+    await expect(
+      service.updateNotificationPreferences(actor, {
+        personalTodoRemindersEnabled: false,
+      }),
+    ).resolves.toEqual({
+      dailyDigestEnabled: false,
+      dailyDigestTime: '09:00',
+      personalTodoRemindersEnabled: false,
+    });
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: actor.id },
+      data: {
+        personalTodoRemindersEnabled: false,
       },
     });
   });

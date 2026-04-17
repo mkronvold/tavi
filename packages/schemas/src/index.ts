@@ -2073,14 +2073,25 @@ export type UpdateEmailSettingsInput = z.infer<
 export const notificationPreferencesSchema = z.object({
   dailyDigestEnabled: z.boolean(),
   dailyDigestTime: dailyDigestTimeSchema,
+  personalTodoRemindersEnabled: z.boolean(),
 });
 export type NotificationPreferences = z.infer<
   typeof notificationPreferencesSchema
 >;
 
-export const updateNotificationPreferencesSchema = z.object({
-  dailyDigestEnabled: z.boolean(),
-});
+export const updateNotificationPreferencesSchema = z
+  .object({
+    dailyDigestEnabled: z.boolean().optional(),
+    personalTodoRemindersEnabled: z.boolean().optional(),
+  })
+  .refine(
+    (value) =>
+      value.dailyDigestEnabled !== undefined ||
+      value.personalTodoRemindersEnabled !== undefined,
+    {
+      message: "At least one notification preference must be provided.",
+    },
+  );
 export type UpdateNotificationPreferencesInput = z.infer<
   typeof updateNotificationPreferencesSchema
 >;

@@ -359,6 +359,33 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
   return payload;
 };
 
+const createNotificationPreferencesPayload = (
+  overrides: Partial<{
+    dailyDigestEnabled: boolean;
+    dailyDigestTime: string;
+    personalTodoRemindersEnabled: boolean;
+  }> = {},
+) => ({
+  dailyDigestEnabled: false,
+  dailyDigestTime: "09:00",
+  personalTodoRemindersEnabled: true,
+  ...overrides,
+});
+
+const getTomorrowLocalDate = () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow;
+};
+
+const formatDateInputValue = (value: Date) => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+
+  return `${year.toString()}-${month}-${day}`;
+};
+
 describe("App", () => {
   const createQueryClient = () =>
     new QueryClient({
@@ -1791,6 +1818,114 @@ describe("App", () => {
     });
   });
 
+  it("renders Personal ToDo notes as markdown", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.personalTodos[0] = {
+      ...workspacePayload.personalTodos[0],
+      notes:
+        "Review the [runbook](https://example.com/runbook.md)\n\n- confirm checklist",
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: "runbook" }),
+      ).toHaveAttribute("href", "https://example.com/runbook.md");
+      expect(screen.getByText("confirm checklist")).toBeInTheDocument();
+    });
+  });
+
+  it("defaults new Personal ToDo due dates to tomorrow", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+
+    const dueDateField = await screen.findByDisplayValue(
+      formatDateInputValue(getTomorrowLocalDate()),
+    );
+
+    expect(dueDateField).toHaveAttribute("type", "date");
+  });
+
+  it("updates Personal ToDo reminder preferences from the panel", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let notificationPreferencesRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/auth/notification/preferences") &&
+          init?.method === "PUT"
+        ) {
+          notificationPreferencesRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse(
+            createNotificationPreferencesPayload({
+              personalTodoRemindersEnabled: false,
+            }),
+          );
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(createNotificationPreferencesPayload());
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+
+    const reminderSwitch = await screen.findByRole("switch", {
+      name: "Enable reminders",
+    });
+
+    expect(reminderSwitch).toBeChecked();
+    fireEvent.click(reminderSwitch);
+
+    await waitFor(() => {
+      expect(notificationPreferencesRequestBody).toBe(
+        JSON.stringify({ personalTodoRemindersEnabled: false }),
+      );
+      expect(reminderSwitch).not.toBeChecked();
+    });
+  });
+
   it("lets viewers use Personal ToDo and persists its done toggle across reloads", async () => {
     const workspacePayload = createWorkspacePayload();
 
@@ -2279,17 +2414,21 @@ describe("App", () => {
         ) {
           notificationPreferencesRequestBody =
             typeof init.body === "string" ? init.body : null;
-          return createResponse({
-            dailyDigestEnabled: true,
-            dailyDigestTime: "14:30",
-          });
+          return createResponse(
+            createNotificationPreferencesPayload({
+              dailyDigestEnabled: true,
+              dailyDigestTime: "14:30",
+            }),
+          );
         }
 
         if (url.endsWith("/auth/notification/preferences")) {
-          return createResponse({
-            dailyDigestEnabled: false,
-            dailyDigestTime: "14:30",
-          });
+          return createResponse(
+            createNotificationPreferencesPayload({
+              dailyDigestEnabled: false,
+              dailyDigestTime: "14:30",
+            }),
+          );
         }
 
         throw new Error(`Unexpected request: ${url}`);
