@@ -1,7 +1,7 @@
 name: tavi-runtime
 
 x-tavi-common-env: &tavi-common-env
-  DATABASE_URL: postgresql://${POSTGRES_USER:-tavi}:${POSTGRES_PASSWORD:-tavi}@postgres:5432/${POSTGRES_DB:-tavi}?schema=public
+  DATABASE_URL: ${TAVI_DATABASE_URL:-postgresql://${POSTGRES_USER:-tavi}:${POSTGRES_PASSWORD:-tavi}@postgres:5432/${POSTGRES_DB:-tavi}?schema=public}
   BACKUP_DIRECTORY: ${TAVI_BACKUP_DIRECTORY:-/var/tavi/backups}
   NODE_ENV: production
 

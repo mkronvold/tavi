@@ -17,19 +17,44 @@ instead.
 If your GHCR access is private in your environment, run `docker login ghcr.io`
 before pulling images.
 
-## Pick an image tag
+## Configure environment variables
 
-Use a release tag when possible. `latest` is fine for the current default
-branch.
+The published-image compose stack reads its configuration from shell variables or
+from a file passed with `--env-file`. Use an explicit env file so the path is
+unambiguous:
 
 ```bash
-export TAVI_TAG=latest
-export TAVI_COOKIE_SECRET='replace-with-a-long-random-secret'
-export TAVI_DATABASE_URL='postgresql://tavi:tavi@tavi-postgres:5432/tavi?schema=public'
-export TAVI_BACKUP_DIRECTORY='/var/tavi/backups'
+cp infra/docker/compose-prod.env.example infra/docker/compose-prod.env
 ```
 
-The API and worker must use the same backup directory so stored backups, backup-now, download, delete, and restore all operate on the same files.
+Edit `infra/docker/compose-prod.env` and set at least a real
+`TAVI_COOKIE_SECRET` before the first start.
+
+Important variables:
+
+| Variable | What it controls | Default in the example |
+| --- | --- | --- |
+| `TAVI_TAG` | GHCR image tag for API, web, and worker | `latest` |
+| `TAVI_COOKIE_SECRET` | Required API session secret | `replace-with-a-long-random-secret` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Internal Postgres container credentials | `tavi`, `tavi`, `replace-me` |
+| `TAVI_DATABASE_URL` | Optional override for API/worker DB connection | unset |
+| `TAVI_WEB_HOST_PORT`, `TAVI_API_HOST_PORT`, `TAVI_WORKER_HOST_PORT`, `TAVI_POSTGRES_HOST_PORT` | Host ports published by the compose stack | `5173`, `4000`, `4100`, `5432` |
+| `TAVI_HOME_URL` | Header home link and web runtime app URL | `http://localhost:5173` |
+| `TAVI_API_BASE_URL` | Browser-facing API base URL used by the web container | `http://localhost:4000/api` |
+| `TAVI_CORS_ORIGIN` | Allowed browser origin for the API | `http://localhost:5173` |
+| `TAVI_BACKUP_DIRECTORY` | Shared backup path inside API and worker containers | `/var/tavi/backups` |
+| `SMTP_URL`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS` | Optional outbound email settings | example/local defaults |
+
+Notes:
+
+1. If `TAVI_DATABASE_URL` is unset, the API and worker connect to the bundled
+   `postgres` service using `POSTGRES_*`.
+2. The API and worker must use the same `TAVI_BACKUP_DIRECTORY` so stored
+   backups, backup-now, download, delete, and restore all operate on the same
+   files.
+3. If you want a different env file name or location, keep the compose file as
+   is and pass that path with `--env-file`. You do not need to edit the compose
+   YAML just to use a custom env file.
 
 ## Recommended quick start with Docker Compose
 
@@ -39,37 +64,54 @@ working tree into the containers, runs the web image in its default static
 production mode, and uses a one-shot migration service before the long-running
 app containers start.
 
-Set at least a real cookie secret first:
-
-```bash
-export TAVI_COOKIE_SECRET='replace-with-a-long-random-secret'
-```
-
 Then start the stack:
 
 ```bash
-docker compose -f infra/docker/compose-prod.yaml up -d
+docker compose \
+  --env-file infra/docker/compose-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  up -d
 ```
 
 Follow the API logs to catch the generated initial admin password if the
 database starts empty:
 
 ```bash
-docker compose -f infra/docker/compose-prod.yaml logs -f api
+docker compose \
+  --env-file infra/docker/compose-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  logs -f api
 ```
 
 Stop the stack with:
 
 ```bash
-docker compose -f infra/docker/compose-prod.yaml down
+docker compose \
+  --env-file infra/docker/compose-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  down
 ```
 
 This compose path creates named Docker volumes for PostgreSQL data and backups
 automatically, so no manual network or volume bootstrap is required.
 
+If you want to keep multiple environment files, point Compose at the one you
+want for that run:
+
+```bash
+docker compose \
+  --env-file ./ops/tavi-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  up -d
+```
+
 ## Pull the published images
 
 ```bash
+set -a
+. ./infra/docker/compose-prod.env
+set +a
+
 docker pull postgres:16-alpine
 docker pull ghcr.io/mkronvold/tavi-api:${TAVI_TAG}
 docker pull ghcr.io/mkronvold/tavi-web:${TAVI_TAG}
@@ -89,6 +131,15 @@ mkdir -p ./backups
 
 Run these once per machine, or rerun them safely if the network and volume
 already exist.
+
+The manual `docker run` commands below assume you already exported the same
+variables into your shell, for example:
+
+```bash
+set -a
+. ./infra/docker/compose-prod.env
+set +a
+```
 
 ## Start PostgreSQL
 
@@ -151,7 +202,10 @@ If you skip manual seeding and start the API in local-auth mode against an empty
 To find that generated password in the compose-based production runtime:
 
 ```bash
-docker compose -f infra/docker/compose-prod.yaml logs api \
+docker compose \
+  --env-file infra/docker/compose-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  logs api \
   | rg 'auth.bootstrap.initial_admin_created|initialPassword'
 ```
 
