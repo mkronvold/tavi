@@ -742,6 +742,76 @@ export function BackupSettingsCard({
                 </label>
               </div>
 
+              <div className="backup-clear-section">
+                <div className="bulk-action-header">
+                  <div>
+                    <strong>Clear all existing projects/tasks</strong>
+                    <span>
+                      Delete the current project/task workspace data without
+                      seeding example projects, then apply the selected restore.
+                    </span>
+                  </div>
+                  {!clearConfirmationOpen ? (
+                    <div className="settings-actions">
+                      <button
+                        type="button"
+                        className="danger-button"
+                        disabled={clearWorkspaceMutation.isPending}
+                        onClick={openClearConfirmation}
+                      >
+                        Clear all existing projects/tasks
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {clearConfirmationOpen ? (
+                  <div className="import-reset-confirmation">
+                    <p className="toolbar-hint">
+                      Confirm with your current admin password to clear the
+                      current project/task workspace before restoring from this
+                      backup.
+                    </p>
+                    <label>
+                      Current password
+                      <input
+                        type="password"
+                        value={clearPassword}
+                        onChange={(event) => {
+                          setRestoreError(null);
+                          setClearPassword(event.target.value);
+                        }}
+                      />
+                    </label>
+                    <div className="settings-actions">
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        disabled={clearWorkspaceMutation.isPending}
+                        onClick={closeClearConfirmation}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        disabled={
+                          clearPassword.trim().length < 8 ||
+                          clearWorkspaceMutation.isPending
+                        }
+                        onClick={() =>
+                          clearWorkspaceMutation.mutate(clearPassword)
+                        }
+                      >
+                        {clearWorkspaceMutation.isPending
+                          ? "Clearing..."
+                          : "Confirm clear"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               {restoreScope === "projects_tasks" ? (
                 <div className="backup-selection-group">
                   <div className="backup-selection-header">
@@ -844,76 +914,6 @@ export function BackupSettingsCard({
                         ) : null}
                       </div>
                     ))}
-                  </div>
-                  <div className="backup-clear-section">
-                    <div className="bulk-action-header">
-                      <div>
-                        <strong>Clear all existing projects/tasks</strong>
-                        <span>
-                          Delete the current project/task workspace data without
-                          seeding example projects, then apply the selected
-                          restore.
-                        </span>
-                      </div>
-                      {!clearConfirmationOpen ? (
-                        <div className="settings-actions">
-                          <button
-                            type="button"
-                            className="danger-button"
-                            disabled={clearWorkspaceMutation.isPending}
-                            onClick={openClearConfirmation}
-                          >
-                            Clear all existing projects/tasks
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {clearConfirmationOpen ? (
-                      <div className="import-reset-confirmation">
-                        <p className="toolbar-hint">
-                          Confirm with your current admin password to clear the
-                          current project/task workspace before restoring from
-                          this backup.
-                        </p>
-                        <label>
-                          Current password
-                          <input
-                            type="password"
-                            value={clearPassword}
-                            onChange={(event) => {
-                              setRestoreError(null);
-                              setClearPassword(event.target.value);
-                            }}
-                          />
-                        </label>
-                        <div className="settings-actions">
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            disabled={clearWorkspaceMutation.isPending}
-                            onClick={closeClearConfirmation}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            className="danger-button"
-                            disabled={
-                              clearPassword.trim().length < 8 ||
-                              clearWorkspaceMutation.isPending
-                            }
-                            onClick={() =>
-                              clearWorkspaceMutation.mutate(clearPassword)
-                            }
-                          >
-                            {clearWorkspaceMutation.isPending
-                              ? "Clearing..."
-                              : "Confirm clear"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               ) : null}

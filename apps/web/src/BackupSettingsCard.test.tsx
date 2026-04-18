@@ -162,4 +162,66 @@ describe("BackupSettingsCard", () => {
       );
     });
   });
+
+  it("keeps the clear action visible for users-only restore", async () => {
+    const basePreview = createPreview();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/backups") && !init?.method) {
+          return createResponse(createBackupStatus());
+        }
+
+        if (
+          url.endsWith("/backups/restore/preview") &&
+          init?.method === "POST"
+        ) {
+          return createResponse({
+            ...basePreview,
+            counts: {
+              ...basePreview.counts,
+              users: 1,
+            },
+            users: [
+              {
+                backupId: "user-1",
+                conflict: { kind: "none" },
+                email: "admin@tavi.local",
+                name: "Tavi Admin",
+                role: "admin",
+              },
+            ],
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard();
+
+    await screen.findByText("backup-1.json");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Restore" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Clear all existing projects/tasks",
+        }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Users only" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Users (1/1)")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Clear all existing projects/tasks" }),
+    ).toBeInTheDocument();
+  });
 });
