@@ -595,6 +595,7 @@ function WorkspaceScreen({
   });
   const projectEditFormRef = useRef<HTMLFormElement | null>(null);
   const taskEditRowRef = useRef<HTMLTableRowElement | null>(null);
+  const workspaceSearchInputRef = useRef<HTMLInputElement | null>(null);
   const validAssigneeUserIds = useMemo(
     () => new Set(data.users.map((user) => user.id)),
     [data.users],
@@ -1853,6 +1854,11 @@ function WorkspaceScreen({
     }
   };
 
+  const clearWorkspaceSearch = () => {
+    setSearch("");
+    workspaceSearchInputRef.current?.focus();
+  };
+
   return (
     <main
       className={`workspace-shell${fullWidth ? " workspace-shell--full-width" : ""}`}
@@ -1894,11 +1900,22 @@ function WorkspaceScreen({
           <div className="workspace-filter-row">
             <div className="workspace-filter search-filter">
               <input
+                ref={workspaceSearchInputRef}
                 aria-label="Search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search projects and tasks"
               />
+              {search.length > 0 ? (
+                <button
+                  type="button"
+                  className="search-filter-clear"
+                  aria-label="Clear search"
+                  onClick={clearWorkspaceSearch}
+                >
+                  x
+                </button>
+              ) : null}
             </div>
 
             <div className="workspace-filter">

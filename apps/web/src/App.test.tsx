@@ -745,6 +745,30 @@ describe("App", () => {
     });
   });
 
+  it("clears the workspace search from the inline clear button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+    window.history.replaceState({}, "", "/?foo=1&search=Roadmap");
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search")).toHaveValue("Roadmap");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search")).toHaveValue("");
+      expect(window.location.search).toBe("?foo=1");
+    });
+
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+    expect(screen.getByLabelText("Search")).toHaveFocus();
+  });
+
   it("copies a project search link with encoded special characters", async () => {
     const workspacePayload = createWorkspacePayload();
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
