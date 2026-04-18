@@ -107,6 +107,20 @@ docker run --rm \
   pnpm --filter @tavi/api prisma:seed
 ```
 
+Seed only the initial local admin account if you want a production-style local-auth bootstrap without demo users:
+
+```bash
+docker run --rm \
+  --name tavi-seed-admin \
+  --network tavi-net \
+  -e DATABASE_URL="${TAVI_DATABASE_URL}" \
+  -e TAVI_INITIAL_ADMIN_PASSWORD="change-me-now" \
+  ghcr.io/mkronvold/tavi-api:${TAVI_TAG} \
+  bash -lc 'pnpm --filter @tavi/api prisma:migrate && pnpm --filter @tavi/api prisma:seed:admin'
+```
+
+`prisma migrate deploy` creates the Prisma-managed schema on an empty database, so no manual table creation is needed before the admin seed.
+
 ## Start the app containers
 
 API:
