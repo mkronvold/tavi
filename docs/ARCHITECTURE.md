@@ -362,7 +362,7 @@ Use request validation at the edge and keep business rules in service-layer code
 - Enable a local auth mode only outside production.
 - Allow preconfigured local roles for testing admin/editor/viewer behavior.
 - Allow admins to create, edit, remove, and set passwords for local accounts.
-- Allow admins to export local accounts as JSON, import JSON account changes by email, and reset the seeded `@tavi.local` accounts back to known credentials without deleting unrelated local accounts.
+- Allow admins to export local accounts as JSON with password hashes for restore, import JSON account changes by email, and reset the seeded `@tavi.local` accounts back to known credentials without deleting unrelated local accounts.
 - Require current-password confirmation for destructive admin reset actions such as reseeding example workspace data from the Import/Export panel.
 - Allow non-admins to change only their own local password.
 - Expose an unauthenticated login-hint endpoint so the login screen advertises the seeded local users only while those accounts still exist with their default password.

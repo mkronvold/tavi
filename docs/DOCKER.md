@@ -31,6 +31,42 @@ export TAVI_BACKUP_DIRECTORY='/var/tavi/backups'
 
 The API and worker must use the same backup directory so stored backups, backup-now, download, delete, and restore all operate on the same files.
 
+## Recommended quick start with Docker Compose
+
+The repository now includes a published-image compose stack at
+`infra/docker/compose-prod.yaml`. It uses the GHCR images, does not mount the
+working tree into the containers, runs the web image in its default static
+production mode, and uses a one-shot migration service before the long-running
+app containers start.
+
+Set at least a real cookie secret first:
+
+```bash
+export TAVI_COOKIE_SECRET='replace-with-a-long-random-secret'
+```
+
+Then start the stack:
+
+```bash
+docker compose -f infra/docker/compose-prod.yaml up -d
+```
+
+Follow the API logs to catch the generated initial admin password if the
+database starts empty:
+
+```bash
+docker compose -f infra/docker/compose-prod.yaml logs -f api
+```
+
+Stop the stack with:
+
+```bash
+docker compose -f infra/docker/compose-prod.yaml down
+```
+
+This compose path creates named Docker volumes for PostgreSQL data and backups
+automatically, so no manual network or volume bootstrap is required.
+
 ## Pull the published images
 
 ```bash
@@ -41,6 +77,9 @@ docker pull ghcr.io/mkronvold/tavi-worker:${TAVI_TAG}
 ```
 
 ## Create local Docker state
+
+If you prefer to manage each container manually instead of using the checked-in
+compose file, use the commands below.
 
 ```bash
 docker network inspect tavi-net >/dev/null 2>&1 || docker network create tavi-net
@@ -108,6 +147,13 @@ docker run --rm \
 ```
 
 If you skip manual seeding and start the API in local-auth mode against an empty database, the API now auto-creates only `admin@tavi.local`, generates a random 10-character alphanumeric password, and writes that initial password to the API logs on first startup.
+
+To find that generated password in the compose-based production runtime:
+
+```bash
+docker compose -f infra/docker/compose-prod.yaml logs api \
+  | rg 'auth.bootstrap.initial_admin_created|initialPassword'
+```
 
 ## Start the app containers
 
@@ -185,7 +231,9 @@ If you ran the seed step above, use these local accounts:
 | Editor | `editor@tavi.local` | `password123` |
 | Viewer | `viewer@tavi.local` | `password123` |
 
-If you skipped seeding, use whatever accounts already exist in your database.
+If you skipped seeding and the database started empty, check the API logs for the
+generated initial `admin@tavi.local` password. Otherwise, use whatever accounts
+already exist in your database.
 
 ## Useful commands
 

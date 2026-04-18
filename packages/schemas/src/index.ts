@@ -257,6 +257,7 @@ export const localAccountImportSchema = z.object({
   name: localAccountNameSchema,
   role: roleSchema,
   password: z.union([localPasswordSchema, z.literal("")]).optional(),
+  passwordHash: z.string().min(1).optional(),
 });
 export type LocalAccountImport = z.infer<typeof localAccountImportSchema>;
 
@@ -302,8 +303,11 @@ export type ImportLocalAccountsResponse = z.infer<
   typeof importLocalAccountsResponseSchema
 >;
 
-export const localAccountExportSchema = localAccountImportSchema.omit({
-  password: true,
+export const localAccountExportSchema = z.object({
+  email: emailAddressSchema,
+  name: localAccountNameSchema,
+  role: roleSchema,
+  passwordHash: z.string().min(1).optional(),
 });
 export type LocalAccountExport = z.infer<typeof localAccountExportSchema>;
 

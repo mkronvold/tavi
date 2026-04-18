@@ -42,7 +42,7 @@ type PanelMode =
     }
   | null;
 
-type LocalAccountImportDuplicateStrategy = "skip" | "update";
+type LocalAccountImportDuplicateStrategy = "skip" | "overwrite";
 
 type BulkLocalAccountMode = "password" | "role" | null;
 
@@ -859,10 +859,12 @@ export function LocalAccountsPanel({
           </div>
 
           <p className="toolbar-hint">
-            JSON exports omit passwords. JSON and CSV imports match accounts by
-            email, keep existing passwords when the password field is blank,
-            and require a password for any new account. CSV imports use name,
-            email, role, and optional password columns. Reset Defaults
+            JSON exports include password hashes, not plaintext passwords.
+            JSON imports can use either a plaintext password or an exported
+            password hash. JSON and CSV imports match accounts by email, keep
+            existing passwords when the password field is blank, and require a
+            password or password hash for any new JSON account. CSV imports use
+            name, email, role, and optional password columns. Reset Defaults
             restores the default @tavi.local users with password123.
           </p>
 
@@ -1667,10 +1669,10 @@ function chooseLocalAccountImportDuplicateStrategy({
 
   if (
     window.confirm(
-      `This import includes ${duplicateNotes.join(" and ")}.\n\nSelect OK to update matching accounts and use the last imported row for duplicate emails.\nSelect Cancel to review a skip option.`,
+      `This import includes ${duplicateNotes.join(" and ")}.\n\nSelect OK to overwrite matching accounts and use the last imported row for duplicate emails.\nSelect Cancel to review a skip option.`,
     )
   ) {
-    return "update";
+    return "overwrite";
   }
 
   return window.confirm(
@@ -1686,11 +1688,11 @@ function filterImportedLocalAccounts(
   duplicateStrategy: LocalAccountImportDuplicateStrategy,
 ) {
   const dedupedAccounts =
-    duplicateStrategy === "update"
+    duplicateStrategy === "overwrite"
       ? dedupeImportedAccounts(importedAccounts, true)
       : dedupeImportedAccounts(importedAccounts, false);
 
-  if (duplicateStrategy === "update") {
+  if (duplicateStrategy === "overwrite") {
     return dedupedAccounts;
   }
 

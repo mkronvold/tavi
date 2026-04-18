@@ -9,7 +9,7 @@ repo_root="$(
   CDPATH= builtin cd -- "${script_dir}/.."
   command pwd -P
 )"
-compose_file="${repo_root}/infra/docker/compose.yaml"
+compose_file="${repo_root}/infra/docker/compose-dev.yaml"
 
 if [[ ! -f "${compose_file}" ]]; then
   printf 'Compose file not found: %s\n' "${compose_file}" >&2

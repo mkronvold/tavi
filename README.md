@@ -42,7 +42,7 @@ The local stack exposes:
 
 Compose applies the committed Prisma migrations and seeds the local auth accounts automatically when the API container starts.
 
-These scripts manage the source-mounted Docker Compose development stack in `infra/docker/compose.yaml`. They do not manage the published-image local runtime in `docs/DOCKER.md`, and this repository does not currently define a separate `.devcontainer` setup.
+These scripts manage the source-mounted Docker Compose development stack in `infra/docker/compose-dev.yaml`. The published-image local runtime now has its own compose file at `infra/docker/compose-prod.yaml`, and this repository does not currently define a separate `.devcontainer` setup.
 
 For a local runtime that uses the published GHCR images and does not build from source, use `docs/DOCKER.md`.
 

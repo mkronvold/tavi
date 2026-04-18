@@ -65,12 +65,12 @@ Use the signed-in user name in the workspace header to open `User Profile`, then
 
 Important rules:
 
-1. Exports never include passwords.
+1. JSON exports include `passwordHash`, not plaintext passwords.
 2. JSON and CSV imports match existing users by email.
 3. If an imported account leaves `password` blank and the account already exists, the current password stays unchanged.
-4. New imported accounts must include a password.
+4. New imported JSON accounts must include either `password` or `passwordHash`.
 5. CSV imports use `name`, `email`, `role`, and optional `password` columns.
-6. If duplicate emails appear in the import file or already exist in Tavi, the panel asks whether to update duplicates or skip them before import continues.
+6. If duplicate emails appear in the import file or already exist in Tavi, the panel asks whether to overwrite duplicates or skip them before import continues.
 
 Example JSON import shape:
 
@@ -86,7 +86,8 @@ Example JSON import shape:
     {
       "name": "Riley Viewer",
       "email": "riley@tavi.local",
-      "role": "viewer"
+      "role": "viewer",
+      "passwordHash": "$2b$10$examplehashedpasswordvalueforrestoreonly........"
     }
   ]
 }
@@ -113,6 +114,18 @@ All three are reset to `password123`. Other local accounts stay in place.
 ## Initial production bootstrap
 
 Fresh non-dev deployments do not create the demo users. Instead, in local-auth mode, the API auto-creates only `admin@tavi.local` on first startup when there are no users yet, generates a random 10-character alphanumeric password, and writes that initial password to the API logs.
+
+Example log lookup commands:
+
+```bash
+# Docker Compose production runtime
+docker compose -f infra/docker/compose-prod.yaml logs api \
+  | rg 'auth.bootstrap.initial_admin_created|initialPassword'
+
+# Kubernetes deployment
+kubectl logs -n tavi deployment/tavi-api -c api \
+  | rg 'auth.bootstrap.initial_admin_created|initialPassword'
+```
 
 This bootstrap path does not create `editor@tavi.local`, `viewer@tavi.local`, projects, tasks, or example workspace data.
 

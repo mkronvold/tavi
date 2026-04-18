@@ -673,6 +673,8 @@ describe("LocalAccountsPanel", () => {
             {
               email: "admin@tavi.local",
               name: "Admin",
+              passwordHash:
+                "$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6",
               role: "admin",
             },
           ],
@@ -776,6 +778,10 @@ describe("LocalAccountsPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("admin@tavi.local")).toBeInTheDocument();
     });
+
+    expect(
+      screen.getByText(/JSON exports include password hashes, not plaintext passwords\./),
+    ).toBeInTheDocument();
 
     const fileInput = container.querySelector(
       'input[type="file"]',
@@ -927,7 +933,7 @@ describe("LocalAccountsPanel", () => {
     );
   });
 
-  it("asks whether duplicate imported emails should update existing accounts", async () => {
+  it("asks whether duplicate imported emails should overwrite existing accounts", async () => {
     let listResponse = {
       accounts: [
         createAccountRecord("user-1", "editor@tavi.local", "Editor", "editor"),

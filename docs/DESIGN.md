@@ -192,8 +192,8 @@ Rollup details shown in the UI should include:
 ### 7.7 Manage Local Accounts
 
 1. Admin opens Settings and expands the Local Accounts panel.
-2. Admin can export local accounts as JSON for review or bulk editing. Exported JSON omits passwords.
-3. Admin can import JSON to create or update accounts by email. Existing accounts keep their current password when the imported password field is blank, and new accounts must include a password.
+2. Admin can export local accounts as JSON for review or bulk editing. Exported JSON includes password hashes for restore, not plaintext passwords.
+3. Admin can import JSON to create or overwrite accounts by email. Existing accounts keep their current password when the imported `password` field is blank and no `passwordHash` is provided, and new JSON accounts must include either `password` or `passwordHash`.
 4. Admin can reset the default `admin@tavi.local`, `editor@tavi.local`, and `viewer@tavi.local` accounts back to `password123` without deleting unrelated local accounts.
 5. The login hint for the default local users returns only after the backend confirms those seeded accounts exist with their default credentials again.
 

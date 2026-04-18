@@ -46,6 +46,20 @@ Each variant README follows the same pattern:
 
 `prisma migrate deploy` creates the required Prisma-managed tables automatically on an empty database, so the production admin bootstrap does not need any manual SQL table creation. In local-auth mode, the API now also auto-creates `admin@tavi.local` on first startup when the `User` table is empty, generates a random 10-character alphanumeric password, and writes that initial password to the API logs.
 
+To find the generated password in Kubernetes:
+
+```bash
+kubectl logs -n tavi deployment/tavi-api -c api \
+  | rg 'auth.bootstrap.initial_admin_created|initialPassword'
+```
+
+If the pod already restarted, check the previous container logs too:
+
+```bash
+kubectl logs -n tavi deployment/tavi-api -c api --previous \
+  | rg 'auth.bootstrap.initial_admin_created|initialPassword'
+```
+
 The web image now defaults to serving built assets through its static server. If you intentionally need `vite preview` for a temporary diagnostic deployment, override the web container args instead of changing the image:
 
 ```yaml

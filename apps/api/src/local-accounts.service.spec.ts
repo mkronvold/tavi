@@ -264,11 +264,13 @@ describe('LocalAccountsService', () => {
         {
           email: 'admin@tavi.local',
           name: 'Tavi Admin',
+          passwordHash: expect.any(String),
           role: 'admin',
         },
         {
           email: 'editor@tavi.local',
           name: 'Tavi Editor',
+          passwordHash: expect.any(String),
           role: 'editor',
         },
       ],
@@ -600,6 +602,88 @@ describe('LocalAccountsService', () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(mocks.createUserMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts a password hash when importing a new local account', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findManyUsersMock.mockResolvedValueOnce([]);
+    mocks.countRoleAssignmentsMock.mockResolvedValue(1);
+    mocks.createUserMock.mockResolvedValue(
+      createUserFixture({
+        id: 'user-2',
+        email: 'new.user@tavi.local',
+        name: 'New User',
+        roleAssignment: {
+          role: Role.viewer,
+        },
+      }),
+    );
+
+    await service.importAccounts(
+      {
+        accounts: [
+          {
+            email: 'new.user@tavi.local',
+            name: 'New User',
+            passwordHash: '$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6',
+            role: 'viewer',
+          },
+        ],
+      },
+      adminActor,
+    );
+
+    const createCall = mocks.createUserMock.mock.calls[0]?.[0];
+
+    if (!createCall) {
+      throw new Error('Expected a create user call');
+    }
+
+    expect(createCall.data.passwordHash).toBe(
+      '$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6',
+    );
+  });
+
+  it('uses an imported password hash for existing accounts when provided', async () => {
+    const { mocks, service } = createService();
+    const existingEditor = createUserFixture({
+      id: 'editor-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      roleAssignment: {
+        role: Role.editor,
+      },
+    });
+
+    mocks.findManyUsersMock.mockResolvedValueOnce([existingEditor]);
+    mocks.countRoleAssignmentsMock.mockResolvedValue(1);
+    mocks.updateUserMock.mockResolvedValue(existingEditor);
+
+    await service.importAccounts(
+      {
+        accounts: [
+          {
+            email: 'editor@tavi.local',
+            name: 'Tavi Editor',
+            passwordHash:
+              '$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6',
+            role: 'editor',
+          },
+        ],
+      },
+      adminActor,
+    );
+
+    const updatePasswordCall = mocks.updateUserMock.mock.calls[0]?.[0];
+
+    if (!updatePasswordCall) {
+      throw new Error('Expected an import password update call');
+    }
+
+    expect(updatePasswordCall.data.passwordHash).toBe(
+      '$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6',
+    );
   });
 
   it('updates imported account passwords when a non-empty password is provided', async () => {

@@ -81,23 +81,23 @@ Then start again:
 Check container state:
 
 ```bash
-docker compose -f infra/docker/compose.yaml ps
+docker compose -f infra/docker/compose-dev.yaml ps
 ```
 
 Follow logs:
 
 ```bash
-docker compose -f infra/docker/compose.yaml logs -f api
-docker compose -f infra/docker/compose.yaml logs -f web
-docker compose -f infra/docker/compose.yaml logs -f worker
-docker compose -f infra/docker/compose.yaml logs -f postgres
+docker compose -f infra/docker/compose-dev.yaml logs -f api
+docker compose -f infra/docker/compose-dev.yaml logs -f web
+docker compose -f infra/docker/compose-dev.yaml logs -f worker
+docker compose -f infra/docker/compose-dev.yaml logs -f postgres
 ```
 
 Scheduled backup files appear on the host under the configured backup directory. See [`BACKUPS.md`](./BACKUPS.md) for the in-app backup, upload, download, delete, and restore workflow.
 
 ## Optional home link override
 
-These scripts only manage the source-based Docker Compose development stack in `infra/docker/compose.yaml`. They are separate from the published-image local runtime in [`DOCKER.md`](./DOCKER.md), and this repository does not currently include a separate `.devcontainer` configuration.
+These scripts only manage the source-based Docker Compose development stack in `infra/docker/compose-dev.yaml`. They are separate from the published-image local runtime in [`DOCKER.md`](./DOCKER.md), which now also has a dedicated compose file at `infra/docker/compose-prod.yaml`, and this repository does not currently include a separate `.devcontainer` configuration.
 
 If you want the header logo to point somewhere other than the default local URL, set `TAVI_HOME_URL` before startup.
 
@@ -108,10 +108,10 @@ export TAVI_HOME_URL="https://your-preview-host.example.com"
 
 ## Local troubleshooting
 
-| Problem                           | What to check                                                                                               |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Web UI does not load              | Confirm `tavi-web` is running and port `5173` is free                                                       |
-| API calls fail                    | Confirm `tavi-api` is healthy and port `4000` is free                                                       |
-| Imports do not progress           | Confirm `tavi-worker` is running                                                                            |
+| Problem                           | What to check                                                                                                                      |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Web UI does not load              | Confirm `tavi-web` is running and port `5173` is free                                                                              |
+| API calls fail                    | Confirm `tavi-api` is healthy and port `4000` is free                                                                              |
+| Imports do not progress           | Confirm `tavi-worker` is running                                                                                                   |
 | Login hint is gone                | The default accounts were changed; use the current admin account or reset defaults from [`LOCAL_ACCOUNTS.md`](./LOCAL_ACCOUNTS.md) |
-| Layout feels wrong after a change | Use `Settings -> Clear Local Storage` to reset browser-only preferences                                     |
+| Layout feels wrong after a change | Use `Settings -> Clear Local Storage` to reset browser-only preferences                                                            |

@@ -1,0 +1,132 @@
+name: tavi-runtime
+
+x-tavi-common-env: &tavi-common-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-tavi}:${POSTGRES_PASSWORD:-tavi}@postgres:5432/${POSTGRES_DB:-tavi}?schema=public
+  BACKUP_DIRECTORY: ${TAVI_BACKUP_DIRECTORY:-/var/tavi/backups}
+  NODE_ENV: production
+
+x-tavi-api-env: &tavi-api-env
+  <<: *tavi-common-env
+  COOKIE_SECRET: ${TAVI_COOKIE_SECRET:-replace-me}
+  CORS_ORIGIN: ${TAVI_CORS_ORIGIN:-http://localhost:${TAVI_WEB_HOST_PORT:-5173}}
+  PORT: 4000
+  SMTP_URL: ${SMTP_URL:-smtp://10.120.64.99:25}
+  SMTP_FROM: ${SMTP_FROM:-noreply@tavi.local}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  TAVI_HOME_URL: ${TAVI_HOME_URL:-http://localhost:${TAVI_WEB_HOST_PORT:-5173}}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tavi}
+      POSTGRES_USER: ${POSTGRES_USER:-tavi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tavi}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${TAVI_POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - tavi-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-tavi} -d ${POSTGRES_DB:-tavi}",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    image: ghcr.io/mkronvold/tavi-api:${TAVI_TAG:-latest}
+    restart: "no"
+    environment: *tavi-api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["pnpm", "--filter", "@tavi/api", "prisma:migrate"]
+
+  api:
+    image: ghcr.io/mkronvold/tavi-api:${TAVI_TAG:-latest}
+    restart: unless-stopped
+    environment: *tavi-api-env
+    ports:
+      - "${TAVI_API_HOST_PORT:-4000}:4000"
+    volumes:
+      - tavi-backups:${TAVI_BACKUP_DIRECTORY:-/var/tavi/backups}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  worker:
+    image: ghcr.io/mkronvold/tavi-worker:${TAVI_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *tavi-common-env
+      PORT: 4100
+    ports:
+      - "${TAVI_WORKER_HOST_PORT:-4100}:4100"
+    volumes:
+      - tavi-backups:${TAVI_BACKUP_DIRECTORY:-/var/tavi/backups}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4100/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  web:
+    image: ghcr.io/mkronvold/tavi-web:${TAVI_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      TAVI_API_BASE_URL: ${TAVI_API_BASE_URL:-http://localhost:${TAVI_API_HOST_PORT:-4000}/api}
+      TAVI_HOME_URL: ${TAVI_HOME_URL:-http://localhost:${TAVI_WEB_HOST_PORT:-5173}}
+    ports:
+      - "${TAVI_WEB_HOST_PORT:-5173}:4173"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4173').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  tavi-backups:
+  tavi-postgres-data:

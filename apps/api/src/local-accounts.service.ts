@@ -136,9 +136,9 @@ export class LocalAccountsService {
         const existing = existingUsersByEmail.get(importedAccount.email);
 
         if (!existing) {
-          const passwordHash = await this.authService.hashPassword(
-            importedAccount.password!,
-          );
+          const passwordHash =
+            importedAccount.passwordHash ??
+            (await this.authService.hashPassword(importedAccount.password!));
           const createdUser = await tx.user.create({
             data: {
               email: importedAccount.email,
@@ -180,10 +180,13 @@ export class LocalAccountsService {
         const nameChanged = importedAccount.name !== existing.name;
         const passwordProvided =
           nextPassword !== undefined && nextPassword !== '';
+        const passwordHashProvided =
+          importedAccount.passwordHash !== undefined &&
+          importedAccount.passwordHash !== '';
         const changedFields = [
           ...(nameChanged ? ['name'] : []),
           ...(roleChanged ? ['role'] : []),
-          ...(passwordProvided ? ['password'] : []),
+          ...(passwordProvided || passwordHashProvided ? ['password'] : []),
         ];
 
         if (changedFields.length === 0) {
@@ -192,11 +195,11 @@ export class LocalAccountsService {
           continue;
         }
 
-        let passwordHash: string | undefined;
-
-        if (nextPassword !== undefined && nextPassword !== '') {
-          passwordHash = await this.authService.hashPassword(nextPassword);
-        }
+        const passwordHash =
+          importedAccount.passwordHash ??
+          (nextPassword !== undefined && nextPassword !== ''
+            ? await this.authService.hashPassword(nextPassword)
+            : undefined);
 
         const updatedUser = await tx.user.update({
           where: { id: existing.id },
@@ -749,9 +752,14 @@ export class LocalAccountsService {
         continue;
       }
 
-      if (account.password === undefined || account.password === '') {
+      const passwordMissing =
+        account.password === undefined || account.password === '';
+      const passwordHashMissing =
+        account.passwordHash === undefined || account.passwordHash === '';
+
+      if (passwordMissing && passwordHashMissing) {
         throw new BadRequestException(
-          `Password is required to create account ${account.email}`,
+          `Password or password hash is required to create account ${account.email}`,
         );
       }
     }
@@ -983,6 +991,7 @@ export class LocalAccountsService {
   private toLocalAccountExport(account: {
     email: string;
     name: string;
+    passwordHash: string;
     roleAssignment: {
       role: Role;
     } | null;
@@ -990,6 +999,7 @@ export class LocalAccountsService {
     return {
       email: account.email,
       name: account.name,
+      passwordHash: account.passwordHash,
       role: account.roleAssignment?.role ?? Role.viewer,
     };
   }

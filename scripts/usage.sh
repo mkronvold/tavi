@@ -9,7 +9,7 @@ repo_root="$(
   CDPATH= builtin cd -- "${script_dir}/.."
   command pwd -P
 )"
-compose_file="${repo_root}/infra/docker/compose.yaml"
+compose_file="${repo_root}/infra/docker/compose-dev.yaml"
 stats_format='table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.NetIO}}\t{{.BlockIO}}\t{{.PIDs}}'
 
 if [[ ! -f "${compose_file}" ]]; then
