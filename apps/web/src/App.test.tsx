@@ -452,6 +452,7 @@ describe("App", () => {
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
     Reflect.deleteProperty(window, "__TAVI_RUNTIME_CONFIG__");
     if (originalScrollIntoViewDescriptor) {
       Object.defineProperty(
@@ -697,6 +698,175 @@ describe("App", () => {
         screen.getByRole("button", { name: "Sort by: 1 Progress" }),
       ).toBeInTheDocument();
       expect(screen.getByText("Status: Blocked")).toBeInTheDocument();
+    });
+  });
+
+  it("initializes the workspace search from the URL query", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+    window.history.replaceState({}, "", "/?search=Kickoff");
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search")).toHaveValue("Kickoff");
+    });
+  });
+
+  it("keeps the workspace search query param in sync with the search box", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+    window.history.replaceState({}, "", "/?foo=1");
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search"), {
+      target: { value: "Roadmap" },
+    });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?foo=1&search=Roadmap");
+    });
+
+    fireEvent.change(screen.getByLabelText("Search"), {
+      target: { value: "" },
+    });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe("?foo=1");
+    });
+  });
+
+  it("copies a project search link with encoded special characters", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      manualStatus: null,
+      title: 'Roadmap & QA / "Beta"?',
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+    Object.assign(window, {
+      __TAVI_RUNTIME_CONFIG__: {
+        appHomeUrl: "https://tavi",
+      },
+    });
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: writeTextMock,
+      },
+    });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText('Roadmap & QA / "Beta"?')).toBeInTheDocument();
+    });
+
+    const projectCard = screen
+      .getByText('Roadmap & QA / "Beta"?')
+      .closest("article");
+
+    expect(projectCard).not.toBeNull();
+
+    const actionLabels = Array.from(
+      projectCard!.querySelectorAll(".project-row-actions button"),
+    ).map((element) => element.textContent?.trim());
+
+    expect(actionLabels).toEqual(["Add Task", "History", "Link", "Edit"]);
+
+    fireEvent.click(within(projectCard!).getByRole("button", { name: "Link" }));
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith(
+        "https://tavi?search=Roadmap+%26+QA+%2F+%22Beta%22%3F",
+      );
+    });
+
+    expect(
+      screen.getByText(
+        'Copied project link for "Roadmap & QA / "Beta"?" to clipboard.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("warns when the browser blocks copying a project search link", async () => {
+    const writeTextMock = vi.fn().mockRejectedValue(new Error("blocked"));
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+    Object.assign(window, {
+      __TAVI_RUNTIME_CONFIG__: {
+        appHomeUrl: "https://tavi",
+      },
+    });
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: writeTextMock,
+      },
+    });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Browser blocked clipboard access. Copy this project link manually: https://tavi?search=Roadmap+refresh",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("copies a clean project link without unrelated query params from the current URL", async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+    window.history.replaceState({}, "", "/?foo=1");
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: writeTextMock,
+      },
+    });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Link" }));
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith(
+        `${window.location.origin}?search=Roadmap+refresh`,
+      );
     });
   });
 

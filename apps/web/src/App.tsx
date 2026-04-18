@@ -608,7 +608,7 @@ function WorkspaceScreen({
       ),
     [assigneeFilterUserIds, validAssigneeUserIds],
   );
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => readWorkspaceSearchQueryFromLocation());
   const [expandedProjects, setExpandedProjects] = useState<
     Record<string, boolean>
   >({});
@@ -827,6 +827,10 @@ function WorkspaceScreen({
     statusFilters,
     workspaceFilters,
   ]);
+
+  useEffect(() => {
+    syncWorkspaceSearchQueryInLocation(search);
+  }, [search]);
 
   useEffect(() => {
     const activeCollapsedGroups = activeCollapsedGroupsByGroup(
@@ -1831,6 +1835,22 @@ function WorkspaceScreen({
       targetProjectId: bulkTaskDraft.copyTargetProjectId,
       taskIds: selectedTaskIds,
     });
+  };
+  const copyProjectSearchLink = async (projectTitle: string) => {
+    const projectLink = buildWorkspaceSearchLink(appHomeUrl, projectTitle);
+
+    try {
+      if (typeof globalThis.navigator?.clipboard?.writeText !== "function") {
+        throw new Error("Clipboard access unavailable");
+      }
+
+      await globalThis.navigator.clipboard.writeText(projectLink);
+      setWorkspaceNotice(`Copied project link for "${projectTitle}" to clipboard.`);
+    } catch {
+      setWorkspaceNotice(
+        `Browser blocked clipboard access. Copy this project link manually: ${projectLink}`,
+      );
+    }
   };
 
   return (
@@ -2886,6 +2906,16 @@ function WorkspaceScreen({
                           }
                         >
                           History
+                        </button>
+
+                        <button
+                          type="button"
+                          className="ghost-button compact-button"
+                          onClick={() => {
+                            void copyProjectSearchLink(project.title);
+                          }}
+                        >
+                          Link
                         </button>
 
                         {canEditWorkspace ? (
@@ -6494,6 +6524,59 @@ function shouldToggleProjectFromRowClick(event: React.MouseEvent<HTMLElement>) {
     shouldHandleNonInteractiveRowClick(event) &&
     !(event.ctrlKey || event.metaKey)
   );
+}
+
+function readWorkspaceSearchQueryFromLocation() {
+  if (typeof globalThis.location?.href !== "string") {
+    return "";
+  }
+
+  return new URL(globalThis.location.href).searchParams.get("search") ?? "";
+}
+
+function syncWorkspaceSearchQueryInLocation(search: string) {
+  if (
+    typeof globalThis.location?.href !== "string" ||
+    typeof globalThis.history?.replaceState !== "function"
+  ) {
+    return;
+  }
+
+  const currentUrl = new URL(globalThis.location.href);
+  const nextSearch = search.trim().length === 0 ? null : search;
+  const currentQueryValue = currentUrl.searchParams.get("search");
+
+  if (currentQueryValue === nextSearch) {
+    return;
+  }
+
+  if (nextSearch === null) {
+    currentUrl.searchParams.delete("search");
+  } else {
+    currentUrl.searchParams.set("search", nextSearch);
+  }
+
+  const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+  const currentRelativeUrl = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
+
+  if (nextUrl === currentRelativeUrl) {
+    return;
+  }
+
+  globalThis.history.replaceState(null, "", nextUrl);
+}
+
+function buildWorkspaceSearchLink(appHomeUrl: string, search: string) {
+  const baseOrigin =
+    typeof globalThis.location?.origin === "string"
+      ? globalThis.location.origin
+      : "https://tavi";
+  const workspaceUrl = new URL(appHomeUrl, baseOrigin);
+  const workspacePath = workspaceUrl.pathname === "/" ? "" : workspaceUrl.pathname;
+
+  workspaceUrl.search = "";
+  workspaceUrl.searchParams.set("search", search);
+  return `${workspaceUrl.origin}${workspacePath}${workspaceUrl.search}${workspaceUrl.hash}`;
 }
 
 function revealElementInViewport(element: HTMLElement | null) {
