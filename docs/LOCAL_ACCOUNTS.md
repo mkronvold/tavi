@@ -63,7 +63,7 @@ Use the signed-in user name in the workspace header to open `User Profile`, then
 3. To change your password, enter your current password plus the new password twice.
 4. Select `Save`.
 
-If you cannot sign in, the login screen now reveals `Forgot password` after one failed sign-in attempt. That flow emails a one-time password in `AAAA-BBBB` hex format, accepts the code only for 10 minutes, requires typing it into the reset form, and then returns you to the login screen after the password is changed.
+If you cannot sign in, the login screen now reveals `Forgot password` after one failed sign-in attempt. That flow emails a one-time password in `AAAA-BBBB` hex format, accepts the code only for 10 minutes, requires typing it into the reset form, and then returns you to the login screen after the password is changed. It still sends when SMTP is configured even if admins have turned off routine outbound email notifications.
 
 Important rules:
 

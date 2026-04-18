@@ -84,6 +84,6 @@ It does not delete projects, tasks, imports, backups, or accounts.
 
 1. Saved views are not the same as browser-local settings. Resetting local storage does not delete saved views from the server.
 2. `User History` is for the current user identity, not a full system-wide audit report.
-3. `Daily Digest` applies only to non-admin notification emails. Administrative account emails still send immediately when global email is enabled.
+3. `Daily Digest` applies only to non-admin notification emails. Administrative account emails still send immediately when global email is enabled, and password-reset emails still send whenever SMTP is configured even if `Email Notifications` is off.
 4. Admin-only email controls do not force users into digest mode. Each user still chooses whether non-admin notifications arrive immediately or in the daily digest.
 5. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its local `hide done` preference is still cleared by `Clear Local Storage`.

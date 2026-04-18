@@ -222,6 +222,33 @@ describe('EmailService', () => {
     expect(sendMailCall.html).toContain('ABCD-1234');
   });
 
+  it('still sends password reset emails when delivery is disabled', async () => {
+    const { sendMail, service, warnMock } = createService(false);
+    const expiresAt = new Date('2026-04-18T18:40:00.000Z');
+
+    await expect(
+      service.sendPasswordResetOtpEmail(
+        { email: 'viewer@tavi.local', name: 'Viewer' },
+        'ABCD-1234',
+        expiresAt,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(warnMock).not.toHaveBeenCalledWith(
+      'Skipping password reset email — email delivery is disabled',
+      'EmailService',
+    );
+  });
+
+  it('allows password reset availability when delivery is disabled', async () => {
+    const { service } = createService(false);
+
+    await expect(
+      service.assertPasswordResetEmailAvailable(),
+    ).resolves.toBeUndefined();
+  });
+
   it('blocks password reset when outbound email is unavailable', async () => {
     const { service } = createService(true);
 

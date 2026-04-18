@@ -251,6 +251,7 @@ export class EmailService implements OnModuleInit {
 
   async assertPasswordResetEmailAvailable(): Promise<void> {
     await this.getReadyTransport('password reset email', {
+      ignoreEmailEnabled: true,
       throwWhenUnavailable: true,
     });
   }
@@ -261,6 +262,7 @@ export class EmailService implements OnModuleInit {
     expiresAt: Date,
   ): Promise<void> {
     const transporter = await this.getReadyTransport('password reset email', {
+      ignoreEmailEnabled: true,
       throwWhenUnavailable: true,
     });
 
@@ -304,7 +306,10 @@ export class EmailService implements OnModuleInit {
       | 'account update email'
       | 'password email'
       | 'password reset email',
-    options?: { throwWhenUnavailable?: boolean },
+    options?: {
+      ignoreEmailEnabled?: boolean;
+      throwWhenUnavailable?: boolean;
+    },
   ): Promise<Transporter<SMTPTransport.SentMessageInfo> | null> {
     if (!this.transporter) {
       if (options?.throwWhenUnavailable) {
@@ -320,20 +325,22 @@ export class EmailService implements OnModuleInit {
       return null;
     }
 
-    const settings = await this.readEmailSettings();
+    if (!options?.ignoreEmailEnabled) {
+      const settings = await this.readEmailSettings();
 
-    if (settings?.enabled === false) {
-      if (options?.throwWhenUnavailable) {
-        throw new ServiceUnavailableException(
-          PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+      if (settings?.enabled === false) {
+        if (options?.throwWhenUnavailable) {
+          throw new ServiceUnavailableException(
+            PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+          );
+        }
+
+        this.logger.warn(
+          `Skipping ${emailType} — email delivery is disabled`,
+          'EmailService',
         );
+        return null;
       }
-
-      this.logger.warn(
-        `Skipping ${emailType} — email delivery is disabled`,
-        'EmailService',
-      );
-      return null;
     }
 
     return this.transporter;
