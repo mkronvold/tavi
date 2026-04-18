@@ -1,4 +1,8 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  ServiceUnavailableException,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import type { SmtpStatus, UpdateEmailSettingsInput } from '@tavi/schemas';
@@ -10,6 +14,8 @@ const DEFAULT_SMTP_URL = 'smtp://10.120.64.99:25';
 const DEFAULT_SMTP_FROM = 'noreply@tavi.local';
 const EMAIL_SETTINGS_ID = 'global';
 const DEFAULT_DAILY_DIGEST_TIME = '09:00';
+const PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE =
+  'Password reset email is unavailable right now';
 
 type EmailRecipient = {
   email: string;
@@ -46,6 +52,26 @@ function buildAccountUpdateEmailBody(
 
 <p style="margin:12px 0 0;color:#94a3b8;font-size:14px;">
   Review your account in <a href="${homeUrl}" style="color:#a5b4fc;text-decoration:none;">Tavi</a>.
+</p>`;
+}
+
+function buildPasswordResetOtpEmailBody(
+  oneTimePassword: string,
+  homeUrl: string,
+  expiresAt: Date,
+): string {
+  return `A one-time password was requested to reset your Tavi password.
+
+<div style="margin:16px 0;padding:14px 18px;background-color:#1e293b;border:1px solid #334155;border-radius:10px;font-family:monospace;font-size:18px;letter-spacing:0.08em;color:#e2e8f0;">
+  ${escapeHtml(oneTimePassword)}
+</div>
+
+<p style="margin:12px 0 0;color:#94a3b8;font-size:14px;">
+  This code expires at <strong style="color:#e2e8f0;">${escapeHtml(expiresAt.toISOString())}</strong>.
+</p>
+
+<p style="margin:12px 0 0;color:#94a3b8;font-size:14px;">
+  Enter the code on the <a href="${homeUrl}" style="color:#a5b4fc;text-decoration:none;">Tavi login screen</a>, set a new password, and sign in again with that new password.
 </p>`;
 }
 
@@ -110,8 +136,7 @@ export class EmailService implements OnModuleInit {
     const settings = await this.readEmailSettings();
 
     return {
-      dailyDigestTime:
-        settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      dailyDigestTime: settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
       dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled: settings?.enabled ?? true,
       configured: this.configured,
@@ -147,8 +172,7 @@ export class EmailService implements OnModuleInit {
     const settings = await this.readEmailSettings();
 
     return this.updateEmailSettings({
-      dailyDigestTime:
-        settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      dailyDigestTime: settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
       dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled,
     });
@@ -225,10 +249,70 @@ export class EmailService implements OnModuleInit {
     }
   }
 
+  async assertPasswordResetEmailAvailable(): Promise<void> {
+    await this.getReadyTransport('password reset email', {
+      throwWhenUnavailable: true,
+    });
+  }
+
+  async sendPasswordResetOtpEmail(
+    recipient: EmailRecipient,
+    oneTimePassword: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    const transporter = await this.getReadyTransport('password reset email', {
+      throwWhenUnavailable: true,
+    });
+
+    if (!transporter) {
+      throw new ServiceUnavailableException(
+        PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+      );
+    }
+
+    const body = buildPasswordResetOtpEmailBody(
+      oneTimePassword,
+      this.homeUrl,
+      expiresAt,
+    );
+    const html = buildEmailHtml(this.homeUrl, recipient.name, body);
+
+    try {
+      await transporter.sendMail({
+        from: this.fromAddress,
+        to: recipient.email,
+        subject: 'Your Tavi one-time password',
+        html,
+      });
+
+      this.logger.log(
+        `Password reset email sent to ${recipient.email}`,
+        'EmailService',
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send password reset email to ${recipient.email}: ${error instanceof Error ? error.message : String(error)}`,
+        undefined,
+        'EmailService',
+      );
+      throw new Error('Unable to send password reset email');
+    }
+  }
+
   private async getReadyTransport(
-    emailType: 'account update email' | 'password email',
+    emailType:
+      | 'account update email'
+      | 'password email'
+      | 'password reset email',
+    options?: { throwWhenUnavailable?: boolean },
   ): Promise<Transporter<SMTPTransport.SentMessageInfo> | null> {
     if (!this.transporter) {
+      if (options?.throwWhenUnavailable) {
+        throw new ServiceUnavailableException(
+          PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+        );
+      }
+
       this.logger.warn(
         `Skipping ${emailType} — SMTP not configured`,
         'EmailService',
@@ -239,6 +323,12 @@ export class EmailService implements OnModuleInit {
     const settings = await this.readEmailSettings();
 
     if (settings?.enabled === false) {
+      if (options?.throwWhenUnavailable) {
+        throw new ServiceUnavailableException(
+          PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+        );
+      }
+
       this.logger.warn(
         `Skipping ${emailType} — email delivery is disabled`,
         'EmailService',

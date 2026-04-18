@@ -24,6 +24,8 @@ describe('upsertInitialLocalAdmin', () => {
       update: {
         name: 'Tavi Admin',
         passwordHash: 'hashed-password',
+        passwordResetOtpHash: null,
+        passwordResetOtpExpiresAt: null,
       },
       create: {
         email: 'admin@tavi.local',

@@ -1,8 +1,16 @@
+import { ServiceUnavailableException } from '@nestjs/common';
 import { EmailService } from './email.service';
 import type { AppLogger } from './app-logger';
 import type { PrismaService } from './prisma.service';
 
 describe('EmailService', () => {
+  type SendMailArgs = {
+    from: string;
+    html: string;
+    subject: string;
+    to: string;
+  };
+
   const createService = (enabled: boolean | null = true) => {
     let currentEnabled = enabled;
     let currentDailyDigestTime = '09:00';
@@ -41,11 +49,11 @@ describe('EmailService', () => {
           Promise.resolve(
             currentEnabled === null
               ? null
-                : {
-                    dailyDigestTime: currentDailyDigestTime,
-                    dragHandlesEnabled: currentDragHandlesEnabled,
-                    enabled: currentEnabled,
-                  },
+              : {
+                  dailyDigestTime: currentDailyDigestTime,
+                  dragHandlesEnabled: currentDragHandlesEnabled,
+                  enabled: currentEnabled,
+                },
           ),
         ),
         upsert: upsertMock,
@@ -58,7 +66,9 @@ describe('EmailService', () => {
       warn: warnMock,
     } as unknown as AppLogger;
     const service = new EmailService(logger, prisma);
-    const sendMail = jest.fn(() => Promise.resolve(undefined));
+    const sendMail = jest.fn<Promise<undefined>, [SendMailArgs]>(() =>
+      Promise.resolve(undefined),
+    );
 
     Object.assign(service, {
       configured: true,
@@ -85,12 +95,12 @@ describe('EmailService', () => {
   it('defaults email delivery to enabled when no settings record exists', async () => {
     const { service } = createService(null);
 
-      await expect(service.getSmtpStatus()).resolves.toEqual({
-        configured: true,
-        dailyDigestTime: '09:00',
-        dragHandlesEnabled: true,
-        enabled: true,
-        fromAddress: 'noreply@tavi.local',
+    await expect(service.getSmtpStatus()).resolves.toEqual({
+      configured: true,
+      dailyDigestTime: '09:00',
+      dragHandlesEnabled: true,
+      enabled: true,
+      fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
       port: 25,
       secure: false,
@@ -185,5 +195,42 @@ describe('EmailService', () => {
       'Skipping account update email — email delivery is disabled',
       'EmailService',
     );
+  });
+
+  it('sends password reset emails with the one-time password', async () => {
+    const { sendMail, service } = createService(true);
+    const expiresAt = new Date('2026-04-18T18:40:00.000Z');
+
+    await expect(
+      service.sendPasswordResetOtpEmail(
+        { email: 'viewer@tavi.local', name: 'Viewer' },
+        'ABCD-1234',
+        expiresAt,
+      ),
+    ).resolves.toBeUndefined();
+
+    const firstSendMailCall = sendMail.mock.calls.at(0);
+    if (!firstSendMailCall) {
+      throw new Error('Expected a password reset email send call');
+    }
+
+    const [sendMailCall] = firstSendMailCall;
+
+    expect(sendMailCall.from).toBe('noreply@tavi.local');
+    expect(sendMailCall.to).toBe('viewer@tavi.local');
+    expect(sendMailCall.subject).toBe('Your Tavi one-time password');
+    expect(sendMailCall.html).toContain('ABCD-1234');
+  });
+
+  it('blocks password reset when outbound email is unavailable', async () => {
+    const { service } = createService(true);
+
+    Object.assign(service, {
+      transporter: null,
+    });
+
+    await expect(
+      service.assertPasswordResetEmailAvailable(),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

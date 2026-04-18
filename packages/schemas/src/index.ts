@@ -141,6 +141,29 @@ export const localLoginSchema = z.object({
 });
 export type LocalLoginInput = z.infer<typeof localLoginSchema>;
 
+export const passwordResetOtpSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-fA-F]{4}-[0-9a-fA-F]{4}$/, "Expected AAAA-BBBB")
+  .transform((value) => value.toUpperCase());
+export type PasswordResetOtp = z.infer<typeof passwordResetOtpSchema>;
+
+export const requestPasswordResetSchema = z.object({
+  email: emailAddressSchema,
+});
+export type RequestPasswordResetInput = z.infer<
+  typeof requestPasswordResetSchema
+>;
+
+export const resetPasswordWithOtpSchema = z.object({
+  email: emailAddressSchema,
+  oneTimePassword: passwordResetOtpSchema,
+  password: localPasswordSchema,
+});
+export type ResetPasswordWithOtpInput = z.infer<
+  typeof resetPasswordWithOtpSchema
+>;
+
 export const localAccountSchema = z.object({
   id: z.string().min(1),
   email: emailAddressSchema,
@@ -477,7 +500,9 @@ export const reorderPersonalTodosSchema = z
       });
     }
   });
-export type ReorderPersonalTodosInput = z.infer<typeof reorderPersonalTodosSchema>;
+export type ReorderPersonalTodosInput = z.infer<
+  typeof reorderPersonalTodosSchema
+>;
 
 export const importPersonalTodoItemSchema = z.object({
   title: z.string().trim().min(1).max(120),
@@ -485,12 +510,16 @@ export const importPersonalTodoItemSchema = z.object({
   dueDate: z.string().optional().nullable(),
   status: personalTodoStatusSchema.default("todo"),
 });
-export type ImportPersonalTodoItem = z.infer<typeof importPersonalTodoItemSchema>;
+export type ImportPersonalTodoItem = z.infer<
+  typeof importPersonalTodoItemSchema
+>;
 
 export const importPersonalTodosSchema = z.object({
   personalTodos: z.array(importPersonalTodoItemSchema).max(1_000),
 });
-export type ImportPersonalTodosInput = z.infer<typeof importPersonalTodosSchema>;
+export type ImportPersonalTodosInput = z.infer<
+  typeof importPersonalTodosSchema
+>;
 
 export const importPersonalTodosResponseSchema = z.object({
   importedCount: z.number().int().nonnegative(),
@@ -519,7 +548,9 @@ export const reorderProjectTasksSchema = z
       });
     }
   });
-export type ReorderProjectTasksInput = z.infer<typeof reorderProjectTasksSchema>;
+export type ReorderProjectTasksInput = z.infer<
+  typeof reorderProjectTasksSchema
+>;
 
 export const convertTaskToProjectSchema = updateTaskSchema.omit({
   projectId: true,

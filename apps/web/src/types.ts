@@ -13,7 +13,9 @@ import type {
   LoopImportOverlapAction,
   LoopImportJobStatus,
   ProjectSortField,
+  RequestPasswordResetInput,
   Priority,
+  ResetPasswordWithOtpInput,
   PersonalTodo,
   ReorderPersonalTodosInput,
   ProjectStatus,
@@ -177,6 +179,10 @@ export type LoginPayload = {
   email: string;
   password: string;
 };
+
+export type RequestPasswordResetPayload = RequestPasswordResetInput;
+
+export type ResetPasswordWithOtpPayload = ResetPasswordWithOtpInput;
 
 export type CreateLocalAccountPayload = CreateLocalAccountInput;
 

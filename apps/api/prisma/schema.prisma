@@ -125,22 +125,24 @@ enum AuditLogRetentionWindow {
 }
 
 model User {
-  id             String          @id @default(cuid())
-  email          String          @unique
-  name           String
-  passwordHash   String
-  dailyDigestEnabled Boolean     @default(false)
-  personalTodoRemindersEnabled Boolean @default(true)
-  roleAssignment RoleAssignment?
-  ownedProjects  Project[]       @relation("ProjectOwner")
-  assignedTasks  Task[]          @relation("TaskAssignee")
-  personalTodos  PersonalTodo[]
-  createdImports ImportJob[]     @relation("ImportCreator")
-  savedViews     SavedView[]
-  auditEvents    AuditEvent[]    @relation("AuditActor")
-  notifications  NotificationEvent[] @relation("NotificationRecipient")
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                         String                @id @default(cuid())
+  email                      String                @unique
+  name                       String
+  passwordHash               String
+  passwordResetOtpHash       String?
+  passwordResetOtpExpiresAt  DateTime?
+  dailyDigestEnabled         Boolean               @default(false)
+  personalTodoRemindersEnabled Boolean             @default(true)
+  roleAssignment             RoleAssignment?
+  ownedProjects              Project[]             @relation("ProjectOwner")
+  assignedTasks              Task[]                @relation("TaskAssignee")
+  personalTodos              PersonalTodo[]
+  createdImports             ImportJob[]           @relation("ImportCreator")
+  savedViews                 SavedView[]
+  auditEvents                AuditEvent[]          @relation("AuditActor")
+  notifications              NotificationEvent[]   @relation("NotificationRecipient")
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
 }
 
 model RoleAssignment {

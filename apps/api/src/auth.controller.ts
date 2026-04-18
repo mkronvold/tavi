@@ -10,6 +10,8 @@ import {
 } from '@nestjs/common';
 import {
   localLoginSchema,
+  requestPasswordResetSchema,
+  resetPasswordWithOtpSchema,
   updateEmailSettingsSchema,
   updateNotificationPreferencesSchema,
 } from '@tavi/schemas';
@@ -43,6 +45,24 @@ export class AuthController {
     this.authService.setSessionCookie(reply, user);
 
     return { user };
+  }
+
+  @Post('password-reset/request')
+  async requestPasswordReset(@Body() body: unknown) {
+    const input = parseInput(requestPasswordResetSchema, body);
+    await this.authService.requestPasswordReset(input.email);
+    return { success: true as const };
+  }
+
+  @Post('password-reset/confirm')
+  async resetPasswordWithOtp(
+    @Body() body: unknown,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const input = parseInput(resetPasswordWithOtpSchema, body);
+    await this.authService.resetPasswordWithOtp(input);
+    this.authService.clearSessionCookie(reply);
+    return { success: true as const };
   }
 
   @Post('logout')

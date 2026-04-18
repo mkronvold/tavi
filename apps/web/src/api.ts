@@ -37,8 +37,10 @@ import type {
   NotificationPreferences,
   ReorderPersonalTodosPayload,
   PurgeAuditLogsPayload,
+  RequestPasswordResetPayload,
   PurgeAuditLogsResponse,
   ResetDefaultLocalAccountsResponse,
+  ResetPasswordWithOtpPayload,
   SetLocalAccountPasswordPayload,
   SetAuditLogRetentionPayload,
   SetOwnPasswordPayload,
@@ -205,6 +207,18 @@ export const resetWorkspaceExamples = (
 
 export const login = (payload: LoginPayload) =>
   request("/auth/login", {
+    method: "POST",
+    body: payload,
+  });
+
+export const requestPasswordReset = (payload: RequestPasswordResetPayload) =>
+  request<SuccessResponse>("/auth/password-reset/request", {
+    method: "POST",
+    body: payload,
+  });
+
+export const resetPasswordWithOtp = (payload: ResetPasswordWithOtpPayload) =>
+  request<SuccessResponse>("/auth/password-reset/confirm", {
     method: "POST",
     body: payload,
   });

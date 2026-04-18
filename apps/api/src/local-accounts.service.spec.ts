@@ -139,13 +139,16 @@ describe('LocalAccountsService', () => {
         findUnique: findUniqueUserMock,
       },
     } as unknown as PrismaService;
-    const authService = new AuthService(prisma);
     const sendAccountUpdateEmailMock = jest.fn(() => Promise.resolve(false));
     const sendPasswordEmailMock = jest.fn(() => Promise.resolve());
     const emailService = {
       sendAccountUpdateEmail: sendAccountUpdateEmailMock,
       sendPasswordEmail: sendPasswordEmailMock,
     } as unknown as EmailService;
+    const authService = new AuthService(prisma, {
+      assertPasswordResetEmailAvailable: jest.fn(() => Promise.resolve()),
+      sendPasswordResetOtpEmail: jest.fn(() => Promise.resolve()),
+    } as unknown as EmailService);
 
     return {
       mocks: {
@@ -626,7 +629,8 @@ describe('LocalAccountsService', () => {
           {
             email: 'new.user@tavi.local',
             name: 'New User',
-            passwordHash: '$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6',
+            passwordHash:
+              '$2b$10$abcdefghijklmnopqrstuuC6f4Wj1F0m1YJmQxvQhW2i5Y6nZ9e6',
             role: 'viewer',
           },
         ],

@@ -57,6 +57,7 @@ Behavior depends on role:
 
 1. Admins can manage all local accounts from `Settings`.
 2. Non-admins use `User Profile` for their own name, email, and password changes instead.
+3. Users who are locked out of local auth can use the login-screen `Forgot password` flow after one failed sign-in attempt to receive a one-time password by email and set a new password without opening `User Profile` first.
 
 ## Clear Local Storage
 

@@ -199,6 +199,15 @@ Rollup details shown in the UI should include:
 4. Admin can reset the default `admin@tavi.local`, `editor@tavi.local`, and `viewer@tavi.local` accounts back to `password123` without deleting unrelated local accounts.
 5. The login hint for the default local users returns only after the backend confirms those seeded accounts exist with their default credentials again.
 
+### 7.8 Recover a Forgotten Local Password
+
+1. User fails one local sign-in attempt.
+2. Login screen reveals a `Forgot password` action.
+3. User requests a one-time password email for the target address.
+4. System sends a one-time password in `AAAA-BBBB` hex format and stores only a hashed copy with a 10-minute expiry.
+5. User types the one-time password plus the new password twice on the login screen.
+6. System invalidates the one-time password, updates the real password, clears any active session cookie, and returns the user to the normal login screen.
+
 ## 8. Functional Requirements
 
 ### FR-01 Authentication and Access
@@ -206,6 +215,7 @@ Rollup details shown in the UI should include:
 - Production access uses enterprise SSO via OIDC or SAML.
 - Local development uses a simpler local auth mode.
 - Local auth must support admin-managed local accounts plus self-service password changes.
+- Local auth must also support login-screen forgot-password recovery by emailing a one-time password that expires after 10 minutes.
 - Admin local-account management must support JSON export, JSON or CSV import by email, duplicate handling during import, and reset-to-default for the seeded `@tavi.local` accounts.
 - The login screen must show the seeded local-user hint only when the backend confirms the default `@tavi.local` accounts still exist with their default password.
 - Authorization must enforce admin/editor/viewer roles.

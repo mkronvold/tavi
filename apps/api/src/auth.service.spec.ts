@@ -1,4 +1,8 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import {
@@ -11,11 +15,31 @@ describe('AuthService', () => {
   const originalAuthMode = process.env.AUTH_MODE;
 
   const createService = () => {
+    type AuthServicePrismaMock = {
+      $transaction: (
+        callback: (tx: AuthServicePrismaMock) => unknown,
+      ) => Promise<unknown>;
+      auditEvent: {
+        create: jest.Mock;
+      };
+      emailSettings: {
+        findUnique: jest.Mock;
+      };
+      user: {
+        findMany: jest.Mock;
+        findUnique: jest.Mock;
+        update: jest.Mock;
+      };
+    };
     const findManyUsersMock = jest.fn();
     const findUniqueUserMock = jest.fn();
     const updateUserMock = jest.fn();
     const findUniqueEmailSettingsMock = jest.fn();
-    const prisma = {
+    const prisma: AuthServicePrismaMock = {
+      $transaction: jest.fn(
+        (callback: (tx: AuthServicePrismaMock) => unknown) =>
+          Promise.resolve(callback(prisma)),
+      ),
       auditEvent: {
         create: jest.fn(() => Promise.resolve()),
       },
@@ -27,14 +51,27 @@ describe('AuthService', () => {
         findUnique: findUniqueUserMock,
         update: updateUserMock,
       },
-    } as unknown as PrismaService;
+    };
+    const assertPasswordResetEmailAvailableMock = jest.fn(() =>
+      Promise.resolve(undefined),
+    );
+    const sendPasswordResetOtpEmailMock = jest.fn(() => Promise.resolve());
 
     return {
+      assertPasswordResetEmailAvailableMock,
       findUniqueEmailSettingsMock,
       findManyUsersMock,
       findUniqueUserMock,
+      sendPasswordResetOtpEmailMock,
       updateUserMock,
-      service: new AuthService(prisma),
+      service: new AuthService(
+        prisma as unknown as PrismaService,
+        {
+          assertPasswordResetEmailAvailable:
+            assertPasswordResetEmailAvailableMock,
+          sendPasswordResetOtpEmail: sendPasswordResetOtpEmailMock,
+        } as never,
+      ),
     };
   };
 
@@ -197,6 +234,180 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('emails a password reset one-time password for a known user', async () => {
+    process.env.AUTH_MODE = 'local';
+    const {
+      assertPasswordResetEmailAvailableMock,
+      findUniqueUserMock,
+      sendPasswordResetOtpEmailMock,
+      updateUserMock,
+      service,
+    } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash: await bcrypt.hash('current-password-123', 10),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+
+    await service.requestPasswordReset('admin@tavi.local');
+
+    expect(assertPasswordResetEmailAvailableMock).toHaveBeenCalledTimes(1);
+    const [firstUpdateCall] = updateUserMock.mock.calls as Array<[unknown]>;
+    const updateCall = firstUpdateCall?.[0] as
+      | {
+          where: { id: string };
+          data: {
+            passwordResetOtpHash: string;
+            passwordResetOtpExpiresAt: Date;
+          };
+        }
+      | undefined;
+
+    if (!updateCall) {
+      throw new Error('Expected a password reset update call');
+    }
+
+    expect(updateCall.where).toEqual({ id: 'user-1' });
+    expect(typeof updateCall.data.passwordResetOtpHash).toBe('string');
+    expect(updateCall.data.passwordResetOtpExpiresAt).toBeInstanceOf(Date);
+    expect(sendPasswordResetOtpEmailMock).toHaveBeenCalledWith(
+      { email: 'admin@tavi.local', name: 'Admin User' },
+      expect.stringMatching(/^[0-9A-F]{4}-[0-9A-F]{4}$/),
+      expect.any(Date),
+    );
+  });
+
+  it('does not reveal missing accounts during password reset requests', async () => {
+    process.env.AUTH_MODE = 'local';
+    const {
+      assertPasswordResetEmailAvailableMock,
+      findUniqueUserMock,
+      sendPasswordResetOtpEmailMock,
+      updateUserMock,
+      service,
+    } = createService();
+
+    findUniqueUserMock.mockResolvedValue(null);
+
+    await expect(
+      service.requestPasswordReset('missing@tavi.local'),
+    ).resolves.toBeUndefined();
+
+    expect(assertPasswordResetEmailAvailableMock).toHaveBeenCalledTimes(1);
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(sendPasswordResetOtpEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('resets a password with a valid one-time password', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { findUniqueUserMock, updateUserMock, service } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash: await bcrypt.hash('current-password-123', 10),
+      passwordResetOtpHash: await bcrypt.hash('ABCD-1234', 10),
+      passwordResetOtpExpiresAt: new Date(Date.now() + 60_000),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+
+    await service.resetPasswordWithOtp({
+      email: 'admin@tavi.local',
+      oneTimePassword: 'ABCD-1234',
+      password: 'new-password-123',
+    });
+
+    const [firstUpdateCall] = updateUserMock.mock.calls as Array<[unknown]>;
+    const updateCall = firstUpdateCall?.[0] as
+      | {
+          where: { id: string };
+          data: {
+            passwordHash: string;
+            passwordResetOtpHash: null;
+            passwordResetOtpExpiresAt: null;
+          };
+        }
+      | undefined;
+
+    if (!updateCall) {
+      throw new Error('Expected a password reset password update call');
+    }
+
+    expect(updateCall.where).toEqual({ id: 'user-1' });
+    expect(typeof updateCall.data.passwordHash).toBe('string');
+    expect(updateCall.data.passwordResetOtpHash).toBeNull();
+    expect(updateCall.data.passwordResetOtpExpiresAt).toBeNull();
+  });
+
+  it('clears expired password reset codes before rejecting them', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { findUniqueUserMock, updateUserMock, service } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash: await bcrypt.hash('current-password-123', 10),
+      passwordResetOtpHash: await bcrypt.hash('ABCD-1234', 10),
+      passwordResetOtpExpiresAt: new Date(Date.now() - 60_000),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+
+    await expect(
+      service.resetPasswordWithOtp({
+        email: 'admin@tavi.local',
+        oneTimePassword: 'ABCD-1234',
+        password: 'new-password-123',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: {
+        passwordResetOtpHash: null,
+        passwordResetOtpExpiresAt: null,
+      },
+    });
+  });
+
+  it('rejects reusing the current password during password reset', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { findUniqueUserMock, updateUserMock, service } = createService();
+    const passwordHash = await bcrypt.hash('current-password-123', 10);
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash,
+      passwordResetOtpHash: await bcrypt.hash('ABCD-1234', 10),
+      passwordResetOtpExpiresAt: new Date(Date.now() + 60_000),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+
+    await expect(
+      service.resetPasswordWithOtp({
+        email: 'admin@tavi.local',
+        oneTimePassword: 'ABCD-1234',
+        password: 'current-password-123',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
   it('returns the current digest preference with the configured digest time', async () => {
     const { findUniqueEmailSettingsMock, findUniqueUserMock, service } =
       createService();
@@ -209,11 +420,13 @@ describe('AuthService', () => {
       dailyDigestTime: '14:30',
     });
 
-    await expect(service.getNotificationPreferences('user-1')).resolves.toEqual({
-      dailyDigestEnabled: true,
-      dailyDigestTime: '14:30',
-      personalTodoRemindersEnabled: false,
-    });
+    await expect(service.getNotificationPreferences('user-1')).resolves.toEqual(
+      {
+        dailyDigestEnabled: true,
+        dailyDigestTime: '14:30',
+        personalTodoRemindersEnabled: false,
+      },
+    );
   });
 
   it('updates the current user digest preference and records an audit event', async () => {

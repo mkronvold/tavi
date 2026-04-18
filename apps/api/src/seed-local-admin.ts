@@ -12,6 +12,8 @@ type SeedLocalAdminDb = {
       update: {
         name: string;
         passwordHash: string;
+        passwordResetOtpExpiresAt: null;
+        passwordResetOtpHash: null;
       };
       create: {
         email: string;
@@ -41,6 +43,8 @@ export async function upsertInitialLocalAdmin(
     update: {
       name: DEFAULT_LOCAL_ADMIN.name,
       passwordHash,
+      passwordResetOtpHash: null,
+      passwordResetOtpExpiresAt: null,
     },
     create: {
       email: DEFAULT_LOCAL_ADMIN.email,

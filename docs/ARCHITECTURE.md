@@ -116,6 +116,7 @@ Browser
 - Exposes authenticated JSON endpoints
 - Enforces RBAC
 - Persists projects, shared tasks, personal to-dos, views, imports, and audit events
+- Supports unauthenticated local-auth password reset endpoints that email short-lived one-time passwords
 - Computes derived project rollups on write
 
 ### Worker
@@ -218,6 +219,26 @@ Store:
 - Task-status filters
 - Task-assignee filters
 - Expanded/collapsed defaults for groups and projects
+
+### users
+
+Important columns:
+
+- `id`
+- `email`
+- `name`
+- `password_hash`
+- `password_reset_otp_hash`
+- `password_reset_otp_expires_at`
+- `daily_digest_enabled`
+- `personal_todo_reminders_enabled`
+- `created_at`
+- `updated_at`
+
+Password-reset notes:
+
+- Forgot-password recovery stores only a hashed one-time password, never the plaintext code.
+- Reset codes expire after 10 minutes and are cleared after success, expiry, or any later password change.
 - Future display settings in `filters_json` as the product grows
 
 ### imports / import_rows

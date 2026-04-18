@@ -3,6 +3,7 @@ import { appRepositoryUrl } from "@tavi/config";
 import {
   act,
   cleanup,
+  createEvent,
   fireEvent,
   render,
   screen,
@@ -517,6 +518,229 @@ describe("App", () => {
 
     expect(screen.queryByText("Local dev users")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("shows forgot password only after a failed sign in", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse({ message: "Authentication required" }, 401);
+      }
+
+      if (url.endsWith("/auth/local-login-hint")) {
+        return createResponse({ visible: false });
+      }
+
+      if (url.endsWith("/auth/login")) {
+        return createResponse({ message: "Invalid credentials" }, 401);
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign in" }),
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Forgot password" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "editor@tavi.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "wrong-password-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Invalid credentials")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Forgot password" }),
+    ).toBeInTheDocument();
+  });
+
+  it("emails and applies a one-time password reset from the login screen", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse({ message: "Authentication required" }, 401);
+        }
+
+        if (url.endsWith("/auth/local-login-hint")) {
+          return createResponse({ visible: false });
+        }
+
+        if (url.endsWith("/auth/login")) {
+          return createResponse({ message: "Invalid credentials" }, 401);
+        }
+
+        if (url.endsWith("/auth/password-reset/request")) {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            email: "editor@tavi.local",
+          });
+          return createResponse({ success: true });
+        }
+
+        if (url.endsWith("/auth/password-reset/confirm")) {
+          expect(init?.method).toBe("POST");
+          expect(JSON.parse(String(init?.body))).toEqual({
+            email: "editor@tavi.local",
+            oneTimePassword: "ABCD-1234",
+            password: "new-password-123",
+          });
+          return createResponse({ success: true });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign in" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "editor@tavi.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "wrong-password-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Forgot password" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Forgot password" }));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Email one-time password" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "If that account can receive email, a one-time password was sent. It expires in 10 minutes.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("One-time password"), {
+      target: { value: "abcd1234" },
+    });
+    expect(screen.getByLabelText("One-time password")).toHaveValue("ABCD-1234");
+
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value: "new-password-123" },
+    });
+    fireEvent.change(screen.getByLabelText("Confirm password"), {
+      target: { value: "new-password-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Password updated. Sign in with your new password."),
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Forgot password" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("One-time password"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks pasting the one-time password into the reset field", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse({ message: "Authentication required" }, 401);
+        }
+
+        if (url.endsWith("/auth/local-login-hint")) {
+          return createResponse({ visible: false });
+        }
+
+        if (url.endsWith("/auth/login")) {
+          return createResponse({ message: "Invalid credentials" }, 401);
+        }
+
+        if (url.endsWith("/auth/password-reset/request")) {
+          expect(init?.method).toBe("POST");
+          return createResponse({ success: true });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign in" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "editor@tavi.local" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "wrong-password-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Forgot password" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Forgot password" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Email one-time password" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("One-time password")).toBeInTheDocument();
+    });
+
+    const otpInput = screen.getByLabelText("One-time password");
+    const pasteEvent = createEvent.paste(otpInput);
+    const preventDefaultSpy = vi.spyOn(pasteEvent, "preventDefault");
+
+    fireEvent(otpInput, pasteEvent);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(otpInput).toHaveValue("");
   });
 
   it("retries workspace loading with fibonacci backoff while the API is unavailable", async () => {
@@ -2066,9 +2290,10 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("link", { name: "runbook" }),
-      ).toHaveAttribute("href", "https://example.com/runbook.md");
+      expect(screen.getByRole("link", { name: "runbook" })).toHaveAttribute(
+        "href",
+        "https://example.com/runbook.md",
+      );
       expect(screen.getByText("confirm checklist")).toBeInTheDocument();
     });
   });

@@ -205,7 +205,13 @@ export class LocalAccountsService {
           where: { id: existing.id },
           data: {
             ...(nameChanged ? { name: importedAccount.name } : {}),
-            ...(passwordHash ? { passwordHash } : {}),
+            ...(passwordHash
+              ? {
+                  passwordHash,
+                  passwordResetOtpHash: null,
+                  passwordResetOtpExpiresAt: null,
+                }
+              : {}),
             ...(roleChanged
               ? {
                   roleAssignment: {
@@ -340,6 +346,8 @@ export class LocalAccountsService {
           data: {
             name: defaultUser.name,
             passwordHash,
+            passwordResetOtpHash: null,
+            passwordResetOtpExpiresAt: null,
             roleAssignment: {
               upsert: {
                 create: {
@@ -574,12 +582,16 @@ export class LocalAccountsService {
       }
 
       if (input.password !== undefined) {
-        const passwordHash = await this.authService.hashPassword(input.password);
+        const passwordHash = await this.authService.hashPassword(
+          input.password,
+        );
 
         user = await tx.user.update({
           where: { id: actor.id },
           data: {
             passwordHash,
+            passwordResetOtpHash: null,
+            passwordResetOtpExpiresAt: null,
           },
           include: { roleAssignment: true },
         });
@@ -944,6 +956,8 @@ export class LocalAccountsService {
         where: { id: userId },
         data: {
           passwordHash,
+          passwordResetOtpHash: null,
+          passwordResetOtpExpiresAt: null,
         },
       });
 

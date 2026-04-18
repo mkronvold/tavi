@@ -43,8 +43,10 @@ import {
   login,
   logout,
   purgeAuditLogs,
+  requestPasswordReset,
   renameSavedView,
   reorderProjectTasks,
+  resetPasswordWithOtp,
   setAuditLogRetention,
   updateEmailSettings,
   updateMyProfile,
@@ -80,6 +82,8 @@ import type {
   LoginPayload,
   NotificationPreferences,
   ProjectSortField,
+  RequestPasswordResetPayload,
+  ResetPasswordWithOtpPayload,
   SavedView,
   SmtpStatus,
   UpdateOwnProfilePayload,
@@ -136,14 +140,31 @@ const EMPTY_LOGIN_FORM: LoginPayload = {
   password: "",
 };
 
+const EMPTY_PASSWORD_RESET_FORM = {
+  email: "",
+  oneTimePassword: "",
+  password: "",
+  passwordConfirmation: "",
+};
+
 const BRAND_MARK = "ᴛᴀᴠi";
 const EDITOR_SCROLL_TOP_MARGIN = 132;
 const EDITOR_SCROLL_BOTTOM_MARGIN = 24;
 const SCROLL_TO_TOP_VISIBILITY_OFFSET = 240;
+const PASSWORD_RESET_NOTICE =
+  "If that account can receive email, a one-time password was sent. It expires in 10 minutes.";
+const PASSWORD_RESET_CODE_PATTERN = /^[0-9A-F]{4}-[0-9A-F]{4}$/;
 const EDITOR_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 const ROW_EDIT_INTERACTIVE_SELECTOR =
   "button, a, input, select, textarea, label";
+
+type PasswordResetFormState = {
+  email: string;
+  oneTimePassword: string;
+  password: string;
+  passwordConfirmation: string;
+};
 
 type WorkspacePanelState = {
   backups: boolean;
@@ -328,6 +349,18 @@ function App() {
   const queryClient = useQueryClient();
   const [loginForm, setLoginForm] = useState<LoginPayload>(EMPTY_LOGIN_FORM);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  const [hasFailedLogin, setHasFailedLogin] = useState(false);
+  const [passwordResetForm, setPasswordResetForm] =
+    useState<PasswordResetFormState>(EMPTY_PASSWORD_RESET_FORM);
+  const [passwordResetOpen, setPasswordResetOpen] = useState(false);
+  const [passwordResetRequested, setPasswordResetRequested] = useState(false);
+  const [passwordResetError, setPasswordResetError] = useState<string | null>(
+    null,
+  );
+  const [passwordResetNotice, setPasswordResetNotice] = useState<string | null>(
+    null,
+  );
   const [workspacePreferences, setWorkspacePreferences] =
     useState<WorkspacePreferences>(() =>
       normalizeWorkspacePreferences(
@@ -380,11 +413,72 @@ function App() {
     mutationFn: login,
     onSuccess: async () => {
       setLoginError(null);
+      setLoginNotice(null);
+      setHasFailedLogin(false);
+      setPasswordResetOpen(false);
+      setPasswordResetRequested(false);
+      setPasswordResetError(null);
+      setPasswordResetNotice(null);
       await queryClient.invalidateQueries({ queryKey: ["workspace"] });
     },
     onError: (error) => {
+      setHasFailedLogin(true);
+      setLoginNotice(null);
       setLoginError(
         error instanceof ApiError ? error.message : "Unable to sign in",
+      );
+    },
+  });
+
+  const requestPasswordResetMutation = useMutation({
+    mutationFn: requestPasswordReset,
+    onSuccess: (_data, variables) => {
+      setLoginError(null);
+      setPasswordResetError(null);
+      setPasswordResetRequested(true);
+      setPasswordResetNotice(PASSWORD_RESET_NOTICE);
+      setPasswordResetForm((current) => ({
+        ...current,
+        email: variables.email,
+        oneTimePassword: "",
+        password: "",
+        passwordConfirmation: "",
+      }));
+    },
+    onError: (error) => {
+      setPasswordResetNotice(null);
+      setPasswordResetError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to send a one-time password",
+      );
+    },
+  });
+
+  const confirmPasswordResetMutation = useMutation({
+    mutationFn: resetPasswordWithOtp,
+    onSuccess: (_data, variables) => {
+      setHasFailedLogin(false);
+      setLoginError(null);
+      setLoginNotice("Password updated. Sign in with your new password.");
+      setPasswordResetError(null);
+      setPasswordResetNotice(null);
+      setPasswordResetOpen(false);
+      setPasswordResetRequested(false);
+      setPasswordResetForm({
+        ...EMPTY_PASSWORD_RESET_FORM,
+        email: variables.email,
+      });
+      setLoginForm({
+        email: variables.email,
+        password: "",
+      });
+    },
+    onError: (error) => {
+      setPasswordResetError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reset your password",
       );
     },
   });
@@ -410,6 +504,7 @@ function App() {
     localLoginHintQuery.isSuccess &&
     !localLoginHintQuery.isFetching &&
     localLoginHintQuery.data.visible;
+  const showForgotPassword = hasFailedLogin;
 
   if (workspaceQuery.isLoading) {
     return <div className="screen-state">Loading tavi...</div>;
@@ -467,6 +562,176 @@ function App() {
             </button>
           </form>
 
+          {showForgotPassword ? (
+            <div className="login-secondary-actions">
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                onClick={() => {
+                  const nextOpen = !passwordResetOpen;
+                  setPasswordResetOpen(nextOpen);
+                  setPasswordResetRequested(false);
+                  setPasswordResetError(null);
+                  setPasswordResetNotice(null);
+                  setPasswordResetForm({
+                    ...EMPTY_PASSWORD_RESET_FORM,
+                    email: loginForm.email,
+                  });
+                }}
+              >
+                Forgot password
+              </button>
+            </div>
+          ) : null}
+
+          {passwordResetOpen ? (
+            <form
+              className="login-form password-reset-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+
+                if (!passwordResetRequested) {
+                  return;
+                }
+
+                if (
+                  !PASSWORD_RESET_CODE_PATTERN.test(
+                    passwordResetForm.oneTimePassword,
+                  )
+                ) {
+                  setPasswordResetError(
+                    "Enter the one-time password from your email",
+                  );
+                  return;
+                }
+
+                if (!passwordResetForm.password.trim()) {
+                  setPasswordResetError("Enter a new password");
+                  return;
+                }
+
+                if (
+                  passwordResetForm.password !==
+                  passwordResetForm.passwordConfirmation
+                ) {
+                  setPasswordResetError("New passwords do not match");
+                  return;
+                }
+
+                setPasswordResetError(null);
+                setLoginNotice(null);
+
+                const payload: ResetPasswordWithOtpPayload = {
+                  email: passwordResetForm.email,
+                  oneTimePassword: passwordResetForm.oneTimePassword,
+                  password: passwordResetForm.password,
+                };
+
+                confirmPasswordResetMutation.mutate(payload);
+              }}
+            >
+              <label>
+                Reset email
+                <input
+                  type="email"
+                  value={passwordResetForm.email}
+                  onChange={(event) =>
+                    setPasswordResetForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+
+              <button
+                type="button"
+                disabled={requestPasswordResetMutation.isPending}
+                onClick={() => {
+                  setPasswordResetError(null);
+                  setLoginNotice(null);
+
+                  const payload: RequestPasswordResetPayload = {
+                    email: passwordResetForm.email,
+                  };
+
+                  requestPasswordResetMutation.mutate(payload);
+                }}
+              >
+                {requestPasswordResetMutation.isPending
+                  ? "Emailing..."
+                  : passwordResetRequested
+                    ? "Resend one-time password"
+                    : "Email one-time password"}
+              </button>
+
+              {passwordResetRequested ? (
+                <>
+                  <label>
+                    One-time password
+                    <input
+                      type="text"
+                      inputMode="text"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      className="password-reset-code-input"
+                      maxLength={9}
+                      placeholder="ABCD-1234"
+                      value={passwordResetForm.oneTimePassword}
+                      onChange={(event) =>
+                        setPasswordResetForm((current) => ({
+                          ...current,
+                          oneTimePassword: normalizePasswordResetCodeInput(
+                            event.target.value,
+                          ),
+                        }))
+                      }
+                      onDrop={(event) => event.preventDefault()}
+                      onPaste={(event) => event.preventDefault()}
+                    />
+                  </label>
+
+                  <label>
+                    New password
+                    <input
+                      type="password"
+                      value={passwordResetForm.password}
+                      onChange={(event) =>
+                        setPasswordResetForm((current) => ({
+                          ...current,
+                          password: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    Confirm password
+                    <input
+                      type="password"
+                      value={passwordResetForm.passwordConfirmation}
+                      onChange={(event) =>
+                        setPasswordResetForm((current) => ({
+                          ...current,
+                          passwordConfirmation: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={confirmPasswordResetMutation.isPending}
+                  >
+                    {confirmPasswordResetMutation.isPending
+                      ? "Resetting..."
+                      : "Reset password"}
+                  </button>
+                </>
+              ) : null}
+            </form>
+          ) : null}
+
           {showLocalLoginHint ? (
             <div className="login-hint">
               <strong>Local dev users</strong>
@@ -477,7 +742,16 @@ function App() {
             </div>
           ) : null}
 
+          {loginNotice ? (
+            <p className="workspace-notice">{loginNotice}</p>
+          ) : null}
+          {passwordResetNotice ? (
+            <p className="workspace-notice">{passwordResetNotice}</p>
+          ) : null}
           {loginError ? <p className="error-banner">{loginError}</p> : null}
+          {passwordResetError ? (
+            <p className="error-banner">{passwordResetError}</p>
+          ) : null}
         </section>
       </main>
     );
@@ -609,7 +883,9 @@ function WorkspaceScreen({
       ),
     [assigneeFilterUserIds, validAssigneeUserIds],
   );
-  const [search, setSearch] = useState(() => readWorkspaceSearchQueryFromLocation());
+  const [search, setSearch] = useState(() =>
+    readWorkspaceSearchQueryFromLocation(),
+  );
   const [expandedProjects, setExpandedProjects] = useState<
     Record<string, boolean>
   >({});
@@ -620,9 +896,10 @@ function WorkspaceScreen({
       readTaviStorage<Record<string, boolean>>(HIDE_DONE_TASKS_STORAGE_KEY, {}),
     ),
   );
-  const [hideDonePersonalTodos, setHideDonePersonalTodos] = useState(() =>
-    readTaviStorage<boolean>(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY, false) ===
-    true,
+  const [hideDonePersonalTodos, setHideDonePersonalTodos] = useState(
+    () =>
+      readTaviStorage<boolean>(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY, false) ===
+      true,
   );
   const [projectForm, setProjectForm] = useState<CreateProjectPayload>({
     ...EMPTY_PROJECT_FORM,
@@ -909,7 +1186,9 @@ function WorkspaceScreen({
   }, [addTaskPanels]);
 
   useEffect(() => {
-    const activeHiddenDoneTasks = activeBooleanSelection(hideDoneTasksByProject);
+    const activeHiddenDoneTasks = activeBooleanSelection(
+      hideDoneTasksByProject,
+    );
 
     if (Object.keys(activeHiddenDoneTasks).length === 0) {
       removeTaviStorage(HIDE_DONE_TASKS_STORAGE_KEY);
@@ -1846,7 +2125,9 @@ function WorkspaceScreen({
       }
 
       await globalThis.navigator.clipboard.writeText(projectLink);
-      setWorkspaceNotice(`Copied project link for "${projectTitle}" to clipboard.`);
+      setWorkspaceNotice(
+        `Copied project link for "${projectTitle}" to clipboard.`,
+      );
     } catch {
       setWorkspaceNotice(
         `Browser blocked clipboard access. Copy this project link manually: ${projectLink}`,
@@ -6543,6 +6824,19 @@ function shouldToggleProjectFromRowClick(event: React.MouseEvent<HTMLElement>) {
   );
 }
 
+function normalizePasswordResetCodeInput(value: string) {
+  const hex = value
+    .toUpperCase()
+    .replace(/[^0-9A-F]/g, "")
+    .slice(0, 8);
+
+  if (hex.length <= 4) {
+    return hex;
+  }
+
+  return `${hex.slice(0, 4)}-${hex.slice(4)}`;
+}
+
 function readWorkspaceSearchQueryFromLocation() {
   if (typeof globalThis.location?.href !== "string") {
     return "";
@@ -6589,7 +6883,8 @@ function buildWorkspaceSearchLink(appHomeUrl: string, search: string) {
       ? globalThis.location.origin
       : "https://tavi";
   const workspaceUrl = new URL(appHomeUrl, baseOrigin);
-  const workspacePath = workspaceUrl.pathname === "/" ? "" : workspaceUrl.pathname;
+  const workspacePath =
+    workspaceUrl.pathname === "/" ? "" : workspaceUrl.pathname;
 
   workspaceUrl.search = "";
   workspaceUrl.searchParams.set("search", search);

@@ -1,12 +1,15 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import type {
   AuditEntityType,
   LocalLoginHintResponse,
   NotificationPreferences,
+  ResetPasswordWithOtpInput,
   UpdateNotificationPreferencesInput,
 } from '@tavi/schemas';
 import { Prisma, Role } from '@prisma/client';
@@ -17,18 +20,29 @@ import {
   DEFAULT_LOCAL_USER_EMAILS,
   DEFAULT_LOCAL_USERS,
 } from './default-local-users';
+import { EmailService } from './email.service';
 import { PrismaService } from './prisma.service';
 
 const SESSION_COOKIE = 'tavi_session';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const LOCAL_AUTH_MODE = 'local';
 const DEFAULT_DAILY_DIGEST_TIME = '09:00';
+const PASSWORD_RESET_OTP_TTL_MINUTES = 10;
+const PASSWORD_RESET_OTP_TTL_MS = PASSWORD_RESET_OTP_TTL_MINUTES * 60 * 1000;
 type AuditWriteClient = PrismaService | Prisma.TransactionClient;
 type AuditActor = Pick<SessionUser, 'email' | 'id' | 'name' | 'role'>;
 
+export function generatePasswordResetOtp() {
+  const value = randomBytes(4).toString('hex').toUpperCase();
+  return `${value.slice(0, 4)}-${value.slice(4)}`;
+}
+
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+  ) {}
 
   async login(email: string, password: string): Promise<SessionUser> {
     this.requireLocalAuthMode();
@@ -159,6 +173,134 @@ export class AuthService {
     }
   }
 
+  async requestPasswordReset(email: string) {
+    this.requireLocalAuthMode();
+    await this.emailService.assertPasswordResetEmailAvailable();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { roleAssignment: true },
+    });
+
+    if (!user?.roleAssignment) {
+      return;
+    }
+
+    const oneTimePassword = generatePasswordResetOtp();
+    const passwordResetOtpHash = await this.hashPassword(oneTimePassword);
+    const passwordResetOtpExpiresAt = new Date(
+      Date.now() + PASSWORD_RESET_OTP_TTL_MS,
+    );
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetOtpHash,
+        passwordResetOtpExpiresAt,
+      },
+    });
+
+    try {
+      await this.emailService.sendPasswordResetOtpEmail(
+        { email: user.email, name: user.name },
+        oneTimePassword,
+        passwordResetOtpExpiresAt,
+      );
+    } catch (error) {
+      await this.clearPasswordResetOtp(user.id);
+      throw error;
+    }
+
+    await this.recordAudit(
+      {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.roleAssignment.role,
+      },
+      'auth',
+      user.id,
+      'password_reset_requested',
+      {
+        delivery: 'email_otp',
+        expiresAt: passwordResetOtpExpiresAt.toISOString(),
+      },
+    );
+  }
+
+  async resetPasswordWithOtp(input: ResetPasswordWithOtpInput) {
+    this.requireLocalAuthMode();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: input.email },
+      include: { roleAssignment: true },
+    });
+
+    if (
+      !user?.roleAssignment ||
+      !user.passwordResetOtpHash ||
+      !user.passwordResetOtpExpiresAt
+    ) {
+      throw new UnauthorizedException('Invalid one-time password');
+    }
+
+    if (user.passwordResetOtpExpiresAt.getTime() < Date.now()) {
+      await this.clearPasswordResetOtp(user.id);
+      throw new UnauthorizedException('Invalid one-time password');
+    }
+
+    const oneTimePasswordMatches = await this.verifyPassword(
+      input.oneTimePassword,
+      user.passwordResetOtpHash,
+    );
+
+    if (!oneTimePasswordMatches) {
+      throw new UnauthorizedException('Invalid one-time password');
+    }
+
+    const passwordMatches = await this.verifyPassword(
+      input.password,
+      user.passwordHash,
+    );
+
+    if (passwordMatches) {
+      throw new BadRequestException(
+        'New password must be different from the current password',
+      );
+    }
+
+    const passwordHash = await this.hashPassword(input.password);
+    const userRole = user.roleAssignment.role;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          passwordResetOtpHash: null,
+          passwordResetOtpExpiresAt: null,
+        },
+      });
+
+      await this.recordAudit(
+        {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: userRole,
+        },
+        'auth',
+        user.id,
+        'password_reset',
+        {
+          delivery: 'email_otp',
+          scope: 'forgot_password',
+        },
+        tx,
+      );
+    });
+  }
+
   requireEditAccess(user: SessionUser) {
     if (user.role === Role.viewer) {
       throw new ForbiddenException('Viewers cannot modify workspace data');
@@ -267,24 +409,28 @@ export class AuthService {
           : {}),
         ...(input.personalTodoRemindersEnabled !== undefined
           ? {
-              personalTodoRemindersEnabled:
-                input.personalTodoRemindersEnabled,
+              personalTodoRemindersEnabled: input.personalTodoRemindersEnabled,
             }
           : {}),
       },
     });
 
-    await this.recordAudit(actor, 'auth', actor.id, 'notification_preferences_updated', {
-      ...(input.dailyDigestEnabled !== undefined
-        ? { dailyDigestEnabled: input.dailyDigestEnabled }
-        : {}),
-      ...(input.personalTodoRemindersEnabled !== undefined
-        ? {
-            personalTodoRemindersEnabled:
-              input.personalTodoRemindersEnabled,
-          }
-        : {}),
-    });
+    await this.recordAudit(
+      actor,
+      'auth',
+      actor.id,
+      'notification_preferences_updated',
+      {
+        ...(input.dailyDigestEnabled !== undefined
+          ? { dailyDigestEnabled: input.dailyDigestEnabled }
+          : {}),
+        ...(input.personalTodoRemindersEnabled !== undefined
+          ? {
+              personalTodoRemindersEnabled: input.personalTodoRemindersEnabled,
+            }
+          : {}),
+      },
+    );
 
     return this.getNotificationPreferences(actor.id);
   }
@@ -326,5 +472,15 @@ export class AuthService {
 
   private isLocalAuthModeEnabled() {
     return (process.env.AUTH_MODE ?? LOCAL_AUTH_MODE) === LOCAL_AUTH_MODE;
+  }
+
+  private async clearPasswordResetOtp(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordResetOtpHash: null,
+        passwordResetOtpExpiresAt: null,
+      },
+    });
   }
 }

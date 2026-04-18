@@ -81,6 +81,22 @@
   color: var(--text-subtle);
 }
 
+.login-secondary-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.password-reset-form {
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.password-reset-code-input {
+  font-family: monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .error-banner {
   margin: 0;
   color: var(--error-text);
@@ -1844,10 +1860,8 @@ button:disabled {
 .personal-todo-form {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(220px, 1.2fr) minmax(
-      150px,
-      180px
-    )
+  grid-template-columns:
+    minmax(220px, 1.4fr) minmax(220px, 1.2fr) minmax(150px, 180px)
     auto;
   align-items: start;
 }
