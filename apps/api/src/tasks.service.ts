@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type {
   BulkArchiveTasksInput,
   BulkCopyTasksInput,
@@ -379,27 +383,27 @@ export class TasksService {
 
     const existingTasks = (
       await this.prisma.task.findMany({
-      where: {
-        id: { in: input.taskIds },
-        archivedAt: null,
-      },
-      select: {
-        id: true,
-        projectId: true,
-        title: true,
-        notes: true,
-        assigneeUserId: true,
-        dueDate: true,
-        priority: true,
-        status: true,
-        completedAt: true,
-        project: {
-          select: {
-            title: true,
+        where: {
+          id: { in: input.taskIds },
+          archivedAt: null,
+        },
+        select: {
+          id: true,
+          projectId: true,
+          title: true,
+          notes: true,
+          assigneeUserId: true,
+          dueDate: true,
+          priority: true,
+          status: true,
+          completedAt: true,
+          project: {
+            select: {
+              title: true,
+            },
           },
         },
-      },
-    })
+      })
     ).map((task) => ({
       ...task,
       projectTitle: task.project?.title ?? null,
@@ -459,7 +463,10 @@ export class TasksService {
         await this.notificationEventsService.queueTaskChange(
           {
             actor,
-            nextTask: toTaskNotificationSnapshot(task, update.existing.projectTitle),
+            nextTask: toTaskNotificationSnapshot(
+              task,
+              update.existing.projectTitle,
+            ),
             previousTask: toTaskNotificationSnapshot(
               update.existing,
               update.existing.projectTitle,

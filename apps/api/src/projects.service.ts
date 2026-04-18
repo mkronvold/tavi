@@ -183,9 +183,10 @@ export class ProjectsService {
 
       if (clearingManualStatus) {
         await this.recalculateProject(projectId, tx);
-        updated = (await tx.project.findUnique({
-          where: { id: projectId },
-        })) ?? updated;
+        updated =
+          (await tx.project.findUnique({
+            where: { id: projectId },
+          })) ?? updated;
       }
 
       if (metadataChanged) {

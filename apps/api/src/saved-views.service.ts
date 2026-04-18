@@ -255,7 +255,9 @@ function sameStringArray(left: string[], right: string[]) {
   );
 }
 
-function normalizeLegacyStatusFilter(statusFilter: string | null): ProjectStatus[] {
+function normalizeLegacyStatusFilter(
+  statusFilter: string | null,
+): ProjectStatus[] {
   switch (statusFilter) {
     case 'not_started':
       return ['not_started'];

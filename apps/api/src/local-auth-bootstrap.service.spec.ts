@@ -3,28 +3,42 @@ import { LocalAuthBootstrapService } from './local-auth-bootstrap.service';
 import type { AppLogger } from './app-logger';
 import type { PrismaService } from './prisma.service';
 
+type BootstrapTransactionClient = {
+  $queryRaw: jest.Mock;
+  roleAssignment: {
+    upsert: jest.Mock;
+  };
+  user: {
+    count: jest.Mock;
+    upsert: jest.Mock;
+  };
+};
+
 describe('LocalAuthBootstrapService', () => {
   const originalAuthMode = process.env.AUTH_MODE;
 
   const createService = () => {
     const queryRawMock = jest.fn();
     const countUsersMock = jest.fn();
+    const logMock = jest.fn();
     const upsertUserMock = jest.fn();
     const upsertRoleAssignmentMock = jest.fn();
-    const transactionMock = jest.fn(async (callback) =>
-      callback({
-        $queryRaw: queryRawMock,
-        roleAssignment: {
-          upsert: upsertRoleAssignmentMock,
-        },
-        user: {
-          count: countUsersMock,
-          upsert: upsertUserMock,
-        },
-      }),
+    const transactionClient: BootstrapTransactionClient = {
+      $queryRaw: queryRawMock,
+      roleAssignment: {
+        upsert: upsertRoleAssignmentMock,
+      },
+      user: {
+        count: countUsersMock,
+        upsert: upsertUserMock,
+      },
+    };
+    const transactionMock = jest.fn(
+      (callback: (client: BootstrapTransactionClient) => Promise<unknown>) =>
+        callback(transactionClient),
     );
     const logger = {
-      log: jest.fn(),
+      log: logMock,
     } as unknown as AppLogger;
     const prisma = {
       $transaction: transactionMock,
@@ -33,6 +47,7 @@ describe('LocalAuthBootstrapService', () => {
     return {
       countUsersMock,
       logger,
+      logMock,
       prisma,
       queryRawMock,
       service: new LocalAuthBootstrapService(logger, prisma),
@@ -64,7 +79,7 @@ describe('LocalAuthBootstrapService', () => {
     process.env.AUTH_MODE = 'local';
     const {
       countUsersMock,
-      logger,
+      logMock,
       queryRawMock,
       service,
       upsertRoleAssignmentMock,
@@ -101,21 +116,29 @@ describe('LocalAuthBootstrapService', () => {
         role: 'admin',
       },
     });
-    expect(logger.log).toHaveBeenCalledWith(
+    const [, bootstrapLogPayload] = logMock.mock.calls[0] as [
+      string,
+      {
+        email: string;
+        initialPassword: string;
+        passwordSource: string;
+      },
+    ];
+
+    expect(logMock).toHaveBeenCalledWith(
       'auth.bootstrap.initial_admin_created',
-      expect.objectContaining({
-        email: 'admin@tavi.local',
-        initialPassword: expect.stringMatching(/^[A-Za-z0-9]{10}$/),
-        passwordSource: 'generated',
-      }),
+      expect.anything(),
     );
+    expect(bootstrapLogPayload.email).toBe('admin@tavi.local');
+    expect(bootstrapLogPayload.initialPassword).toMatch(/^[A-Za-z0-9]{10}$/);
+    expect(bootstrapLogPayload.passwordSource).toBe('generated');
   });
 
   it('does not reseed when users already exist', async () => {
     process.env.AUTH_MODE = 'local';
     const {
       countUsersMock,
-      logger,
+      logMock,
       queryRawMock,
       service,
       upsertRoleAssignmentMock,
@@ -129,14 +152,14 @@ describe('LocalAuthBootstrapService', () => {
 
     expect(upsertUserMock).not.toHaveBeenCalled();
     expect(upsertRoleAssignmentMock).not.toHaveBeenCalled();
-    expect(logger.log).not.toHaveBeenCalled();
+    expect(logMock).not.toHaveBeenCalled();
   });
 
   it('does nothing when another instance already holds the bootstrap lock', async () => {
     process.env.AUTH_MODE = 'local';
     const {
       countUsersMock,
-      logger,
+      logMock,
       queryRawMock,
       service,
       upsertRoleAssignmentMock,
@@ -150,6 +173,6 @@ describe('LocalAuthBootstrapService', () => {
     expect(countUsersMock).not.toHaveBeenCalled();
     expect(upsertUserMock).not.toHaveBeenCalled();
     expect(upsertRoleAssignmentMock).not.toHaveBeenCalled();
-    expect(logger.log).not.toHaveBeenCalled();
+    expect(logMock).not.toHaveBeenCalled();
   });
 });

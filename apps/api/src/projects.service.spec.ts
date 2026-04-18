@@ -120,7 +120,11 @@ describe('ProjectsService', () => {
         updateProjectMock,
         updateManyTasksMock,
       },
-      service: new ProjectsService(prisma, authService, notificationEventsService),
+      service: new ProjectsService(
+        prisma,
+        authService,
+        notificationEventsService,
+      ),
     };
   };
 

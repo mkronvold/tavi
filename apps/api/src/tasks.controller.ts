@@ -48,7 +48,11 @@ export class TasksController {
     @Req() request: AuthenticatedRequest,
   ) {
     const input = parseInput(reorderProjectTasksSchema, body);
-    return this.tasksService.reorderProjectTasks(projectId, input, request.user!);
+    return this.tasksService.reorderProjectTasks(
+      projectId,
+      input,
+      request.user!,
+    );
   }
 
   @Patch('tasks/bulk/archive')

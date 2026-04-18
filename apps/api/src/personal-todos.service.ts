@@ -2,19 +2,22 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
+} from '@nestjs/common';
 import type {
   CreatePersonalTodoInput,
   ImportPersonalTodosInput,
   ReorderPersonalTodosInput,
   UpdatePersonalTodoInput,
-} from "@tavi/schemas";
-import type { Prisma } from "@prisma/client";
-import type { SessionUser } from "./auth.types";
-import { PrismaService } from "./prisma.service";
+} from '@tavi/schemas';
+import type { Prisma } from '@prisma/client';
+import type { SessionUser } from './auth.types';
+import { PrismaService } from './prisma.service';
 
-type PersonalTodoClient = Pick<PrismaService, "personalTodo">;
-type PersonalTodoTransactionClient = Pick<Prisma.TransactionClient, "personalTodo">;
+type PersonalTodoClient = Pick<PrismaService, 'personalTodo'>;
+type PersonalTodoTransactionClient = Pick<
+  Prisma.TransactionClient,
+  'personalTodo'
+>;
 
 @Injectable()
 export class PersonalTodosService {
@@ -57,8 +60,8 @@ export class PersonalTodosService {
         ...(input.status !== undefined
           ? {
               completedAt:
-                nextStatus === "done"
-                  ? existingTodo.completedAt ?? new Date()
+                nextStatus === 'done'
+                  ? (existingTodo.completedAt ?? new Date())
                   : null,
               status: nextStatus,
             }
@@ -84,7 +87,7 @@ export class PersonalTodosService {
       where: {
         userId: actor.id,
       },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       select: {
         id: true,
         sortOrder: true,
@@ -93,7 +96,7 @@ export class PersonalTodosService {
 
     if (existingTodos.length !== input.todoIds.length) {
       throw new BadRequestException(
-        "Personal todo order must include every item exactly once",
+        'Personal todo order must include every item exactly once',
       );
     }
 
@@ -105,7 +108,7 @@ export class PersonalTodosService {
 
       if (!todo) {
         throw new BadRequestException(
-          "Personal todo order must include every item exactly once",
+          'Personal todo order must include every item exactly once',
         );
       }
 
@@ -153,7 +156,7 @@ export class PersonalTodosService {
 
       await tx.personalTodo.createMany({
         data: input.personalTodos.map((todo, index) => ({
-          completedAt: todo.status === "done" ? new Date() : null,
+          completedAt: todo.status === 'done' ? new Date() : null,
           dueDate: toOptionalDate(todo.dueDate),
           notes: normalizeOptionalNotes(todo.notes),
           sortOrder: index,
@@ -183,7 +186,7 @@ async function requireOwnedPersonalTodo(
   });
 
   if (!todo) {
-    throw new NotFoundException("Personal todo not found");
+    throw new NotFoundException('Personal todo not found');
   }
 
   return todo;
@@ -195,7 +198,7 @@ async function getNextPersonalTodoSortOrder(
 ) {
   const lastTodo = await prisma.personalTodo.findFirst({
     where: { userId },
-    orderBy: [{ sortOrder: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ sortOrder: 'desc' }, { createdAt: 'desc' }],
     select: { sortOrder: true },
   });
 

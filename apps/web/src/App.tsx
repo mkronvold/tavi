@@ -60,11 +60,11 @@ import { ExportPanel } from "./ExportPanel";
 import { downloadCsvFile } from "./export-utils";
 import { ImportPanel } from "./ImportPanel";
 import { LocalAccountsPanel } from "./LocalAccountsPanel";
+import { NotesMarkdown } from "./NotesMarkdown";
 import {
   extractUrlFilename,
-  NotesMarkdown,
   truncateDisplayLinkLabel,
-} from "./NotesMarkdown";
+} from "./notes-markdown-helpers";
 import { PersonalTodoPanel } from "./PersonalTodoPanel";
 import { getAppHomeUrl } from "./runtime-config";
 import {
@@ -4316,12 +4316,6 @@ function ProfilePanel({
     setProfileError(null);
   };
 
-  useEffect(() => {
-    if (!isEditing) {
-      resetProfileDraft();
-    }
-  }, [currentUser.email, currentUser.name, isEditing]);
-
   const notificationPreferencesMutation = useMutation({
     mutationFn: updateNotificationPreferences,
     onMutate: async (variables) => {
@@ -4469,6 +4463,7 @@ function ProfilePanel({
 
     if (Object.keys(payload).length === 0) {
       setIsEditing(false);
+      resetProfileDraft();
       onClose();
       return;
     }
@@ -4479,7 +4474,7 @@ function ProfilePanel({
   const beginEditing = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setProfileError(null);
+    resetProfileDraft();
     queueMicrotask(() => setIsEditing(true));
   };
 
@@ -4826,10 +4821,6 @@ function SettingsPanel({
   onToggleImportExportPanel,
   users,
 }: SettingsPanelProps) {
-  if (!isAdmin) {
-    return null;
-  }
-
   const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
   const [adminAuditPanel, setAdminAuditPanel] =
     useState<AdminAuditReportType | null>(null);
@@ -4838,6 +4829,7 @@ function SettingsPanel({
 
   const queryClient = useQueryClient();
   const smtpStatusQuery = useQuery({
+    enabled: isAdmin,
     queryFn: getSmtpStatus,
     queryKey: ["smtp-status"],
     staleTime: 60_000,
@@ -4946,6 +4938,10 @@ function SettingsPanel({
   const toggleAdminAuditPanel = (panel: AdminAuditReportType) => {
     setAdminAuditPanel((current) => (current === panel ? null : panel));
   };
+
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <section className="workspace-panel-card">

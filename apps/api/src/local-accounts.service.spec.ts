@@ -262,22 +262,21 @@ describe('LocalAccountsService', () => {
       }),
     ]);
 
-    await expect(service.exportAccounts(adminActor)).resolves.toEqual({
-      accounts: [
-        {
-          email: 'admin@tavi.local',
-          name: 'Tavi Admin',
-          passwordHash: expect.any(String),
-          role: 'admin',
-        },
-        {
-          email: 'editor@tavi.local',
-          name: 'Tavi Editor',
-          passwordHash: expect.any(String),
-          role: 'editor',
-        },
-      ],
+    const result = await service.exportAccounts(adminActor);
+
+    expect(result.accounts).toHaveLength(2);
+    expect(result.accounts[0]).toMatchObject({
+      email: 'admin@tavi.local',
+      name: 'Tavi Admin',
+      role: 'admin',
     });
+    expect(result.accounts[0]?.passwordHash).toEqual(expect.any(String));
+    expect(result.accounts[1]).toMatchObject({
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor',
+    });
+    expect(result.accounts[1]?.passwordHash).toEqual(expect.any(String));
   });
 
   it('blocks non-admins from listing local accounts', async () => {

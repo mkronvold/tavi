@@ -1,8 +1,25 @@
 import {
   buildImmediateProjectNotifications,
   buildImmediateTaskNotifications,
+  type ImmediateNotificationInput,
 } from './notification-events';
 import { NotificationEventsService } from './notification-events.service';
+
+function requireStringArrayField(
+  notification: ImmediateNotificationInput,
+  field: string,
+) {
+  const value = notification.payload[field];
+
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === 'string')
+  ) {
+    throw new Error(`Expected ${field} to be a string array`);
+  }
+
+  return value;
+}
 
 describe('non-admin notification planning helpers', () => {
   it('queues assignment, due date, and on-hold notifications for a newly created task', () => {
@@ -70,30 +87,33 @@ describe('non-admin notification planning helpers', () => {
       },
     });
 
-    expect(notifications.map((notification) => notification.recipientUserId)).toEqual([
-      'user-2',
-      'user-3',
-    ]);
-    expect(notifications[0]).toEqual(
-      expect.objectContaining({
-        kind: 'task_updated',
-        payload: expect.objectContaining({
-          fromLines: expect.arrayContaining([
-            'Assignee: Old Assignee',
-            'Priority: Medium',
-            'Status: On Hold',
-            'Due date: 2026-04-18',
-            'Project: Roadmap refresh',
-          ]),
-          toLines: expect.arrayContaining([
-            'Assignee: New Assignee',
-            'Priority: High',
-            'Status: In Progress',
-            'Due date: 2026-04-19',
-            'Project: Release prep',
-          ]),
-        }),
-      }),
+    expect(
+      notifications.map((notification) => notification.recipientUserId),
+    ).toEqual(['user-2', 'user-3']);
+    const [firstNotification] = notifications;
+
+    if (!firstNotification) {
+      throw new Error('Expected at least one task notification');
+    }
+
+    expect(firstNotification.kind).toBe('task_updated');
+    expect(requireStringArrayField(firstNotification, 'fromLines')).toEqual(
+      expect.arrayContaining([
+        'Assignee: Old Assignee',
+        'Priority: Medium',
+        'Status: On Hold',
+        'Due date: 2026-04-18',
+        'Project: Roadmap refresh',
+      ]),
+    );
+    expect(requireStringArrayField(firstNotification, 'toLines')).toEqual(
+      expect.arrayContaining([
+        'Assignee: New Assignee',
+        'Priority: High',
+        'Status: In Progress',
+        'Due date: 2026-04-19',
+        'Project: Release prep',
+      ]),
     );
   });
 
@@ -128,28 +148,31 @@ describe('non-admin notification planning helpers', () => {
       },
     });
 
-    expect(notifications.map((notification) => notification.recipientUserId)).toEqual([
-      'user-2',
-      'user-3',
-    ]);
-    expect(notifications[0]).toEqual(
-      expect.objectContaining({
-        kind: 'project_updated',
-        payload: expect.objectContaining({
-          fromLines: expect.arrayContaining([
-            'Owner: Previous Owner',
-            'Priority: Medium',
-            'Status: In Progress',
-            'Due date: None',
-          ]),
-          toLines: expect.arrayContaining([
-            'Owner: Current Owner',
-            'Priority: High',
-            'Status: On Hold',
-            'Due date: 2026-04-20',
-          ]),
-        }),
-      }),
+    expect(
+      notifications.map((notification) => notification.recipientUserId),
+    ).toEqual(['user-2', 'user-3']);
+    const [firstNotification] = notifications;
+
+    if (!firstNotification) {
+      throw new Error('Expected at least one project notification');
+    }
+
+    expect(firstNotification.kind).toBe('project_updated');
+    expect(requireStringArrayField(firstNotification, 'fromLines')).toEqual(
+      expect.arrayContaining([
+        'Owner: Previous Owner',
+        'Priority: Medium',
+        'Status: In Progress',
+        'Due date: None',
+      ]),
+    );
+    expect(requireStringArrayField(firstNotification, 'toLines')).toEqual(
+      expect.arrayContaining([
+        'Owner: Current Owner',
+        'Priority: High',
+        'Status: On Hold',
+        'Due date: 2026-04-20',
+      ]),
     );
   });
 });

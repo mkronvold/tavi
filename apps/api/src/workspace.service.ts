@@ -19,40 +19,40 @@ export class WorkspaceService {
   async getWorkspace(currentUser: SessionUser) {
     const [users, projects, savedViews, emailSettings, personalTodos] =
       await Promise.all([
-      this.prisma.user.findMany({
-        include: { roleAssignment: true },
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.project.findMany({
-        where: { archivedAt: null },
-        include: {
-          owner: {
-            include: { roleAssignment: true },
-          },
-          tasks: {
-            where: { archivedAt: null },
-            include: {
-              assignee: {
-                include: { roleAssignment: true },
-              },
+        this.prisma.user.findMany({
+          include: { roleAssignment: true },
+          orderBy: { name: 'asc' },
+        }),
+        this.prisma.project.findMany({
+          where: { archivedAt: null },
+          include: {
+            owner: {
+              include: { roleAssignment: true },
             },
-            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            tasks: {
+              where: { archivedAt: null },
+              include: {
+                assignee: {
+                  include: { roleAssignment: true },
+                },
+              },
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            },
           },
-        },
-        orderBy: [{ displayStatus: 'asc' }, { updatedAt: 'desc' }],
-      }),
-      this.savedViewsService.listSavedViews(currentUser),
-      this.prisma.emailSettings.findUnique({
-        where: { id: 'global' },
-        select: { dragHandlesEnabled: true },
-      }),
-      this.prisma.personalTodo.findMany({
-        where: {
-          userId: currentUser.id,
-        },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      }),
-    ]);
+          orderBy: [{ displayStatus: 'asc' }, { updatedAt: 'desc' }],
+        }),
+        this.savedViewsService.listSavedViews(currentUser),
+        this.prisma.emailSettings.findUnique({
+          where: { id: 'global' },
+          select: { dragHandlesEnabled: true },
+        }),
+        this.prisma.personalTodo.findMany({
+          where: {
+            userId: currentUser.id,
+          },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        }),
+      ]);
 
     return {
       currentUser: {

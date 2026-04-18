@@ -85,7 +85,12 @@ export function buildImmediateTaskNotifications(input: {
 
     notifications.push({
       kind,
-      payload: buildTaskNotificationPayload(actorName, previousTask, nextTask, payload),
+      payload: buildTaskNotificationPayload(
+        actorName,
+        previousTask,
+        nextTask,
+        payload,
+      ),
       recipientUserId,
     });
   };
@@ -280,8 +285,9 @@ function buildTaskChangeSummary(
       previousTask.projectTitle ?? 'Unassigned',
       nextTask.projectTitle ?? 'Unassigned',
     ),
-  ].filter((change): change is { field: string; from: string; to: string } =>
-    change !== null,
+  ].filter(
+    (change): change is { field: string; from: string; to: string } =>
+      change !== null,
   );
 
   if (changes.length === 0) {
@@ -328,8 +334,9 @@ function buildProjectChangeSummary(
       formatDateDisplay(previousProject.dueDate),
       formatDateDisplay(nextProject.dueDate),
     ),
-  ].filter((change): change is { field: string; from: string; to: string } =>
-    change !== null,
+  ].filter(
+    (change): change is { field: string; from: string; to: string } =>
+      change !== null,
   );
 
   if (changes.length === 0) {
@@ -394,5 +401,7 @@ function formatDateDisplay(value: string | null) {
 }
 
 function uniqueUserIds(userIds: Array<string | null>) {
-  return [...new Set(userIds.filter((userId): userId is string => Boolean(userId)))];
+  return [
+    ...new Set(userIds.filter((userId): userId is string => Boolean(userId))),
+  ];
 }

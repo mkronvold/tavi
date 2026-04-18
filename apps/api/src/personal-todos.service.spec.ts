@@ -1,13 +1,14 @@
-import type { SessionUser } from "./auth.types";
-import { PersonalTodosService } from "./personal-todos.service";
-import { PrismaService } from "./prisma.service";
+import type { SessionUser } from './auth.types';
+import type { Prisma } from '@prisma/client';
+import { PersonalTodosService } from './personal-todos.service';
+import { PrismaService } from './prisma.service';
 
-describe("PersonalTodosService", () => {
+describe('PersonalTodosService', () => {
   const actor: SessionUser = {
-    id: "user-1",
-    email: "viewer@tavi.local",
-    name: "Tavi Viewer",
-    role: "viewer",
+    id: 'user-1',
+    email: 'viewer@tavi.local',
+    name: 'Tavi Viewer',
+    role: 'viewer',
   };
 
   const createService = () => {
@@ -54,97 +55,120 @@ describe("PersonalTodosService", () => {
     };
   };
 
-  it("creates personal todos for viewers under their own account", async () => {
+  it('creates personal todos for viewers under their own account', async () => {
     const { mocks, service } = createService();
 
     mocks.findFirstMock.mockResolvedValue(null);
     mocks.createMock.mockResolvedValue({
-      id: "todo-1",
-      title: "Review notes",
+      id: 'todo-1',
+      title: 'Review notes',
       userId: actor.id,
     });
 
     await service.createPersonalTodo(
       {
-        title: "Review notes",
+        title: 'Review notes',
       },
       actor,
     );
 
-    expect(mocks.createMock).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        notes: null,
-        title: "Review notes",
-        userId: actor.id,
-      }),
+    const firstCreateCall = mocks.createMock.mock.calls.at(0) as
+      | [Prisma.PersonalTodoCreateArgs]
+      | undefined;
+
+    if (!firstCreateCall) {
+      throw new Error('Expected createPersonalTodo to issue a create call');
+    }
+
+    const [createCall] = firstCreateCall;
+
+    expect(createCall.data).toMatchObject({
+      notes: null,
+      title: 'Review notes',
+      userId: actor.id,
     });
   });
 
-  it("updates completion timestamps when toggling personal todo status", async () => {
+  it('updates completion timestamps when toggling personal todo status', async () => {
     const { mocks, service } = createService();
 
     mocks.findFirstMock.mockResolvedValue({
-      id: "todo-1",
-      title: "Review notes",
+      id: 'todo-1',
+      title: 'Review notes',
       userId: actor.id,
       notes: null,
       dueDate: null,
-      status: "todo",
+      status: 'todo',
       completedAt: null,
     });
     mocks.updateMock.mockResolvedValue({
-      id: "todo-1",
-      status: "done",
-      completedAt: new Date("2026-04-17T10:00:00.000Z"),
+      id: 'todo-1',
+      status: 'done',
+      completedAt: new Date('2026-04-17T10:00:00.000Z'),
     });
 
     await service.updatePersonalTodo(
-      "todo-1",
+      'todo-1',
       {
-        status: "done",
+        status: 'done',
       },
       actor,
     );
 
-    expect(mocks.updateMock).toHaveBeenCalledWith({
-      where: { id: "todo-1" },
-      data: expect.objectContaining({
-        status: "done",
-        completedAt: expect.any(Date),
-      }),
+    const firstUpdateCall = mocks.updateMock.mock.calls.at(0) as
+      | [Prisma.PersonalTodoUpdateArgs]
+      | undefined;
+
+    if (!firstUpdateCall) {
+      throw new Error('Expected updatePersonalTodo to issue an update call');
+    }
+
+    const [updateCall] = firstUpdateCall;
+
+    const updateData = updateCall.data as {
+      completedAt?: Date | null;
+      status?: string;
+    };
+
+    expect(updateCall.where).toEqual({ id: 'todo-1' });
+    expect(updateData).toMatchObject({
+      status: 'done',
     });
+    expect(updateData.completedAt).toBeInstanceOf(Date);
   });
 
-  it("requires the full personal todo list when reordering", async () => {
+  it('requires the full personal todo list when reordering', async () => {
     const { mocks, service } = createService();
 
     mocks.findManyMock.mockResolvedValue([
-      { id: "todo-1", sortOrder: 0 },
-      { id: "todo-2", sortOrder: 1 },
+      { id: 'todo-1', sortOrder: 0 },
+      { id: 'todo-2', sortOrder: 1 },
     ]);
 
     await expect(
-      service.reorderPersonalTodos({ todoIds: ["todo-1"] }, actor),
-    ).rejects.toThrow("Personal todo order must include every item exactly once");
+      service.reorderPersonalTodos({ todoIds: ['todo-1'] }, actor),
+    ).rejects.toThrow(
+      'Personal todo order must include every item exactly once',
+    );
   });
 
-  it("replaces the current personal todo list on import", async () => {
+  it('replaces the current personal todo list on import', async () => {
     const { mocks, service } = createService();
 
     const result = await service.importPersonalTodos(
       {
         personalTodos: [
           {
-            title: "First",
-            notes: "",
-            dueDate: "2026-04-20",
-            status: "todo",
+            title: 'First',
+            notes: '',
+            dueDate: '2026-04-20',
+            status: 'todo',
           },
           {
-            title: "Second",
-            notes: "Done already",
+            title: 'Second',
+            notes: 'Done already',
             dueDate: null,
-            status: "done",
+            status: 'done',
           },
         ],
       },
@@ -154,23 +178,35 @@ describe("PersonalTodosService", () => {
     expect(mocks.deleteManyMock).toHaveBeenCalledWith({
       where: { userId: actor.id },
     });
-    expect(mocks.createManyMock).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          title: "First",
-          userId: actor.id,
-          sortOrder: 0,
-          status: "todo",
-        }),
-        expect.objectContaining({
-          title: "Second",
-          userId: actor.id,
-          sortOrder: 1,
-          status: "done",
-          completedAt: expect.any(Date),
-        }),
-      ],
+    const firstCreateManyCall = mocks.createManyMock.mock.calls.at(0) as
+      | [Prisma.PersonalTodoCreateManyArgs]
+      | undefined;
+
+    if (!firstCreateManyCall) {
+      throw new Error(
+        'Expected importPersonalTodos to issue a createMany call',
+      );
+    }
+
+    const [createManyCall] = firstCreateManyCall;
+
+    const createManyData =
+      createManyCall.data as Prisma.PersonalTodoCreateManyInput[];
+
+    expect(createManyData).toHaveLength(2);
+    expect(createManyData[0]).toMatchObject({
+      title: 'First',
+      userId: actor.id,
+      sortOrder: 0,
+      status: 'todo',
     });
+    expect(createManyData[1]).toMatchObject({
+      title: 'Second',
+      userId: actor.id,
+      sortOrder: 1,
+      status: 'done',
+    });
+    expect(createManyData[1]?.completedAt).toBeInstanceOf(Date);
     expect(result).toEqual({ importedCount: 2 });
   });
 });

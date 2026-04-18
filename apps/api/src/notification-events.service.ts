@@ -33,7 +33,10 @@ export class NotificationEventsService {
     const taskAssigneeUserIds =
       input.previousProject === undefined || input.previousProject === null
         ? []
-        : await this.readProjectTaskAssigneeUserIds(input.nextProject.id, prisma);
+        : await this.readProjectTaskAssigneeUserIds(
+            input.nextProject.id,
+            prisma,
+          );
     const userDisplayNames = await this.readUserDisplayNames(
       [
         input.nextProject.ownerUserId,
@@ -140,7 +143,9 @@ export class NotificationEventsService {
     userIds: Array<string | null>,
     prisma: NotificationWriteClient,
   ) {
-    const uniqueUserIds = [...new Set(userIds.filter((userId): userId is string => Boolean(userId)))];
+    const uniqueUserIds = [
+      ...new Set(userIds.filter((userId): userId is string => Boolean(userId))),
+    ];
 
     if (uniqueUserIds.length === 0) {
       return {};

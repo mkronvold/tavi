@@ -343,9 +343,7 @@ function toDateOrNull(value: string | null) {
   return value ? new Date(value) : null;
 }
 
-function toJsonValue(
-  value: unknown,
-): Prisma.InputJsonValue {
+function toJsonValue(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
@@ -464,10 +462,16 @@ export class BackupsService {
       throw error;
     }
 
-    await this.authService.recordAudit(actor, 'auth', actor.id, 'backup_created', {
-      fileName,
-      trigger: 'manual',
-    });
+    await this.authService.recordAudit(
+      actor,
+      'auth',
+      actor.id,
+      'backup_created',
+      {
+        fileName,
+        trigger: 'manual',
+      },
+    );
 
     return this.getBackupStatus();
   }
@@ -604,31 +608,33 @@ export class BackupsService {
       }
     }
 
-    const users: BackupRestoreUserPreview[] = snapshot.data.users.map((user) => {
-      const idMatch = currentUsersById.get(user.id);
-      const emailMatch = currentUsersByEmail.get(user.email);
-      const match = emailMatch ?? idMatch ?? null;
-      const kind: BackupRestoreUserPreview['conflict']['kind'] =
-        emailMatch && emailMatch.id !== user.id
-          ? 'email'
-          : idMatch
-            ? 'id'
-            : 'none';
-      const roleAssignment = snapshotRolesByUserId.get(user.id);
+    const users: BackupRestoreUserPreview[] = snapshot.data.users.map(
+      (user) => {
+        const idMatch = currentUsersById.get(user.id);
+        const emailMatch = currentUsersByEmail.get(user.email);
+        const match = emailMatch ?? idMatch ?? null;
+        const kind: BackupRestoreUserPreview['conflict']['kind'] =
+          emailMatch && emailMatch.id !== user.id
+            ? 'email'
+            : idMatch
+              ? 'id'
+              : 'none';
+        const roleAssignment = snapshotRolesByUserId.get(user.id);
 
-      return {
-        backupId: user.id,
-        conflict: {
-          existingEmail: match?.email ?? null,
-          existingId: match?.id ?? null,
-          kind,
-          matchedBy: kind === 'none' ? null : kind,
-        },
-        email: user.email,
-        name: user.name,
-        role: roleAssignment?.role ?? Role.viewer,
-      };
-    });
+        return {
+          backupId: user.id,
+          conflict: {
+            existingEmail: match?.email ?? null,
+            existingId: match?.id ?? null,
+            kind,
+            matchedBy: kind === 'none' ? null : kind,
+          },
+          email: user.email,
+          name: user.name,
+          role: roleAssignment?.role ?? Role.viewer,
+        };
+      },
+    );
 
     const projects: BackupRestoreProjectPreview[] = snapshot.data.projects.map(
       (project) => {
@@ -641,11 +647,8 @@ export class BackupsService {
           ? currentProjectsBySource.get(sourceKey)
           : null;
         const match = sourceMatch ?? idMatch ?? null;
-        const kind: BackupRestoreProjectPreview['conflict']['kind'] = sourceMatch
-          ? 'source_identity'
-          : idMatch
-            ? 'id'
-            : 'none';
+        const kind: BackupRestoreProjectPreview['conflict']['kind'] =
+          sourceMatch ? 'source_identity' : idMatch ? 'id' : 'none';
         const tasks = tasksByProjectId.get(project.id) ?? [];
         const missingOwner =
           project.ownerUserId !== null
@@ -898,8 +901,7 @@ export class BackupsService {
             rowOutcome: row.rowOutcome as ImportRowOutcome,
             taskId: row.taskId,
             taskOutcome: row.taskOutcome as ImportRowOutcome,
-            taskOverlapAction:
-              row.taskOverlapAction as ImportOverlapAction,
+            taskOverlapAction: row.taskOverlapAction as ImportOverlapAction,
             updatedAt: new Date(row.updatedAt),
             validationErrors:
               row.validationErrors === null
@@ -1448,10 +1450,7 @@ export class BackupsService {
     }
   }
 
-  private async writeSnapshotFile(
-    fileName: string,
-    snapshot: BackupSnapshot,
-  ) {
+  private async writeSnapshotFile(fileName: string, snapshot: BackupSnapshot) {
     const directory = await resolveBackupDirectory();
 
     const tempPath = path.join(directory, `${fileName}.tmp-${process.pid}`);
@@ -1534,10 +1533,12 @@ export class BackupsService {
               enabled: backupSettings.enabled,
               id: backupSettings.id,
               lastError: backupSettings.lastError,
-              lastFailureAt: backupSettings.lastFailureAt?.toISOString() ?? null,
+              lastFailureAt:
+                backupSettings.lastFailureAt?.toISOString() ?? null,
               lastScheduledRunAt:
                 backupSettings.lastScheduledRunAt?.toISOString() ?? null,
-              lastSuccessAt: backupSettings.lastSuccessAt?.toISOString() ?? null,
+              lastSuccessAt:
+                backupSettings.lastSuccessAt?.toISOString() ?? null,
               scheduleTime: backupSettings.scheduleTime,
               updatedAt: backupSettings.updatedAt.toISOString(),
             }

@@ -157,8 +157,7 @@ export const buildWorkspaceResetExamples = (
       title: 'Loop migration cleanup',
       notes:
         'A completed example project for the default workspace view.\n\nSummary: Finish the post-migration cleanup tasks after the import rollout.',
-      references:
-        'https://tracker.example.com/projects/loop-migration-cleanup',
+      references: 'https://tracker.example.com/projects/loop-migration-cleanup',
       ownerUserId: participantAt(0).id,
       dueDate: buildDueDate(baseDate, 1),
       priority: 'low',

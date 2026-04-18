@@ -2244,8 +2244,15 @@ describe("App", () => {
     const workspacePayload = createWorkspacePayload() as WorkspaceResponse & {
       personalTodos?: WorkspaceResponse["personalTodos"];
     };
-    const { personalTodos: _personalTodos, ...legacyWorkspacePayload } =
-      workspacePayload;
+    const legacyWorkspacePayload = (({
+      personalTodos,
+      ...legacyPayload
+    }: WorkspaceResponse & {
+      personalTodos?: WorkspaceResponse["personalTodos"];
+    }) => {
+      void personalTodos;
+      return legacyPayload;
+    })(workspacePayload);
 
     vi.stubGlobal(
       "fetch",
