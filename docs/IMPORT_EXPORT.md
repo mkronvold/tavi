@@ -1,6 +1,6 @@
 # Import and Export Guide
 
-The `Import/Export` panel combines filtered workspace exports for all signed-in users with admin-only CSV import and workspace reset controls.
+The `Import/Export` panel combines filtered workspace exports for all signed-in users with admin-only CSV import plus clear/reset controls for workspace projects and tasks.
 
 ## Open the panel
 
@@ -14,7 +14,7 @@ The `Import/Export` panel combines filtered workspace exports for all signed-in 
 | --- | --- |
 | CSV, XLSX, JSON, and Loop exports | Any signed-in user |
 | CSV import staging and commit | Admin only |
-| Reset all Projects/Tasks | Admin only |
+| Clear all Projects/Tasks / Reset to example Projects/Tasks | Admin only |
 
 ## Export the current workspace
 
@@ -80,17 +80,25 @@ Important rules:
 2. Removing an active import also removes its tracked history, even if worker cleanup is still in flight.
 3. Removing a staged import clears its staged rows the same way the old cancel flow did.
 
-## Reset all Projects/Tasks
+## Clear or reset Projects/Tasks
 
-`Reset all Projects/Tasks` is destructive for workspace data.
+Both workspace actions are destructive for project/task data and require the current admin password.
+
+### Clear all Projects/Tasks
+
+What it does:
+
+1. Deletes current projects and tasks.
+2. Does not seed example projects.
+3. Keeps local accounts, saved views, and import history.
+
+### Reset to example Projects/Tasks
 
 What it does:
 
 1. Deletes current projects and tasks.
 2. Seeds a compact example workspace.
 3. Keeps local accounts, saved views, and import history.
-
-To continue, the current admin must re-enter the current password.
 
 ## Loop checklist reference
 

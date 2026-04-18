@@ -129,26 +129,31 @@ export class WorkspaceService {
     this.authService.requireAdminAccess(actor);
     await this.authService.reauthenticateCurrentUser(actor.id, input.password);
 
-    const users = await this.prisma.user.findMany({
-      orderBy: [{ name: 'asc' }, { email: 'asc' }],
-      select: {
-        id: true,
-        email: true,
-        name: true,
-      },
-    });
+    const shouldSeedExamples = input.seedExamples !== false;
+    let exampleProjects = [] as ReturnType<typeof buildWorkspaceResetExamples>;
 
-    const participants =
-      users.length > 0
-        ? users
-        : [
-            {
-              id: actor.id,
-              email: actor.email,
-              name: actor.name,
-            },
-          ];
-    const exampleProjects = buildWorkspaceResetExamples(participants);
+    if (shouldSeedExamples) {
+      const users = await this.prisma.user.findMany({
+        orderBy: [{ name: 'asc' }, { email: 'asc' }],
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      });
+      const participants =
+        users.length > 0
+          ? users
+          : [
+              {
+                id: actor.id,
+                email: actor.email,
+                name: actor.name,
+              },
+            ];
+
+      exampleProjects = buildWorkspaceResetExamples(participants);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const [deletedProjectCount, deletedTaskCount] = await Promise.all([
@@ -199,8 +204,11 @@ export class WorkspaceService {
         actor,
         'auth',
         actor.id,
-        'workspace_reset_examples',
+        shouldSeedExamples
+          ? 'workspace_reset_examples'
+          : 'workspace_clear_projects_tasks',
         {
+          seedExamples: shouldSeedExamples,
           createdProjectCount: exampleProjects.length,
           createdTaskCount,
           deletedProjectCount,

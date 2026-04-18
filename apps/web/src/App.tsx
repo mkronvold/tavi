@@ -2618,7 +2618,19 @@ function WorkspaceScreen({
 
       {groupedProjects.map((group) => (
         <section className="group-card" key={group.key}>
-          <header className="group-header">
+          <header
+            className="group-header"
+            onClick={(event) => {
+              if (!shouldToggleProjectFromRowClick(event)) {
+                return;
+              }
+
+              setCollapsedGroups((current) => ({
+                ...current,
+                [group.key]: !current[group.key],
+              }));
+            }}
+          >
             <button
               type="button"
               className="group-toggle"

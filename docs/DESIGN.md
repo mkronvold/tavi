@@ -169,11 +169,13 @@ Rollup details shown in the UI should include:
 2. User exports the current filtered workspace view as CSV, XLSX, or JSON, or selects the Loop export shape.
 3. Export respects the viewer's current access and filter state.
 
-### 7.4 Reset Workspace Examples
+### 7.4 Clear or Reset Workspace Projects/Tasks
 
-1. Admin opens the Import/Export panel and starts Reset all Projects/Tasks.
+1. Admin opens the Import/Export panel and starts either Clear all Projects/Tasks or Reset to example Projects/Tasks.
 2. Tavi requires the admin to re-enter the current local password before continuing.
-3. System deletes the current project/task workspace data and seeds a small example workspace without touching local accounts, saved views, or import history.
+3. System deletes the current project/task workspace data.
+4. If the admin chose Reset to example Projects/Tasks, Tavi then seeds a small example workspace.
+5. Local accounts, saved views, and import history remain unchanged.
 
 ### 7.5 Daily Review / Standup
 
@@ -277,7 +279,7 @@ Rollup details shown in the UI should include:
 - Rows with a blank mapped checklist/task-title value must stay valid project-only rows, even when shared task mappings such as status or priority are present.
 - Missing imported assignees must be surfaced before commit, with an admin path to create local viewer accounts and generated passwords when email data is present.
 - The Import/Export panel must also provide CSV, XLSX, and JSON exports of the current filtered workspace view plus a Loop-oriented export shape.
-- The Import/Export panel must provide an admin-only Reset all Projects/Tasks action that requires current-password confirmation and reseeds a small example workspace.
+- The Import/Export panel must provide admin-only clear-only and reset-to-example workspace actions that require current-password confirmation.
 - Export must be available to all authenticated users for the data they can see.
 
 ### FR-11 Audit History

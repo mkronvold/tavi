@@ -710,7 +710,7 @@ describe("ImportPanel", () => {
     });
   });
 
-  it("requires password confirmation before resetting projects and tasks", async () => {
+  it("requires password confirmation before clearing projects and tasks", async () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -733,6 +733,65 @@ describe("ImportPanel", () => {
           expect(typeof init.body).toBe("string");
           expect(JSON.parse(init.body as string)).toEqual({
             password: "current-password-123",
+            seedExamples: false,
+          });
+
+          return createResponse({
+            createdProjectCount: 0,
+            createdTaskCount: 0,
+            deletedProjectCount: 2,
+            deletedTaskCount: 5,
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+    const { onNotice } = renderImportPanel(queryClient);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Clear all Projects/Tasks",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Current password"), {
+      target: { value: "current-password-123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm clear" }));
+
+    await waitFor(() => {
+      expect(onNotice).toHaveBeenCalledWith(
+        "Cleared workspace data: removed 2 projects and 5 tasks.",
+      );
+    });
+  });
+
+  it("requires password confirmation before resetting to example projects and tasks", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/imports") && (!init || init.method === undefined)) {
+          return createResponse([]);
+        }
+
+        if (
+          url.endsWith("/workspace/reset-examples") &&
+          init?.method === "POST"
+        ) {
+          expect(typeof init.body).toBe("string");
+          expect(JSON.parse(init.body as string)).toEqual({
+            password: "current-password-123",
+            seedExamples: true,
           });
 
           return createResponse({
@@ -750,11 +809,11 @@ describe("ImportPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { onNotice } = renderImportPanel(queryClient);
 
-    const [resetButton] = await screen.findAllByRole("button", {
-      name: "Reset all Projects/Tasks",
-    });
-
-    fireEvent.click(resetButton);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Reset to example Projects/Tasks",
+      }),
+    );
     fireEvent.change(screen.getByLabelText("Current password"), {
       target: { value: "current-password-123" },
     });

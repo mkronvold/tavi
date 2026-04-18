@@ -17,7 +17,7 @@ Use this folder as the main entry point for product usage, local setup, and Kube
 | [`WORKSPACE.md`](./WORKSPACE.md) | Search, grouping, project rollups, task editing, private Personal ToDo use, task moves, and bulk task actions |
 | [`VIEWS.md`](./VIEWS.md) | Saving, updating, renaming, deleting, and auditing personal saved views |
 | [`NEW_PROJECT.md`](./NEW_PROJECT.md) | Creating a project from the workspace panel |
-| [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) | Admin-only CSV import, filtered exports, import review, overlap decisions, and reset |
+| [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) | Admin-only CSV import, filtered exports, import review, overlap decisions, and workspace clear/reset actions |
 | [`BACKUPS.md`](./BACKUPS.md) | Automatic backups, backup-now, upload to storage, download, delete, and full or selective restore |
 | [`NOTIFICATIONS.md`](./NOTIFICATIONS.md) | Immediate update emails, daily digest behavior, personal to-do due reminders, recipients, and admin email controls |
 | [`SETTINGS.md`](./SETTINGS.md) | Browser-local preferences, account settings, admin controls, and settings-launched panels |

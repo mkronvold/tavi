@@ -227,6 +227,7 @@ describe('WorkspaceService', () => {
       adminUser.id,
       'workspace_reset_examples',
       {
+        seedExamples: true,
         createdProjectCount: 4,
         createdTaskCount: 11,
         deletedProjectCount: 2,
@@ -239,6 +240,50 @@ describe('WorkspaceService', () => {
       createdTaskCount: 11,
       deletedProjectCount: 2,
       deletedTaskCount: 5,
+    });
+  });
+
+  it('clears project and task data without seeding examples when requested', async () => {
+    const adminUser: SessionUser = {
+      id: 'user-admin',
+      email: 'admin@tavi.local',
+      name: 'Tavi Admin',
+      role: 'admin',
+    };
+    const { mocks, service } = createService();
+
+    mocks.countProjectsMock.mockResolvedValue(3);
+    mocks.countTasksMock.mockResolvedValue(7);
+    mocks.deleteProjectsMock.mockResolvedValue({ count: 3 });
+
+    const result = await service.resetWorkspaceExamples(
+      { password: 'current-password-123', seedExamples: false },
+      adminUser,
+    );
+
+    expect(mocks.findUsersMock).not.toHaveBeenCalled();
+    expect(mocks.createProjectMock).not.toHaveBeenCalled();
+    expect(mocks.createTaskMock).not.toHaveBeenCalled();
+    expect(mocks.recalculateProjectMock).not.toHaveBeenCalled();
+    expect(mocks.recordAuditMock).toHaveBeenCalledWith(
+      adminUser,
+      'auth',
+      adminUser.id,
+      'workspace_clear_projects_tasks',
+      {
+        seedExamples: false,
+        createdProjectCount: 0,
+        createdTaskCount: 0,
+        deletedProjectCount: 3,
+        deletedTaskCount: 7,
+      },
+      expect.any(Object),
+    );
+    expect(result).toEqual({
+      createdProjectCount: 0,
+      createdTaskCount: 0,
+      deletedProjectCount: 3,
+      deletedTaskCount: 7,
     });
   });
 });

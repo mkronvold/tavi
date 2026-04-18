@@ -38,8 +38,9 @@ All backups now go through storage first.
    - `Projects and tasks only`
    - `Users only`
 4. For selective restore, choose the projects or users to include.
-5. Resolve any conflicts by choosing `Skip` or `Replace existing`.
-6. Confirm the restore.
+5. For `Projects and tasks only`, you can also clear the current project/task workspace first without reseeding example projects.
+6. Resolve any conflicts by choosing `Skip` or `Replace existing`.
+7. Confirm the restore.
 
 ## Restore scope behavior
 

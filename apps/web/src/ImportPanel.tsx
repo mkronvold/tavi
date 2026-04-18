@@ -37,6 +37,8 @@ type CreatedImportAccountCredential = {
   password: string;
 };
 
+type ResetWorkspaceMode = "clear" | "examples";
+
 const POLLING_STATUSES: LoopImportJobStatus[] = [
   "queued_parse",
   "parsing",
@@ -64,7 +66,7 @@ export function ImportPanel({
   const [createdImportAccounts, setCreatedImportAccounts] = useState<
     CreatedImportAccountCredential[]
   >([]);
-  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
+  const [resetMode, setResetMode] = useState<ResetWorkspaceMode | null>(null);
   const [resetPassword, setResetPassword] = useState("");
 
   const importsQuery = useQuery({
@@ -273,30 +275,48 @@ export function ImportPanel({
     },
   });
   const resetWorkspaceMutation = useMutation({
-    mutationFn: (password: string) => resetWorkspaceExamples({ password }),
-    onSuccess: async (summary) => {
+    mutationFn: ({
+      password,
+      seedExamples,
+    }: {
+      password: string;
+      seedExamples: boolean;
+    }) => resetWorkspaceExamples({ password, seedExamples }),
+    onSuccess: async (summary, variables) => {
       setPanelError(null);
       setResetPassword("");
-      setResetConfirmationOpen(false);
+      setResetMode(null);
       await queryClient.invalidateQueries({ queryKey: ["workspace"] });
+      if (variables.seedExamples) {
+        onNotice(
+          `Reset workspace data: removed ${formatRecordCount(
+            summary.deletedProjectCount,
+            "project",
+          )} and ${formatRecordCount(
+            summary.deletedTaskCount,
+            "task",
+          )}, then seeded ${formatRecordCount(
+            summary.createdProjectCount,
+            "example project",
+          )} and ${formatRecordCount(summary.createdTaskCount, "task")}.`,
+        );
+        return;
+      }
+
       onNotice(
-        `Reset workspace data: removed ${formatRecordCount(
+        `Cleared workspace data: removed ${formatRecordCount(
           summary.deletedProjectCount,
           "project",
-        )} and ${formatRecordCount(
-          summary.deletedTaskCount,
-          "task",
-        )}, then seeded ${formatRecordCount(
-          summary.createdProjectCount,
-          "example project",
-        )} and ${formatRecordCount(summary.createdTaskCount, "task")}.`,
+        )} and ${formatRecordCount(summary.deletedTaskCount, "task")}.`,
       );
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       setPanelError(
         error instanceof ApiError
           ? error.message
-          : "Unable to reset projects and tasks",
+          : variables.seedExamples
+            ? "Unable to reset projects and tasks"
+            : "Unable to clear projects and tasks",
       );
     },
   });
@@ -305,6 +325,11 @@ export function ImportPanel({
   const selectedImport = selectedImportQuery.data ?? null;
   const hasRecentImports = recentImports.length > 0;
   const showEmptyState = importsQuery.isSuccess && !hasRecentImports;
+  const resetConfirmationOpen = resetMode !== null;
+  const resetActionSummary =
+    resetMode === "clear"
+      ? "Delete the current project/task workspace data without seeding example projects."
+      : "Delete the current project/task workspace data and seed the example projects/tasks.";
   const importsErrorMessage = importsQuery.isError
     ? formatQueryError(importsQuery.error, "Unable to load recent imports")
     : null;
@@ -469,11 +494,11 @@ export function ImportPanel({
       <div className="import-subsection import-reset-section">
         <div className="bulk-action-header">
           <div>
-            <strong>Reset all Projects/Tasks</strong>
+            <strong>Projects/Tasks workspace reset</strong>
             <span>
-              Delete the current project/task workspace data and seed example
-              projects. Local accounts, saved views, and import history stay in
-              place.
+              Delete the current project/task workspace data only, or reseed the
+              example projects/tasks. Local accounts, saved views, and import
+              history stay in place.
             </span>
           </div>
           {!resetConfirmationOpen ? (
@@ -484,10 +509,23 @@ export function ImportPanel({
                 disabled={resetWorkspaceMutation.isPending}
                 onClick={() => {
                   setPanelError(null);
-                  setResetConfirmationOpen(true);
+                  setResetPassword("");
+                  setResetMode("clear");
                 }}
               >
-                Reset all Projects/Tasks
+                Clear all Projects/Tasks
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={resetWorkspaceMutation.isPending}
+                onClick={() => {
+                  setPanelError(null);
+                  setResetPassword("");
+                  setResetMode("examples");
+                }}
+              >
+                Reset to example Projects/Tasks
               </button>
             </div>
           ) : null}
@@ -496,7 +534,8 @@ export function ImportPanel({
         {resetConfirmationOpen ? (
           <div className="import-reset-confirmation">
             <p className="toolbar-hint">
-              Confirm with your current admin password to continue.
+              {resetActionSummary} Confirm with your current admin password to
+              continue.
             </p>
             <label>
               Current password
@@ -517,7 +556,7 @@ export function ImportPanel({
                 onClick={() => {
                   setPanelError(null);
                   setResetPassword("");
-                  setResetConfirmationOpen(false);
+                  setResetMode(null);
                 }}
               >
                 Cancel
@@ -530,12 +569,23 @@ export function ImportPanel({
                   resetWorkspaceMutation.isPending
                 }
                 onClick={() => {
-                  resetWorkspaceMutation.mutate(resetPassword);
+                  if (!resetMode) {
+                    return;
+                  }
+
+                  resetWorkspaceMutation.mutate({
+                    password: resetPassword,
+                    seedExamples: resetMode === "examples",
+                  });
                 }}
               >
                 {resetWorkspaceMutation.isPending
-                  ? "Resetting..."
-                  : "Confirm reset"}
+                  ? resetMode === "clear"
+                    ? "Clearing..."
+                    : "Resetting..."
+                  : resetMode === "clear"
+                    ? "Confirm clear"
+                    : "Confirm reset"}
               </button>
             </div>
           </div>

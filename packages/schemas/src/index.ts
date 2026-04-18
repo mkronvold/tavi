@@ -358,6 +358,7 @@ export type SuccessResponse = z.infer<typeof successResponseSchema>;
 
 export const resetWorkspaceExamplesSchema = z.object({
   password: localPasswordSchema,
+  seedExamples: z.boolean().optional(),
 });
 export type ResetWorkspaceExamplesInput = z.infer<
   typeof resetWorkspaceExamplesSchema

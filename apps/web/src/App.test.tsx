@@ -429,12 +429,10 @@ describe("App", () => {
 
     expect(groupCard).not.toBeNull();
 
-    const toggleButton = groupCard?.querySelector(
-      ".group-header .group-toggle",
-    );
+    const groupHeader = groupCard?.querySelector(".group-header");
 
-    expect(toggleButton).toBeTruthy();
-    fireEvent.click(toggleButton!);
+    expect(groupHeader).toBeTruthy();
+    fireEvent.click(groupHeader!);
 
     return groupCard!;
   };
@@ -1438,6 +1436,39 @@ describe("App", () => {
       expect(
         within(projectCard!).queryByText("Kickoff"),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  it("toggles top-level group expansion when clicking the group header", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const groupCard = screen
+      .getByRole("heading", { name: "Tavi Editor" })
+      .closest("section");
+    const groupHeader = groupCard?.querySelector(".group-header");
+
+    expect(groupCard).not.toBeNull();
+    expect(groupHeader).not.toBeNull();
+
+    fireEvent.click(groupHeader!);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Roadmap refresh")).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(groupHeader!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
   });
 

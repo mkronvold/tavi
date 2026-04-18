@@ -8,6 +8,7 @@ import {
   downloadBackupFile,
   getBackupStatus,
   previewBackupRestore,
+  resetWorkspaceExamples,
   updateBackupSettings,
   uploadBackupFile,
 } from "./api";
@@ -68,6 +69,8 @@ export function BackupSettingsCard({
   const [downloadingFileName, setDownloadingFileName] = useState<string | null>(
     null,
   );
+  const [clearConfirmationOpen, setClearConfirmationOpen] = useState(false);
+  const [clearPassword, setClearPassword] = useState("");
 
   const backupStatusQuery = useQuery({
     queryFn: getBackupStatus,
@@ -101,6 +104,8 @@ export function BackupSettingsCard({
     setSelectedUserIds({});
     setProjectConflictActions({});
     setUserConflictActions({});
+    setClearConfirmationOpen(false);
+    setClearPassword("");
   };
 
   const applyBackupStatus = (status: BackupStatus) => {
@@ -290,6 +295,26 @@ export function BackupSettingsCard({
       );
     },
   });
+  const clearWorkspaceMutation = useMutation({
+    mutationFn: (password: string) =>
+      resetWorkspaceExamples({ password, seedExamples: false }),
+    onSuccess: async (summary) => {
+      setRestoreError(null);
+      setClearPassword("");
+      setClearConfirmationOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["workspace"] });
+      onNotice(
+        `Cleared workspace data: removed ${summary.deletedProjectCount.toString()} ${summary.deletedProjectCount === 1 ? "project" : "projects"} and ${summary.deletedTaskCount.toString()} ${summary.deletedTaskCount === 1 ? "task" : "tasks"}.`,
+      );
+    },
+    onError: (error) => {
+      setRestoreError(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to clear projects and tasks.",
+      );
+    },
+  });
 
   const backupStatus = backupStatusQuery.data;
   const automaticBackupsEnabled = backupStatus?.enabled ?? false;
@@ -426,6 +451,21 @@ export function BackupSettingsCard({
     }
 
     deleteBackupMutation.mutate(fileName);
+  };
+
+  const openClearConfirmation = () => {
+    setRestoreError(null);
+    setClearConfirmationOpen(true);
+  };
+
+  const closeClearConfirmation = () => {
+    if (clearWorkspaceMutation.isPending) {
+      return;
+    }
+
+    setRestoreError(null);
+    setClearPassword("");
+    setClearConfirmationOpen(false);
   };
 
   const renderAsPanel = variant === "panel";
@@ -741,11 +781,15 @@ export function BackupSettingsCard({
                       </button>
                     </div>
                   </div>
-                  <div className="backup-selection-list">
+                  <div className="backup-selection-list backup-selection-list--projects">
                     {preview.projects.map((project) => (
-                      <div key={project.backupId} className="backup-selection-row">
-                        <label className="backup-selection-main">
+                      <div
+                        key={project.backupId}
+                        className="backup-selection-row backup-selection-row--project"
+                      >
+                        <label className="backup-selection-main backup-selection-main--project">
                           <input
+                            className="backup-selection-checkbox"
                             checked={selectedProjectIds[project.backupId] ?? false}
                             onChange={(event) =>
                               setSelectedProjectIds((current) => ({
@@ -755,20 +799,22 @@ export function BackupSettingsCard({
                             }
                             type="checkbox"
                           />
-                          <span>
+                          <span className="backup-selection-copy">
                             <strong>{project.title}</strong>
-                            <span>{`${project.taskCount} tasks`}</span>
-                            {project.ownerName ? (
-                              <span>{`Owner: ${project.ownerName}`}</span>
-                            ) : null}
-                            {project.missingOwner ? (
-                              <span>
-                                Owner will be cleared if that user is missing.
-                              </span>
-                            ) : null}
-                            {project.missingAssigneeCount > 0 ? (
-                              <span>{`${project.missingAssigneeCount} assignees will be cleared unless matching users already exist.`}</span>
-                            ) : null}
+                            <span className="backup-selection-meta">
+                              <span>{`${project.taskCount} tasks`}</span>
+                              {project.ownerName ? (
+                                <span>{`Owner: ${project.ownerName}`}</span>
+                              ) : null}
+                              {project.missingOwner ? (
+                                <span>
+                                  Owner will be cleared if that user is missing.
+                                </span>
+                              ) : null}
+                              {project.missingAssigneeCount > 0 ? (
+                                <span>{`${project.missingAssigneeCount} assignees will be cleared unless matching users already exist.`}</span>
+                              ) : null}
+                            </span>
                           </span>
                         </label>
                         {project.conflict.kind !== "none" ? (
@@ -798,6 +844,76 @@ export function BackupSettingsCard({
                         ) : null}
                       </div>
                     ))}
+                  </div>
+                  <div className="backup-clear-section">
+                    <div className="bulk-action-header">
+                      <div>
+                        <strong>Clear all existing projects/tasks</strong>
+                        <span>
+                          Delete the current project/task workspace data without
+                          seeding example projects, then apply the selected
+                          restore.
+                        </span>
+                      </div>
+                      {!clearConfirmationOpen ? (
+                        <div className="settings-actions">
+                          <button
+                            type="button"
+                            className="danger-button"
+                            disabled={clearWorkspaceMutation.isPending}
+                            onClick={openClearConfirmation}
+                          >
+                            Clear all existing projects/tasks
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {clearConfirmationOpen ? (
+                      <div className="import-reset-confirmation">
+                        <p className="toolbar-hint">
+                          Confirm with your current admin password to clear the
+                          current project/task workspace before restoring from
+                          this backup.
+                        </p>
+                        <label>
+                          Current password
+                          <input
+                            type="password"
+                            value={clearPassword}
+                            onChange={(event) => {
+                              setRestoreError(null);
+                              setClearPassword(event.target.value);
+                            }}
+                          />
+                        </label>
+                        <div className="settings-actions">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            disabled={clearWorkspaceMutation.isPending}
+                            onClick={closeClearConfirmation}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            disabled={
+                              clearPassword.trim().length < 8 ||
+                              clearWorkspaceMutation.isPending
+                            }
+                            onClick={() =>
+                              clearWorkspaceMutation.mutate(clearPassword)
+                            }
+                          >
+                            {clearWorkspaceMutation.isPending
+                              ? "Clearing..."
+                              : "Confirm clear"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
