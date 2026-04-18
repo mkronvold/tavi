@@ -112,13 +112,9 @@ All three are reset to `password123`. Other local accounts stay in place.
 
 ## Initial production bootstrap
 
-Fresh non-dev deployments do not automatically create local accounts. To bootstrap only the first local admin without adding demo users, run the admin-only seed path with your own password:
+Fresh non-dev deployments do not create the demo users. Instead, in local-auth mode, the API auto-creates only `admin@tavi.local` on first startup when there are no users yet, generates a random 10-character alphanumeric password, and writes that initial password to the API logs.
 
-```bash
-./scripts/seed.sh --password 'change-me-now'
-```
-
-The script runs `prisma migrate deploy` first, so the required Prisma-managed tables are created automatically on an empty database. It then creates or overwrites only `admin@tavi.local` and its `admin` role assignment. It does not create `editor@tavi.local`, `viewer@tavi.local`, projects, tasks, or example workspace data.
+This bootstrap path does not create `editor@tavi.local`, `viewer@tavi.local`, projects, tasks, or example workspace data.
 
 ## Import-created users from CSV import
 

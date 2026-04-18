@@ -15,6 +15,7 @@ import { ImportsService } from './imports.service';
 import { NotificationEventsService } from './notification-events.service';
 import { LocalAccountsController } from './local-accounts.controller';
 import { LocalAccountsService } from './local-accounts.service';
+import { LocalAuthBootstrapService } from './local-auth-bootstrap.service';
 import { PersonalTodosController } from './personal-todos.controller';
 import { PersonalTodosService } from './personal-todos.service';
 import { PrismaService } from './prisma.service';
@@ -54,6 +55,7 @@ import { WorkspaceService } from './workspace.service';
     PrismaService,
     ImportsService,
     LocalAccountsService,
+    LocalAuthBootstrapService,
     NotificationEventsService,
     PersonalTodosService,
     ProjectsService,

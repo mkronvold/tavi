@@ -1,6 +1,6 @@
 {
   "name": "@tavi/api",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Tavi API",
   "author": "mkronvold",
   "private": true,
@@ -12,7 +12,6 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
-    "prisma:seed:admin": "tsx prisma/seed-admin.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "start": "node dist/main",
     "test": "jest --runInBand",

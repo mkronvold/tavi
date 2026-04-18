@@ -42,20 +42,9 @@ Each variant README follows the same pattern:
 2. Create real secrets from that folder's `secret.example.yaml`.
 3. Review that folder's `backup-pvc.yaml`. The API and worker share the backup volume, so the storage class must support `ReadWriteMany`.
 4. Apply the manifests from that folder only.
-5. If you are using local auth on a fresh database, bootstrap the first admin after the rollout by running `pnpm --filter @tavi/api prisma:seed:admin` with `TAVI_INITIAL_ADMIN_PASSWORD` set, or use the repo helper `./scripts/seed.sh --password '<password>'` from a checkout that already has `DATABASE_URL` pointed at the target database.
-6. Verify the rollout for the app deployments and, if present, the database workload.
+5. Verify the rollout for the app deployments and, if present, the database workload.
 
-`prisma migrate deploy` creates the required Prisma-managed tables automatically on an empty database, so the production admin bootstrap does not need any manual SQL table creation.
-
-Example from the running API pod:
-
-```bash
-kubectl exec -n tavi deployment/tavi-api -- sh -lc '
-  export TAVI_INITIAL_ADMIN_PASSWORD="change-me-now"
-  pnpm --filter @tavi/api prisma:migrate
-  pnpm --filter @tavi/api prisma:seed:admin
-'
-```
+`prisma migrate deploy` creates the required Prisma-managed tables automatically on an empty database, so the production admin bootstrap does not need any manual SQL table creation. In local-auth mode, the API now also auto-creates `admin@tavi.local` on first startup when the `User` table is empty, generates a random 10-character alphanumeric password, and writes that initial password to the API logs.
 
 The web image now defaults to serving built assets through its static server. If you intentionally need `vite preview` for a temporary diagnostic deployment, override the web container args instead of changing the image:
 
