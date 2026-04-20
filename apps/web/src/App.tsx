@@ -566,11 +566,23 @@ function App() {
     return (
       <main className="login-shell">
         <section className="login-card">
-          <header>
-            <span className="brand-mark">{BRAND_MARK}</span>
-            <h1>{appName}</h1>
-            <p>
-              tavi - short for Track And Visualize. We mostly just call it tavi.
+          <header className="login-header">
+            <h1 className="login-brand-lockup">
+              <img
+                alt=""
+                aria-hidden="true"
+                className="brand-logo login-brand-logo"
+                height="44"
+                src="/logo.svg"
+                width="44"
+              />
+              <span className="brand-mark">{BRAND_MARK}</span>
+            </h1>
+            <p className="login-tagline">
+              <span>- short for Track And Visualize.</span>
+              <span className="login-tagline-followup">
+                We mostly just call it tavi.
+              </span>
             </p>
           </header>
 
@@ -3710,7 +3722,7 @@ function WorkspaceScreen({
                                       }
                                       placeholder="New task title"
                                     />
-                                    <input
+                                    <textarea
                                       value={taskDraftValue.notes ?? ""}
                                       onChange={(event) =>
                                         setNewTaskByProject((current) => ({
@@ -3721,7 +3733,22 @@ function WorkspaceScreen({
                                           },
                                         }))
                                       }
+                                      className="resizable-notes task-create-notes"
+                                      onPointerDown={(event) =>
+                                        rememberNoteEditorHeight(
+                                          "task",
+                                          event.currentTarget,
+                                        )
+                                      }
+                                      onPointerUp={(event) =>
+                                        persistNoteEditorHeight(
+                                          "task",
+                                          event.currentTarget,
+                                        )
+                                      }
                                       placeholder="Task notes"
+                                      rows={2}
+                                      style={toTextareaStyle(noteEditorHeights.task)}
                                     />
                                   </div>
                                 </td>
@@ -5804,16 +5831,13 @@ function AdminAuditReportPanel({
                     type="button"
                     className="audit-event-toggle"
                     aria-expanded={isExpanded}
-                    aria-label={`${isExpanded ? "Collapse" : "Expand"} ${notificationLabel} notification flow`}
+                    aria-label={`${notificationLabel} notification flow summary`}
                     onClick={() => toggleEmailEvent(event.id)}
                   >
                     <div className="audit-event-header">
                       <strong>{notificationLabel}</strong>
                       <span>{formatEmailAuditStatusLabel(event.status)}</span>
                       <span>{formatDateTime(event.createdAt)}</span>
-                      <span className="audit-event-toggle-indicator">
-                        {isExpanded ? "Collapse" : "Expand"}
-                      </span>
                     </div>
                     <div className="audit-event-subtitle">
                       <span>{recipientLabel}</span>
@@ -5832,17 +5856,28 @@ function AdminAuditReportPanel({
                       </div>
                     ) : null}
                   </button>
-                  <button
-                    type="button"
-                    className="audit-copy-button"
-                    aria-label={`Copy ${notificationLabel} notification flow`}
-                    title="Copy full notification flow"
-                    onClick={() => {
-                      void handleCopyEmailEvent(event);
-                    }}
-                  >
-                    Copy
-                  </button>
+                  <div className="audit-event-toolbar-actions">
+                    <button
+                      type="button"
+                      className="audit-toolbar-button"
+                      aria-label={`Copy ${notificationLabel} notification flow`}
+                      title="Copy full notification flow"
+                      onClick={() => {
+                        void handleCopyEmailEvent(event);
+                      }}
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      className="audit-toolbar-button"
+                      aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? "Collapse" : "Expand"} ${notificationLabel} notification flow`}
+                      onClick={() => toggleEmailEvent(event.id)}
+                    >
+                      {isExpanded ? "Collapse" : "Expand"}
+                    </button>
+                  </div>
                 </div>
                 {isExpanded ? (
                   <div className="audit-event-details">

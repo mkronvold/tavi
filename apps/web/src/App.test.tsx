@@ -574,6 +574,14 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("Local dev users")).toBeInTheDocument();
     });
+
+    expect(screen.getByRole("heading", { name: "ᴛᴀᴠi" })).toBeInTheDocument();
+    expect(
+      screen.getByText("- short for Track And Visualize."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("We mostly just call it tavi."),
+    ).toBeInTheDocument();
   });
 
   it("hides the login screen hint when the backend says defaults were removed", async () => {
@@ -3746,6 +3754,11 @@ describe("App", () => {
       expect(screen.getByPlaceholderText("New task title")).toBeInTheDocument();
     });
 
+    const notesInput = screen.getByPlaceholderText("Task notes");
+
+    expect(notesInput.tagName).toBe("TEXTAREA");
+    expect(notesInput).toHaveClass("resizable-notes");
+
     expect(
       JSON.parse(localStorage.getItem("tavi.workspace.projectAddTask") ?? "{}"),
     ).toEqual(
@@ -5519,10 +5532,13 @@ describe("App", () => {
       within(panel).queryByText(/Host rejected password reset/i),
     ).not.toBeInTheDocument();
 
+    const summaryButton = within(panel).getByRole("button", {
+      name: "password reset notification flow summary",
+    });
     const toggleButton = within(panel).getByRole("button", {
       name: "Expand password reset notification flow",
     });
-    fireEvent.click(toggleButton);
+    fireEvent.click(summaryButton);
 
     await waitFor(() => {
       expect(
@@ -5818,6 +5834,11 @@ describe("App", () => {
       return element!;
     });
 
+    const summaryButton = await waitFor(() =>
+      within(panel).getByRole("button", {
+        name: "password reset notification flow summary",
+      }),
+    );
     const toggleButton = await waitFor(() =>
       within(panel).getByRole("button", {
         name: "Expand password reset notification flow",
@@ -5859,7 +5880,7 @@ describe("App", () => {
       within(panel).queryByText(/Host rejected password reset/i),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(toggleButton);
+    fireEvent.click(summaryButton);
 
     await waitFor(() => {
       expect(

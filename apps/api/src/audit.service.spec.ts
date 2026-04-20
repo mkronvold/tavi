@@ -223,6 +223,11 @@ describe('AuditService', () => {
         entityType: {
           in: ['project', 'task'],
         },
+        NOT: {
+          action: {
+            startsWith: 'email_',
+          },
+        },
         action: 'update',
         actorUserId: 'user-2',
         createdAt: {
@@ -283,6 +288,11 @@ describe('AuditService', () => {
       where: {
         entityType: {
           in: ['project', 'task'],
+        },
+        NOT: {
+          action: {
+            startsWith: 'email_',
+          },
         },
         createdAt: {
           gte: new Date('2026-02-01T06:00:00.000Z'),

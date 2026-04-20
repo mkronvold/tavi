@@ -66,6 +66,11 @@ export class AuditService {
         entityType: {
           in: ['project', 'task'],
         },
+        NOT: {
+          action: {
+            startsWith: EMAIL_AUDIT_ACTION_PREFIX,
+          },
+        },
         ...(query.action ? { action: query.action } : {}),
         ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
         ...buildCreatedAtFilter(query),

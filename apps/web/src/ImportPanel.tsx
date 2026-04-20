@@ -391,13 +391,14 @@ export function ImportPanel({
 
   return (
     <section className="toolbar-card import-card">
-      <div className="bulk-action-header">
-        <div>
-          <strong>CSV import</strong>
-          <span>
-            Stage CSV exports, review mapping, then commit in the worker.
-          </span>
-        </div>
+        <div className="bulk-action-header">
+          <div>
+            <strong>CSV import</strong>
+            <br />
+            <span>
+              Import from CSV, apply mapping, and commit to database.
+            </span>
+          </div>
         {onClose ? (
           <div className="import-actions">
             <button
@@ -728,13 +729,14 @@ export function ImportPanel({
             ) : null}
           </div>
 
-          <div className="import-subsection">
-            <div className="bulk-action-header">
-              <div>
-                <strong>Preview</strong>
-                <span>
-                  {selectedImport.preview.validRowCount.toString()} valid ·{" "}
-                  {selectedImport.preview.invalidRowCount.toString()} invalid ·{" "}
+            <div className="import-subsection">
+              <div className="bulk-action-header">
+                <div>
+                  <strong>Preview</strong>
+                  <br />
+                  <span>
+                    {selectedImport.preview.validRowCount.toString()} valid ·{" "}
+                    {selectedImport.preview.invalidRowCount.toString()} invalid ·{" "}
                   {selectedImport.preview.warningRowCount.toString()} warnings
                 </span>
               </div>
@@ -1041,6 +1043,7 @@ export function ImportPanel({
               <div className="bulk-action-header">
                 <div>
                   <strong>Commit results</strong>
+                  <br />
                   <span>
                     Projects: {selectedImport.createdProjectCount.toString()}{" "}
                     created / {selectedImport.updatedProjectCount.toString()}{" "}
