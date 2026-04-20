@@ -475,7 +475,7 @@ describe('AuthService', () => {
     await expect(service.getNotificationPreferences('user-1')).resolves.toEqual(
       {
         dailyDigestEnabled: true,
-        dailyDigestTime: '14:30',
+        dailyDigestTime: '14:00',
         personalTodoRetention: 'three_months',
         personalTodoRemindersEnabled: false,
       },
@@ -572,18 +572,18 @@ describe('AuthService', () => {
     });
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: false,
-      dailyDigestTime: '14:30',
+      dailyDigestTime: '14:00',
       personalTodoRetention: 'never',
       personalTodoRemindersEnabled: true,
     });
 
     await expect(
       service.updateNotificationPreferences(actor, {
-        dailyDigestTime: '14:30',
+        dailyDigestTime: '14:00',
       }),
     ).resolves.toEqual({
       dailyDigestEnabled: false,
-      dailyDigestTime: '14:30',
+      dailyDigestTime: '14:00',
       personalTodoRetention: 'never',
       personalTodoRemindersEnabled: true,
     });
@@ -591,7 +591,7 @@ describe('AuthService', () => {
     expect(updateUserMock).toHaveBeenCalledWith({
       where: { id: actor.id },
       data: {
-        dailyDigestTime: '14:30',
+        dailyDigestTime: '14:00',
       },
     });
   });

@@ -2806,7 +2806,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "14:30",
+            dailyDigestTime: "14:00",
           });
         }
 
@@ -2936,7 +2936,7 @@ describe("App", () => {
     });
   });
 
-  it("keeps the daily digest toggle in sync after saving", async () => {
+  it("updates the notification rate between hourly and daily", async () => {
     const workspacePayload = createWorkspacePayload();
     let notificationPreferencesRequestBody: string | null = null;
 
@@ -2958,7 +2958,7 @@ describe("App", () => {
           return createResponse(
             createNotificationPreferencesPayload({
               dailyDigestEnabled: true,
-              dailyDigestTime: "14:30",
+              dailyDigestTime: "14:00",
             }),
           );
         }
@@ -2967,7 +2967,7 @@ describe("App", () => {
           return createResponse(
             createNotificationPreferencesPayload({
               dailyDigestEnabled: false,
-              dailyDigestTime: "14:30",
+              dailyDigestTime: "14:00",
             }),
           );
         }
@@ -2984,30 +2984,34 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
-    const dailyDigestSwitch = screen.getByRole("switch", {
-      name: "Daily Digest",
-    });
+    const notificationRateSelect = screen.getByLabelText("Notification rate");
 
     await waitFor(() => {
-      expect(dailyDigestSwitch).not.toBeDisabled();
+      expect(notificationRateSelect).not.toBeDisabled();
     });
 
-    expect(dailyDigestSwitch).not.toBeChecked();
+    expect(notificationRateSelect).toHaveValue("hourly");
+    expect(
+      screen.queryByLabelText("Daily notification time"),
+    ).not.toBeInTheDocument();
 
-    fireEvent.click(dailyDigestSwitch);
+    fireEvent.change(notificationRateSelect, {
+      target: { value: "daily" },
+    });
 
     await waitFor(() => {
       expect(notificationPreferencesRequestBody).toBe(
         JSON.stringify({ dailyDigestEnabled: true }),
       );
-      expect(dailyDigestSwitch).toBeChecked();
+      expect(notificationRateSelect).toHaveValue("daily");
+      expect(screen.getByLabelText("Daily notification time")).toBeInTheDocument();
     });
   });
 
-  it("saves the daily digest time in UTC while showing browser-local time", async () => {
+  it("saves the daily notification time in UTC while showing browser-local time", async () => {
     const workspacePayload = createWorkspacePayload();
     const initialUtcDigestTime = "11:00";
-    const savedUtcDigestTime = "14:30";
+    const savedUtcDigestTime = "14:00";
     const localDigestTime = toLocalTimeInputFromUtc(savedUtcDigestTime);
     let notificationPreferencesRequestBody: string | null = null;
 
@@ -3028,7 +3032,7 @@ describe("App", () => {
             typeof init.body === "string" ? init.body : null;
           return createResponse(
             createNotificationPreferencesPayload({
-              dailyDigestEnabled: false,
+              dailyDigestEnabled: true,
               dailyDigestTime: savedUtcDigestTime,
             }),
           );
@@ -3037,7 +3041,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse(
             createNotificationPreferencesPayload({
-              dailyDigestEnabled: false,
+              dailyDigestEnabled: true,
               dailyDigestTime: initialUtcDigestTime,
             }),
           );
@@ -3056,12 +3060,13 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
     const digestTimeInput = await waitFor(() =>
-      screen.getByLabelText("Daily digest time"),
+      screen.getByLabelText("Daily notification time"),
     );
 
     expect(digestTimeInput).toHaveValue(
       toLocalTimeInputFromUtc(initialUtcDigestTime),
     );
+    expect(within(digestTimeInput).getAllByRole("option")).toHaveLength(24);
 
     fireEvent.change(digestTimeInput, {
       target: { value: localDigestTime },

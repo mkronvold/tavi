@@ -48,6 +48,7 @@ enum ProjectStatus {
 
 enum NotificationKind {
   daily_non_admin_digest
+  hourly_non_admin_digest
   task_assigned
   task_unassigned
   task_updated

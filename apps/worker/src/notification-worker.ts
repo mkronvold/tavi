@@ -1,6 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { buildEmailHtml, escapeHtml, parseSmtpUrl } from "@tavi/config";
-import { Prisma, PrismaClient } from "@prisma/client";
+import {
+  buildEmailHtml,
+  escapeHtml,
+  parseSmtpUrl,
+} from "@tavi/config";
+import { Prisma, PrismaClient, type NotificationKind } from "@prisma/client";
 import { createTransport, type Transporter } from "nodemailer";
 import type { WorkerObservability } from "./worker-observability.js";
 
@@ -21,6 +25,7 @@ const EMAIL_AUDIT_SYSTEM_ACTOR = {
 
 type ScheduledNotificationKind =
   | "daily_non_admin_digest"
+  | "hourly_non_admin_digest"
   | "daily_project_summary"
   | "daily_task_summary"
   | "personal_todo_due_3_days"
@@ -47,6 +52,10 @@ type NotificationRecipient = {
   name: string;
   personalTodoRemindersEnabled: boolean;
 };
+
+type BufferedSummaryKind =
+  | "daily_non_admin_digest"
+  | "hourly_non_admin_digest";
 
 export class NotificationWorker {
   private readonly idleDelayMs: number;
@@ -205,17 +214,21 @@ export class NotificationWorker {
     const startedAt = this.observability.startJob("digest");
 
     try {
-      const [dueReminderCount, dailyDigestCount] = await Promise.all([
-        this.queueDueDateNotifications(new Date(now)),
-        this.queueDailyNonAdminDigests(new Date(now)),
-      ]);
+      const [dueReminderCount, hourlyDigestCount, dailyDigestCount] =
+        await Promise.all([
+          this.queueDueDateNotifications(new Date(now)),
+          this.queueHourlyNonAdminDigests(new Date(now)),
+          this.queueDailyNonAdminDigests(new Date(now)),
+        ]);
 
-      const queuedCount = dueReminderCount + dailyDigestCount;
+      const queuedCount =
+        dueReminderCount + hourlyDigestCount + dailyDigestCount;
 
       if (queuedCount > 0) {
         this.observability.logger.info("worker.notifications.scheduled", {
           dailyDigestCount,
           dueReminderCount,
+          hourlyDigestCount,
           queuedCount,
         });
       }
@@ -235,6 +248,9 @@ export class NotificationWorker {
     const now = new Date();
     const candidate = await this.prisma.notificationEvent.findFirst({
       where: {
+        kind: {
+          notIn: [...BUFFERED_NON_ADMIN_UPDATE_KINDS],
+        },
         nextAttemptAt: {
           lte: now,
         },
@@ -283,15 +299,17 @@ export class NotificationWorker {
       subject?: string;
     } = {},
   ) {
+    const completedAt = new Date();
+
     await this.prisma.$transaction([
       this.prisma.notificationEvent.update({
         where: { id: event.id },
         data: {
           failedAt: null,
           lastError: details.reason ?? null,
-          nextAttemptAt: new Date(),
-          sentAt: status === "sent" ? new Date() : null,
-          skippedAt: status === "skipped" ? new Date() : null,
+          nextAttemptAt: completedAt,
+          sentAt: status === "sent" ? completedAt : null,
+          skippedAt: status === "skipped" ? completedAt : null,
           status,
         },
       }),
@@ -303,6 +321,17 @@ export class NotificationWorker {
         },
       }),
     ]);
+
+    if (isBufferedSummaryKind(event.kind)) {
+      if (status === "sent") {
+        await this.consumeBufferedSourceNotifications(event, completedAt);
+      } else {
+        await this.releaseBufferedSourceNotifications(
+          event,
+          details.reason ?? "Notification was skipped",
+        );
+      }
+    }
 
     await this.recordNotificationAuditStep({
       attemptNumber: event.attemptCount,
@@ -370,6 +399,10 @@ export class NotificationWorker {
       });
 
       if (event) {
+        if (isBufferedSummaryKind(event.kind)) {
+          await this.releaseBufferedSourceNotifications(event, message);
+        }
+
         await this.recordNotificationAuditStep({
           attemptNumber: current?.attemptCount ?? null,
           detail: message,
@@ -519,7 +552,7 @@ export class NotificationWorker {
       return "daily_digest_disabled";
     }
 
-    if (recipient.dailyDigestEnabled && shouldBatchIntoDailyDigest(kind)) {
+    if (kind === "hourly_non_admin_digest" && recipient.dailyDigestEnabled) {
       return "batched_into_digest";
     }
 
@@ -531,6 +564,68 @@ export class NotificationWorker {
     }
 
     return null;
+  }
+
+  private async consumeBufferedSourceNotifications(
+    event: {
+      kind: string;
+      payload: unknown;
+    },
+    completedAt: Date,
+  ) {
+    const sourceNotificationIds = readBufferedSourceNotificationIds(event.payload);
+
+    if (sourceNotificationIds.length === 0) {
+      return;
+    }
+
+    await this.prisma.notificationEvent.updateMany({
+      where: {
+        id: {
+          in: sourceNotificationIds,
+        },
+        status: "processing",
+      },
+      data: {
+        failedAt: null,
+        lastError:
+          event.kind === "daily_non_admin_digest"
+            ? "batched_into_digest"
+            : "batched_into_hourly_digest",
+        nextAttemptAt: completedAt,
+        skippedAt: completedAt,
+        status: "skipped",
+      },
+    });
+  }
+
+  private async releaseBufferedSourceNotifications(
+    event: {
+      payload: unknown;
+    },
+    _reason: string,
+  ) {
+    const sourceNotificationIds = readBufferedSourceNotificationIds(event.payload);
+
+    if (sourceNotificationIds.length === 0) {
+      return;
+    }
+
+    await this.prisma.notificationEvent.updateMany({
+      where: {
+        id: {
+          in: sourceNotificationIds,
+        },
+        status: "processing",
+      },
+      data: {
+        failedAt: null,
+        lastError: "buffered_pending",
+        nextAttemptAt: new Date(),
+        skippedAt: null,
+        status: "queued",
+      },
+    });
   }
 
   private async queueDueDateNotifications(now: Date) {
@@ -632,6 +727,67 @@ export class NotificationWorker {
     return this.queueEvents(events);
   }
 
+  private async queueHourlyNonAdminDigests(now: Date) {
+    const digestWindow = getHourlyDigestWindow(now, this.scheduleIntervalMs);
+
+    if (!digestWindow) {
+      return 0;
+    }
+
+    const recipients = await this.prisma.user.findMany({
+      where: {
+        dailyDigestEnabled: false,
+      },
+      select: {
+        id: true,
+      },
+    });
+    const recipientUserIds = recipients.map((recipient) => recipient.id);
+
+    if (recipientUserIds.length === 0) {
+      return 0;
+    }
+
+    const notifications = await this.readBufferedNotifications(
+      recipientUserIds,
+      digestWindow.windowEnd,
+    );
+    const notificationsByRecipient =
+      groupBufferedNotificationsByRecipient(notifications);
+    let queuedCount = 0;
+
+    for (const recipientUserId of recipientUserIds) {
+      const digestNotifications =
+        notificationsByRecipient.get(recipientUserId) ?? [];
+
+      if (digestNotifications.length === 0) {
+        continue;
+      }
+
+      queuedCount += await this.queueBufferedDigestEvent({
+        dedupeKey: `hourly_non_admin_digest:${recipientUserId}:${digestWindow.summaryHour}`,
+        kind: "hourly_non_admin_digest",
+        payload: {
+          itemCount: digestNotifications.length,
+          items: digestNotifications.map((notification) => ({
+            createdAt: notification.createdAt.toISOString(),
+            kind: notification.kind,
+            payload: toRecord(notification.payload),
+          })),
+          summaryHour: digestWindow.summaryHour,
+          windowEnd: digestWindow.windowEnd.toISOString(),
+          windowStart: digestWindow.windowStart.toISOString(),
+        },
+        recipientUserId,
+        sourceNotificationIds: digestNotifications.map(
+          (notification) => notification.id,
+        ),
+      });
+    }
+
+    return queuedCount;
+  }
+
   private async queueDailyNonAdminDigests(now: Date) {
     const digestUsers = await this.prisma.user.findMany({
       where: {
@@ -650,7 +806,10 @@ export class NotificationWorker {
     const recipientIdsByDigestTime = new Map<string, string[]>();
 
     for (const user of digestUsers) {
-      const digestTime = user.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME;
+      const digestTime = normalizeDigestTimeToHour(
+        user.dailyDigestTime,
+        DEFAULT_DAILY_DIGEST_TIME,
+      );
       const current = recipientIdsByDigestTime.get(digestTime) ?? [];
       current.push(user.id);
       recipientIdsByDigestTime.set(digestTime, current);
@@ -666,34 +825,7 @@ export class NotificationWorker {
       }
 
       const [notifications, tasks, projects] = await Promise.all([
-        this.prisma.notificationEvent.findMany({
-          where: {
-            createdAt: {
-              gt: digestWindow.windowStart,
-              lte: digestWindow.windowEnd,
-            },
-            kind: {
-              notIn: [
-                "daily_non_admin_digest",
-                "daily_project_summary",
-                "daily_task_summary",
-              ],
-            },
-            recipientUserId: {
-              in: recipientUserIds,
-            },
-            status: {
-              not: "failed",
-            },
-          },
-          orderBy: [{ createdAt: "asc" }],
-          select: {
-            createdAt: true,
-            kind: true,
-            payload: true,
-            recipientUserId: true,
-          },
-        }),
+        this.readBufferedNotifications(recipientUserIds, digestWindow.windowEnd),
         this.prisma.task.findMany({
           where: {
             archivedAt: null,
@@ -753,18 +885,8 @@ export class NotificationWorker {
         }),
       ]);
 
-      const notificationsByRecipient = new Map<string, typeof notifications>();
-
-      for (const notification of notifications) {
-        if (!notification.recipientUserId) {
-          continue;
-        }
-
-        const current =
-          notificationsByRecipient.get(notification.recipientUserId) ?? [];
-        current.push(notification);
-        notificationsByRecipient.set(notification.recipientUserId, current);
-      }
+      const notificationsByRecipient =
+        groupBufferedNotificationsByRecipient(notifications);
 
       const tasksByAssignee = new Map<string, typeof tasks>();
 
@@ -790,7 +912,7 @@ export class NotificationWorker {
         projectsByOwner.set(project.ownerUserId, current);
       }
 
-      const events = recipientUserIds.flatMap((recipientUserId) => {
+      for (const recipientUserId of recipientUserIds) {
         const digestNotifications =
           notificationsByRecipient.get(recipientUserId) ?? [];
         const taskSummaryItems = tasksByAssignee.get(recipientUserId) ?? [];
@@ -801,41 +923,143 @@ export class NotificationWorker {
           taskSummaryItems.length === 0 &&
           projectSummaryItems.length === 0
         ) {
-          return [];
+          continue;
         }
 
-        return [
-          {
-            dedupeKey: `daily_non_admin_digest:${recipientUserId}:${digestWindow.summaryDate}`,
-            kind: "daily_non_admin_digest" as const,
-            payload: {
-              itemCount: digestNotifications.length,
-              items: digestNotifications.map((notification) => ({
-                createdAt: notification.createdAt.toISOString(),
-                kind: notification.kind,
-                payload: toRecord(notification.payload),
-              })),
-              projectSummary:
-                projectSummaryItems.length > 0
-                  ? summarizeOwnedProjects(projectSummaryItems)
-                  : null,
-              summaryDate: digestWindow.summaryDate,
-              taskSummary:
-                taskSummaryItems.length > 0
-                  ? summarizeAssignedTasks(taskSummaryItems, now)
-                  : null,
-              windowEnd: digestWindow.windowEnd.toISOString(),
-              windowStart: digestWindow.windowStart.toISOString(),
-            },
-            recipientUserId,
+        queuedCount += await this.queueBufferedDigestEvent({
+          dedupeKey: `daily_non_admin_digest:${recipientUserId}:${digestWindow.summaryDate}`,
+          kind: "daily_non_admin_digest",
+          payload: {
+            itemCount: digestNotifications.length,
+            items: digestNotifications.map((notification) => ({
+              createdAt: notification.createdAt.toISOString(),
+              kind: notification.kind,
+              payload: toRecord(notification.payload),
+            })),
+            projectSummary:
+              projectSummaryItems.length > 0
+                ? summarizeOwnedProjects(projectSummaryItems)
+                : null,
+            summaryDate: digestWindow.summaryDate,
+            taskSummary:
+              taskSummaryItems.length > 0
+                ? summarizeAssignedTasks(taskSummaryItems, now)
+                : null,
+            windowEnd: digestWindow.windowEnd.toISOString(),
+            windowStart: digestWindow.windowStart.toISOString(),
           },
-        ];
-      });
-
-      queuedCount += await this.queueEvents(events);
+          recipientUserId,
+          sourceNotificationIds: digestNotifications.map(
+            (notification) => notification.id,
+          ),
+        });
+      }
     }
 
     return queuedCount;
+  }
+
+  private readBufferedNotifications(
+    recipientUserIds: string[],
+    windowEnd: Date,
+  ): Promise<
+    Array<{
+      createdAt: Date;
+      id: string;
+      kind: string;
+      payload: unknown;
+      recipientUserId: string | null;
+    }>
+  > {
+    if (recipientUserIds.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return this.prisma.notificationEvent.findMany({
+      where: {
+        createdAt: {
+          lte: windowEnd,
+        },
+        kind: {
+          in: [...BUFFERED_NON_ADMIN_UPDATE_KINDS],
+        },
+        recipientUserId: {
+          in: recipientUserIds,
+        },
+        status: "queued",
+      },
+      orderBy: [{ createdAt: "asc" }],
+      select: {
+        createdAt: true,
+        id: true,
+        kind: true,
+        payload: true,
+        recipientUserId: true,
+      },
+    });
+  }
+
+  private async queueBufferedDigestEvent(input: {
+    dedupeKey: string;
+    kind: BufferedSummaryKind;
+    payload: Record<string, unknown>;
+    recipientUserId: string;
+    sourceNotificationIds: string[];
+  }) {
+    const existing = await this.prisma.notificationEvent.findUnique({
+      where: {
+        dedupeKey: input.dedupeKey,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existing) {
+      return 0;
+    }
+
+    const queuedAt = new Date();
+    const bufferingState =
+      input.kind === "daily_non_admin_digest"
+        ? "buffered_for_daily_digest"
+        : "buffered_for_hourly_digest";
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.notificationEvent.create({
+        data: {
+          dedupeKey: input.dedupeKey,
+          kind: input.kind,
+          payload: {
+            ...input.payload,
+            sourceNotificationIds: input.sourceNotificationIds,
+          } as Prisma.InputJsonValue,
+          recipientUserId: input.recipientUserId,
+        },
+      });
+
+      if (input.sourceNotificationIds.length === 0) {
+        return;
+      }
+
+      await tx.notificationEvent.updateMany({
+        where: {
+          id: {
+            in: input.sourceNotificationIds,
+          },
+          status: "queued",
+        },
+        data: {
+          failedAt: null,
+          lastError: bufferingState,
+          nextAttemptAt: queuedAt,
+          skippedAt: null,
+          status: "processing",
+        },
+      });
+    });
+
+    return 1;
   }
 
   private async queueEvents(
@@ -875,7 +1099,13 @@ function buildNotificationEmail(input: {
   return toEmail(input, content.subject, content.bodyHtml);
 }
 
-function buildNotificationContent(kind: string, payload: Record<string, unknown>) {
+function buildNotificationContent(
+  kind: string,
+  payload: Record<string, unknown>,
+): {
+  bodyHtml: string;
+  subject: string;
+} {
   const taskTitle = escapeHtml(readString(payload.taskTitle) ?? "Untitled task");
   const projectTitle = escapeHtml(
     readString(payload.projectTitle) ?? "Unassigned",
@@ -1013,6 +1243,11 @@ function buildNotificationContent(kind: string, payload: Record<string, unknown>
         bodyHtml: buildDailyNonAdminDigestBody(payload),
         subject: buildDailyNonAdminDigestSubject(payload),
       };
+    case "hourly_non_admin_digest":
+      return {
+        bodyHtml: buildHourlyNonAdminDigestBody(payload),
+        subject: buildHourlyNonAdminDigestSubject(payload),
+      };
     case "daily_task_summary":
       return {
         bodyHtml: buildDailyTaskSummaryBody(payload),
@@ -1077,6 +1312,14 @@ function buildDailyNonAdminDigestSubject(payload: Record<string, unknown>) {
   return itemCount > 0 ? `Daily digest (${itemCount} updates)` : "Daily digest";
 }
 
+function buildHourlyNonAdminDigestSubject(payload: Record<string, unknown>) {
+  const itemCount = readNumber(payload.itemCount);
+
+  return itemCount === 1
+    ? "Hourly updates (1 update)"
+    : `Hourly updates (${itemCount} updates)`;
+}
+
 function buildDailyNonAdminDigestBody(payload: Record<string, unknown>) {
   const itemCount = readNumber(payload.itemCount);
   const items = readRecordArray(payload.items);
@@ -1112,6 +1355,22 @@ function buildDailyNonAdminDigestBody(payload: Record<string, unknown>) {
   return sections.join("\n\n");
 }
 
+function buildHourlyNonAdminDigestBody(payload: Record<string, unknown>): string {
+  const itemCount = readNumber(payload.itemCount);
+  const items = readRecordArray(payload.items);
+
+  return [
+    `Here are your latest workspace updates.
+
+<p style="margin:16px 0 0;">
+  Updates in this batch: <strong style="color:#e2e8f0;">${itemCount}</strong>
+</p>`,
+    buildDigestNotificationList(items),
+  ]
+    .filter((section) => section.length > 0)
+    .join("\n\n");
+}
+
 function buildDigestSection(title: string, bodyHtml: string) {
   return `<div style="margin:20px 0 0;">
   <div style="margin:0 0 8px;color:#94a3b8;font-size:13px;font-weight:600;">${escapeHtml(title)}</div>
@@ -1119,14 +1378,14 @@ function buildDigestSection(title: string, bodyHtml: string) {
 </div>`;
 }
 
-function buildDigestNotificationList(items: Array<Record<string, unknown>>) {
+function buildDigestNotificationList(items: Array<Record<string, unknown>>): string {
   return buildDigestSection(
     "Recent updates",
     items.map((item) => buildDigestNotificationCard(item)).join(""),
   );
 }
 
-function buildDigestNotificationCard(item: Record<string, unknown>) {
+function buildDigestNotificationCard(item: Record<string, unknown>): string {
   const kind = readString(item.kind) ?? "notification";
   const createdAt = formatDigestTimestamp(readString(item.createdAt));
   const content = buildNotificationContent(kind, toRecord(item.payload));
@@ -1462,9 +1721,7 @@ function readStringArray(value: unknown) {
     : [];
 }
 
-const DAILY_DIGEST_BATCH_KINDS = new Set([
-  "daily_project_summary",
-  "daily_task_summary",
+const BUFFERED_NON_ADMIN_UPDATE_KINDS = new Set<NotificationKind>([
   "project_blocked",
   "project_on_hold",
   "project_owner_assigned",
@@ -1475,15 +1732,10 @@ const DAILY_DIGEST_BATCH_KINDS = new Set([
   "task_assigned",
   "task_blocked",
   "task_completed",
-  "task_due_3_days",
-  "task_due_7_days",
   "task_due_date_added",
   "task_due_date_changed",
-  "task_due_today",
-  "task_due_tomorrow",
   "task_moved",
   "task_on_hold",
-  "task_overdue",
   "task_reopened",
   "task_resumed",
   "task_unassigned",
@@ -1491,8 +1743,8 @@ const DAILY_DIGEST_BATCH_KINDS = new Set([
   "task_updated",
 ]);
 
-function shouldBatchIntoDailyDigest(kind: string) {
-  return DAILY_DIGEST_BATCH_KINDS.has(kind);
+function isBufferedSummaryKind(kind: string): kind is BufferedSummaryKind {
+  return kind === "daily_non_admin_digest" || kind === "hourly_non_admin_digest";
 }
 
 function isLegacyDailySummaryKind(kind: string) {
@@ -1520,6 +1772,27 @@ function toTaskDueReminderKind(kind: string) {
   }
 }
 
+function normalizeDigestTimeToHour(
+  value: string | null | undefined,
+  fallback = "11:00",
+) {
+  const safeFallback = /^([01]\d|2[0-3]):00$/.test(fallback)
+    ? fallback
+    : "11:00";
+
+  if (typeof value !== "string") {
+    return safeFallback;
+  }
+
+  const parsed = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+
+  if (!parsed) {
+    return safeFallback;
+  }
+
+  return `${parsed[1]}:00`;
+}
+
 function getDigestWindow(now: Date, digestTime: string) {
   const [hours, minutes] = digestTime.split(":").map((value) => Number(value));
   const windowEnd = new Date(now);
@@ -1538,6 +1811,60 @@ function getDigestWindow(now: Date, digestTime: string) {
     windowEnd,
     windowStart,
   };
+}
+
+function getHourlyDigestWindow(now: Date, scheduleIntervalMs: number) {
+  const windowEnd = new Date(now);
+  windowEnd.setUTCMinutes(0, 0, 0);
+
+  if (now.getTime() - windowEnd.getTime() >= scheduleIntervalMs) {
+    return null;
+  }
+
+  const windowStart = new Date(windowEnd);
+  windowStart.setUTCHours(windowStart.getUTCHours() - 1);
+
+  return {
+    summaryHour: windowEnd.toISOString().slice(0, 13),
+    windowEnd,
+    windowStart,
+  };
+}
+
+function groupBufferedNotificationsByRecipient(
+  notifications: Array<{
+    createdAt: Date;
+    id: string;
+    kind: string;
+    payload: unknown;
+    recipientUserId: string | null;
+  }>,
+) {
+  const notificationsByRecipient = new Map<string, typeof notifications>();
+
+  for (const notification of notifications) {
+    if (!notification.recipientUserId) {
+      continue;
+    }
+
+    const current =
+      notificationsByRecipient.get(notification.recipientUserId) ?? [];
+    current.push(notification);
+    notificationsByRecipient.set(notification.recipientUserId, current);
+  }
+
+  return notificationsByRecipient;
+}
+
+function readBufferedSourceNotificationIds(payload: unknown) {
+  const sourceNotificationIds = toRecord(payload).sourceNotificationIds;
+
+  return Array.isArray(sourceNotificationIds)
+    ? sourceNotificationIds.filter(
+        (notificationId): notificationId is string =>
+          typeof notificationId === "string" && notificationId.length > 0,
+      )
+    : [];
 }
 
 function toNullableRecord(value: unknown) {

@@ -54,6 +54,9 @@ const auditDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const timeOfDaySchema = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Expected HH:MM");
+const hourlyTimeOfDaySchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):00$/, "Expected HH:00");
 
 export const roleSchema = z.enum(["admin", "editor", "viewer"]);
 export type Role = z.infer<typeof roleSchema>;
@@ -2023,6 +2026,7 @@ function normalizePreparedLoopImportKey(value: string | null) {
 
 export const notificationKindSchema = z.enum([
   "daily_non_admin_digest",
+  "hourly_non_admin_digest",
   "task_assigned",
   "task_unassigned",
   "task_updated",
@@ -2307,7 +2311,7 @@ function buildTaskNotificationPayload(
 // Email settings and SMTP status
 // ---------------------------------------------------------------------------
 
-export const dailyDigestTimeSchema = timeOfDaySchema;
+export const dailyDigestTimeSchema = hourlyTimeOfDaySchema;
 
 export const emailSettingsSchema = z.object({
   enabled: z.boolean(),

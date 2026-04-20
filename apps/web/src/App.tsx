@@ -196,6 +196,24 @@ const PASSWORD_RESET_CODE_PATTERN = /^[0-9A-F]{4}-[0-9A-F]{4}$/;
 const USER_CONFIG_SYNC_ERROR_MESSAGE =
   "Unable to sync user settings to the server. Your latest changes are still cached in this browser.";
 const DEFAULT_DAILY_DIGEST_TIME_UTC = "11:00";
+const HOURLY_DIGEST_TIME_OPTIONS = Array.from({ length: 24 }, (_, hour) => {
+  const value = `${String(hour).padStart(2, "0")}:00`;
+  const date = new Date();
+
+  date.setHours(hour, 0, 0, 0);
+
+  return {
+    label: new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date),
+    value,
+  };
+});
+const NOTIFICATION_RATE_OPTIONS = [
+  { label: "Hourly", value: "hourly" },
+  { label: "Daily", value: "daily" },
+] as const;
 const PERSONAL_TODO_RETENTION_OPTIONS = [
   { label: "Never", value: "never" },
   { label: "1 month", value: "one_month" },
@@ -270,6 +288,8 @@ type WorkspacePreferences = {
   fullWidth: boolean;
   theme: WorkspaceTheme;
 };
+
+type NotificationRate = "daily" | "hourly";
 
 type BulkTaskDraft = {
   assigneeMode: "keep" | "set" | "clear";
@@ -4560,6 +4580,9 @@ function ProfilePanel({
   });
   const dailyDigestEnabled =
     notificationPreferencesQuery.data?.dailyDigestEnabled ?? false;
+  const notificationRate: NotificationRate = dailyDigestEnabled
+    ? "daily"
+    : "hourly";
   const configuredDigestTimeUtc =
     notificationPreferencesQuery.data?.dailyDigestTime ??
     DEFAULT_DAILY_DIGEST_TIME_UTC;
@@ -4632,7 +4655,7 @@ function ProfilePanel({
       );
     },
   });
-  const toggleDailyDigest = () => {
+  const saveNotificationRate = (rate: NotificationRate) => {
     if (
       notificationPreferencesMutation.isPending ||
       notificationPreferencesQuery.isPending
@@ -4641,7 +4664,7 @@ function ProfilePanel({
     }
 
     notificationPreferencesMutation.mutate({
-      dailyDigestEnabled: !dailyDigestEnabled,
+      dailyDigestEnabled: rate === "daily",
     });
   };
   const saveDailyDigestTime = () => {
@@ -5004,66 +5027,81 @@ function ProfilePanel({
 
         <div className="settings-item">
           <div className="settings-item-header">
-            <strong>Daily Digest</strong>
-            <span>{dailyDigestEnabled ? "On" : "Off"}</span>
+            <strong>Notification Rate</strong>
+            <span>{notificationRate === "daily" ? "Daily" : "Hourly"}</span>
           </div>
           <p className="toolbar-hint">
-            {dailyDigestEnabled
-              ? `Task and project updates, assignments, and due date emails are bundled into one digest at ${configuredDigestTimeLocal} (${localTimeZoneLabel}). Administrative emails still send immediately.`
-              : `When enabled, task and project updates, assignments, and due date emails are bundled into one digest at ${configuredDigestTimeLocal} (${localTimeZoneLabel}). Administrative emails still send immediately.`}
+            {notificationRate === "daily"
+              ? `Task and project changes stay buffered and merge into one daily email at ${configuredDigestTimeLocal} (${localTimeZoneLabel}).`
+              : "Task and project changes are grouped into one email per hour, sent on the hour."}{" "}
+            Administrative emails still send immediately.
           </p>
           {digestPrefError ? (
             <p className="error-banner">{digestPrefError}</p>
           ) : null}
           <div className="settings-time-controls">
             <label className="settings-time-field">
-              <span className="settings-switch-label">Digest time</span>
-              <input
-                aria-label="Daily digest time"
+              <span className="settings-switch-label">Notification rate</span>
+              <select
+                aria-label="Notification rate"
                 disabled={
                   notificationPreferencesMutation.isPending ||
                   notificationPreferencesQuery.isPending
                 }
                 onChange={(event) => {
-                  setDailyDigestTimeDraft(event.target.value);
-                  setDigestPrefError(null);
+                  saveNotificationRate(event.target.value as NotificationRate);
                 }}
-                type="time"
-                value={dailyDigestTimeDraft}
-              />
-            </label>
-            <div className="settings-actions">
-              <button
-                type="button"
-                className="ghost-button compact-button"
-                disabled={
-                  notificationPreferencesMutation.isPending ||
-                  notificationPreferencesQuery.isPending ||
-                  dailyDigestTimeDraft === configuredDigestTimeLocal
-                }
-                onClick={saveDailyDigestTime}
+                value={notificationRate}
               >
-                {notificationPreferencesMutation.isPending
-                  ? "Saving..."
-                  : "Save"}
-              </button>
-            </div>
+                {NOTIFICATION_RATE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
-          <label className="settings-switch">
-            <span className="settings-switch-label">Daily Digest</span>
-            <input
-              aria-label="Daily Digest"
-              checked={dailyDigestEnabled}
-              className="settings-switch-input"
-              disabled={
-                notificationPreferencesMutation.isPending ||
-                notificationPreferencesQuery.isPending
-              }
-              onChange={toggleDailyDigest}
-              role="switch"
-              type="checkbox"
-            />
-          </label>
+          {notificationRate === "daily" ? (
+            <div className="settings-time-controls">
+              <label className="settings-time-field">
+                <span className="settings-switch-label">Daily send time</span>
+                <select
+                  aria-label="Daily notification time"
+                  disabled={
+                    notificationPreferencesMutation.isPending ||
+                    notificationPreferencesQuery.isPending
+                  }
+                  onChange={(event) => {
+                    setDailyDigestTimeDraft(event.target.value);
+                    setDigestPrefError(null);
+                  }}
+                  value={dailyDigestTimeDraft}
+                >
+                  {HOURLY_DIGEST_TIME_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  disabled={
+                    notificationPreferencesMutation.isPending ||
+                    notificationPreferencesQuery.isPending ||
+                    dailyDigestTimeDraft === configuredDigestTimeLocal
+                  }
+                  onClick={saveDailyDigestTime}
+                >
+                  {notificationPreferencesMutation.isPending
+                    ? "Saving..."
+                    : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="settings-item">

@@ -38,6 +38,7 @@ import {
   taskStatusSchema,
   workspaceUserConfigSchema,
 } from '@tavi/schemas';
+import { normalizeDigestTimeToHour } from './digest-time';
 import { z } from 'zod';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
@@ -404,10 +405,11 @@ function readBackupUserDailyDigestTime(
   user: BackupUserRecord,
   snapshot: BackupSnapshot,
 ) {
-  return (
+  return normalizeDigestTimeToHour(
     user.dailyDigestTime ??
-    snapshot.data.emailSettings?.dailyDigestTime ??
-    DEFAULT_DAILY_DIGEST_TIME
+      snapshot.data.emailSettings?.dailyDigestTime ??
+      DEFAULT_DAILY_DIGEST_TIME,
+    DEFAULT_DAILY_DIGEST_TIME,
   );
 }
 

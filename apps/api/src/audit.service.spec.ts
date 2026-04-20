@@ -439,6 +439,20 @@ describe('AuditService', () => {
     });
     expect(mocks.notificationEventFindManyMock).toHaveBeenCalledWith({
       where: {
+        NOT: {
+          OR: [
+            {
+              lastError: {
+                in: ['batched_into_digest', 'batched_into_hourly_digest'],
+              },
+            },
+            {
+              lastError: {
+                startsWith: 'buffered_',
+              },
+            },
+          ],
+        },
         createdAt: {
           gte: new Date('2026-02-04T00:00:00.000Z'),
           lte: new Date('2026-02-04T23:59:59.999Z'),

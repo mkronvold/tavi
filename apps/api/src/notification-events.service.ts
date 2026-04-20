@@ -18,6 +18,28 @@ type NotificationWriteClient =
       'notificationEvent' | 'project' | 'task' | 'user'
     >;
 
+const BUFFERED_NON_ADMIN_UPDATE_KINDS = new Set([
+  'project_blocked',
+  'project_on_hold',
+  'project_owner_assigned',
+  'project_owner_changed',
+  'project_owner_removed',
+  'project_resumed',
+  'project_updated',
+  'task_assigned',
+  'task_blocked',
+  'task_completed',
+  'task_due_date_added',
+  'task_due_date_changed',
+  'task_moved',
+  'task_on_hold',
+  'task_reopened',
+  'task_resumed',
+  'task_unassigned',
+  'task_unblocked',
+  'task_updated',
+]);
+
 @Injectable()
 export class NotificationEventsService {
   constructor(private readonly logger: AppLogger) {}
@@ -99,6 +121,9 @@ export class NotificationEventsService {
       data: events.map((event) => ({
         dedupeKey: event.dedupeKey ?? null,
         kind: event.kind,
+        lastError: BUFFERED_NON_ADMIN_UPDATE_KINDS.has(event.kind)
+          ? 'buffered_pending'
+          : null,
         payload: event.payload as Prisma.InputJsonValue,
         recipientUserId: event.recipientUserId,
       })),

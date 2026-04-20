@@ -128,6 +128,20 @@ export class AuditService {
       }),
       this.prisma.notificationEvent.findMany({
         where: {
+          NOT: {
+            OR: [
+              {
+                lastError: {
+                  in: ['batched_into_digest', 'batched_into_hourly_digest'],
+                },
+              },
+              {
+                lastError: {
+                  startsWith: 'buffered_',
+                },
+              },
+            ],
+          },
           ...(query.status ? { status: query.status } : {}),
           ...(query.userId ? { recipientUserId: query.userId } : {}),
           ...buildCreatedAtFilter(query),

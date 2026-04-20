@@ -18,6 +18,7 @@ import { Prisma, Role } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import type { FastifyReply } from 'fastify';
 import type { AuthenticatedRequest, SessionUser } from './auth.types';
+import { normalizeDigestTimeToHour } from './digest-time';
 import {
   DEFAULT_LOCAL_USER_EMAILS,
   DEFAULT_LOCAL_USERS,
@@ -399,7 +400,10 @@ export class AuthService {
 
     return {
       dailyDigestEnabled: user?.dailyDigestEnabled ?? false,
-      dailyDigestTime: user?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      dailyDigestTime: normalizeDigestTimeToHour(
+        user?.dailyDigestTime,
+        DEFAULT_DAILY_DIGEST_TIME,
+      ),
       personalTodoRetention: user?.personalTodoRetention ?? 'never',
       personalTodoRemindersEnabled: user?.personalTodoRemindersEnabled ?? true,
     };
@@ -436,14 +440,22 @@ export class AuthService {
     actor: SessionUser,
     input: UpdateNotificationPreferencesInput,
   ): Promise<NotificationPreferences> {
+    const normalizedDailyDigestTime =
+      input.dailyDigestTime !== undefined
+        ? normalizeDigestTimeToHour(
+            input.dailyDigestTime,
+            DEFAULT_DAILY_DIGEST_TIME,
+          )
+        : undefined;
+
     await this.prisma.user.update({
       where: { id: actor.id },
       data: {
         ...(input.dailyDigestEnabled !== undefined
           ? { dailyDigestEnabled: input.dailyDigestEnabled }
           : {}),
-        ...(input.dailyDigestTime !== undefined
-          ? { dailyDigestTime: input.dailyDigestTime }
+        ...(normalizedDailyDigestTime !== undefined
+          ? { dailyDigestTime: normalizedDailyDigestTime }
           : {}),
         ...(input.personalTodoRetention !== undefined
           ? { personalTodoRetention: input.personalTodoRetention }
@@ -465,8 +477,8 @@ export class AuthService {
         ...(input.dailyDigestEnabled !== undefined
           ? { dailyDigestEnabled: input.dailyDigestEnabled }
           : {}),
-        ...(input.dailyDigestTime !== undefined
-          ? { dailyDigestTime: input.dailyDigestTime }
+        ...(normalizedDailyDigestTime !== undefined
+          ? { dailyDigestTime: normalizedDailyDigestTime }
           : {}),
         ...(input.personalTodoRetention !== undefined
           ? { personalTodoRetention: input.personalTodoRetention }
