@@ -1,7 +1,9 @@
 const TAVI_STORAGE_PREFIX = "tavi.";
 
 function canUseStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+  return (
+    typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+  );
 }
 
 function buildStorageKey(key: string) {
@@ -24,6 +26,14 @@ export function readTaviStorage<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+export function hasTaviStorage(key: string) {
+  if (!canUseStorage()) {
+    return false;
+  }
+
+  return window.localStorage.getItem(buildStorageKey(key)) !== null;
 }
 
 export function writeTaviStorage(key: string, value: unknown) {

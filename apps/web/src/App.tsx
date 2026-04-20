@@ -3,6 +3,7 @@ import {
   type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -53,6 +54,8 @@ import {
   updateProject,
   updateSavedView,
   updateTask,
+  updateUserConfig,
+  resetUserSettings,
 } from "./api";
 import { BackupSettingsCard } from "./BackupSettingsCard";
 import { ExportPanel } from "./ExportPanel";
@@ -69,6 +72,7 @@ import { RetentionSettingsPanel } from "./RetentionSettingsPanel";
 import { getAppHomeUrl } from "./runtime-config";
 import {
   clearTaviStorage,
+  hasTaviStorage,
   readTaviStorage,
   removeTaviStorage,
   writeTaviStorage,
@@ -94,6 +98,7 @@ import type {
   SmtpStatus,
   UpdateOwnProfilePayload,
   WorkspaceUser,
+  WorkspaceUserConfig,
   UpdateProjectPayload,
   UpdateTaskPayload,
   WorkspaceProject,
@@ -160,7 +165,17 @@ const SCROLL_TO_TOP_VISIBILITY_OFFSET = 240;
 const PASSWORD_RESET_NOTICE =
   "If that account can receive email, a one-time password was sent. It expires in 10 minutes.";
 const PASSWORD_RESET_CODE_PATTERN = /^[0-9A-F]{4}-[0-9A-F]{4}$/;
+const USER_CONFIG_SYNC_ERROR_MESSAGE =
+  "Unable to sync user settings to the server. Your latest changes are still cached in this browser.";
 const DEFAULT_DAILY_DIGEST_TIME_UTC = "11:00";
+const PERSONAL_TODO_RETENTION_OPTIONS = [
+  { label: "Never", value: "never" },
+  { label: "1 month", value: "one_month" },
+  { label: "3 months", value: "three_months" },
+  { label: "6 months", value: "six_months" },
+  { label: "12 months", value: "twelve_months" },
+  { label: "Delete when done", value: "delete_when_done" },
+] as const;
 const EDITOR_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 const ROW_EDIT_INTERACTIVE_SELECTOR =
@@ -338,6 +353,27 @@ function getFibonacciBackoffMs(attempt: number) {
   ];
 }
 
+function createDefaultWorkspaceUserConfig(): WorkspaceUserConfig {
+  return {
+    addTaskPanels: {},
+    collapsedGroups: {},
+    filters: {
+      assigneeUserIds: [],
+      groupBy: "owner",
+      sortBy: [],
+      statusFilters: [],
+    },
+    hideDonePersonalTodos: false,
+    hideDoneTasksByProject: {},
+    noteEditorHeights: {
+      project: null,
+      task: null,
+    },
+    panels: { ...DEFAULT_WORKSPACE_PANEL_STATE },
+    preferences: { ...DEFAULT_WORKSPACE_PREFERENCES },
+  };
+}
+
 function App() {
   const queryClient = useQueryClient();
   const [loginForm, setLoginForm] = useState<LoginPayload>(EMPTY_LOGIN_FORM);
@@ -401,6 +437,29 @@ function App() {
     refetchIntervalInBackground: true,
     retry: false,
   });
+  const serverWorkspacePreferences = workspaceQuery.data
+    ? normalizeWorkspacePreferences(workspaceQuery.data.userConfig?.preferences)
+    : null;
+  const hasCachedWorkspacePreferencesRef = useRef(
+    hasTaviStorage(PREFERENCES_STORAGE_KEY),
+  );
+
+  useEffect(() => {
+    if (
+      !serverWorkspacePreferences ||
+      hasCachedWorkspacePreferencesRef.current
+    ) {
+      return;
+    }
+
+    hasCachedWorkspacePreferencesRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setWorkspacePreferences((current) =>
+      sameWorkspacePreferences(current, serverWorkspacePreferences)
+        ? current
+        : serverWorkspacePreferences,
+    );
+  }, [serverWorkspacePreferences]);
 
   const loginMutation = useMutation({
     mutationFn: login,
@@ -762,6 +821,7 @@ function App() {
 
   return (
     <WorkspaceScreen
+      key={workspaceQuery.data.currentUser.id}
       data={workspaceQuery.data}
       onBulkActionsChange={(bulkActions) =>
         setWorkspacePreferences((current) => ({
@@ -782,9 +842,7 @@ function App() {
           fullWidth,
         }))
       }
-      onResetPreferences={() =>
-        setWorkspacePreferences(DEFAULT_WORKSPACE_PREFERENCES)
-      }
+      onReplacePreferences={setWorkspacePreferences}
       onThemeChange={(theme) =>
         setWorkspacePreferences((current) => ({
           ...current,
@@ -803,7 +861,7 @@ type WorkspaceScreenProps = {
   onLogout: () => void;
   onAutoCollapseChange: (autoCollapse: boolean) => void;
   onFullWidthChange: (fullWidth: boolean) => void;
-  onResetPreferences: () => void;
+  onReplacePreferences: (preferences: WorkspacePreferences) => void;
   onThemeChange: (theme: WorkspaceTheme) => void;
   preferences: WorkspacePreferences;
   queryClient: ReturnType<typeof useQueryClient>;
@@ -815,11 +873,24 @@ function WorkspaceScreen({
   onLogout,
   onAutoCollapseChange,
   onFullWidthChange,
-  onResetPreferences,
+  onReplacePreferences,
   onThemeChange,
   preferences,
   queryClient,
 }: WorkspaceScreenProps) {
+  const initialUserConfig = useMemo(
+    () => normalizeWorkspaceUserConfig(data.userConfig),
+    [data.userConfig],
+  );
+  const hasCachedWorkspaceUserConfigRef = useRef(
+    hasTaviStorage(PANEL_STORAGE_KEY) ||
+      hasTaviStorage(FILTER_STORAGE_KEY) ||
+      hasTaviStorage(COLLAPSED_GROUPS_STORAGE_KEY) ||
+      hasTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY) ||
+      hasTaviStorage(ADD_TASK_PANEL_STORAGE_KEY) ||
+      hasTaviStorage(HIDE_DONE_TASKS_STORAGE_KEY) ||
+      hasTaviStorage(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY),
+  );
   const [panelState, setPanelState] = useState<WorkspacePanelState>(() =>
     normalizeWorkspacePanelState(
       readTaviStorage<Partial<WorkspacePanelState>>(PANEL_STORAGE_KEY, {}),
@@ -953,6 +1024,35 @@ function WorkspaceScreen({
   );
   const canEditWorkspace = data.currentUser.role !== "viewer";
   const appHomeUrl = getAppHomeUrl();
+  const currentUserConfig = useMemo(
+    () =>
+      normalizeWorkspaceUserConfig({
+        addTaskPanels,
+        collapsedGroups: collapsedGroupsByGroup,
+        filters: workspaceFilters,
+        hideDonePersonalTodos,
+        hideDoneTasksByProject,
+        noteEditorHeights,
+        panels: panelState,
+        preferences,
+      }),
+    [
+      addTaskPanels,
+      collapsedGroupsByGroup,
+      hideDonePersonalTodos,
+      hideDoneTasksByProject,
+      noteEditorHeights,
+      panelState,
+      preferences,
+      workspaceFilters,
+    ],
+  );
+  const syncedUserConfigRef = useRef(
+    serializeWorkspaceUserConfig(initialUserConfig),
+  );
+  const skipNextUserConfigSyncRef = useRef(
+    !hasCachedWorkspaceUserConfigRef.current,
+  );
   const { autoCollapse, bulkActions, fullWidth, theme } = preferences;
   const canSelectTasks = canEditWorkspace && bulkActions;
   const invalidateWorkspaceAndAudit = () =>
@@ -960,6 +1060,31 @@ function WorkspaceScreen({
       queryClient.invalidateQueries({ queryKey: ["workspace"] }),
       queryClient.invalidateQueries({ queryKey: ["audit"] }),
     ]);
+  const userConfigMutation = useMutation({
+    mutationFn: updateUserConfig,
+    onSuccess: (_response, nextConfig) => {
+      syncedUserConfigRef.current = serializeWorkspaceUserConfig(nextConfig);
+      setWorkspaceNotice((current) =>
+        current === USER_CONFIG_SYNC_ERROR_MESSAGE ? null : current,
+      );
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        current
+          ? {
+              ...current,
+              userConfig: nextConfig,
+            }
+          : current,
+      );
+    },
+    onError: (error) => {
+      setWorkspaceNotice(
+        error instanceof ApiError
+          ? `${USER_CONFIG_SYNC_ERROR_MESSAGE} ${error.message}`
+          : USER_CONFIG_SYNC_ERROR_MESSAGE,
+      );
+    },
+  });
+  const syncUserConfig = userConfigMutation.mutate;
   const setGroupBy = (nextGroupBy: GroupBy) => {
     setWorkspaceFilters((current) =>
       current.groupBy === nextGroupBy
@@ -1199,6 +1324,28 @@ function WorkspaceScreen({
 
     writeTaviStorage(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY, true);
   }, [hideDonePersonalTodos]);
+
+  useEffect(() => {
+    const serializedCurrentUserConfig =
+      serializeWorkspaceUserConfig(currentUserConfig);
+
+    if (skipNextUserConfigSyncRef.current) {
+      skipNextUserConfigSyncRef.current = false;
+      return;
+    }
+
+    if (serializedCurrentUserConfig === syncedUserConfigRef.current) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      syncUserConfig(currentUserConfig);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentUserConfig, syncUserConfig]);
 
   useEffect(() => {
     const syncScrollToTopVisibility = () => {
@@ -2033,34 +2180,84 @@ function WorkspaceScreen({
     });
   };
 
-  const handleClearLocalStorage = () => {
+  const applyUserConfigState = useCallback(
+    (nextConfig: WorkspaceUserConfig) => {
+      skipNextUserConfigSyncRef.current = true;
+      syncedUserConfigRef.current = serializeWorkspaceUserConfig(nextConfig);
+      setWorkspaceFilters(normalizeWorkspaceFilterState(nextConfig.filters));
+      setCollapsedGroupsByGroup(
+        normalizeCollapsedGroupsByGroup(nextConfig.collapsedGroups),
+      );
+      setPanelState(normalizeWorkspacePanelState(nextConfig.panels));
+      setAddTaskPanels(normalizeBooleanSelection(nextConfig.addTaskPanels));
+      setHideDoneTasksByProject(
+        normalizeBooleanSelection(nextConfig.hideDoneTasksByProject),
+      );
+      setHideDonePersonalTodos(nextConfig.hideDonePersonalTodos === true);
+      setNoteEditorHeights(
+        normalizeNoteEditorHeights(nextConfig.noteEditorHeights),
+      );
+      onReplacePreferences(
+        normalizeWorkspacePreferences(nextConfig.preferences),
+      );
+    },
+    [onReplacePreferences],
+  );
+
+  useEffect(() => {
+    if (hasCachedWorkspaceUserConfigRef.current) {
+      return;
+    }
+
+    applyUserConfigState(initialUserConfig);
+  }, [applyUserConfigState, initialUserConfig]);
+
+  const resetUserSettingsMutation = useMutation({
+    mutationFn: resetUserSettings,
+    onSuccess: (result) => {
+      const clearedKeyCount = clearTaviStorage();
+
+      applyUserConfigState(result.userConfig);
+      queryClient.setQueryData(
+        ["notification-preferences"],
+        result.notificationPreferences,
+      );
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        current
+          ? {
+              ...current,
+              userConfig: result.userConfig,
+            }
+          : current,
+      );
+      setWorkspaceNotice(
+        clearedKeyCount === 0
+          ? "Reset all user settings to defaults. The browser cache was already clear."
+          : `Reset all user settings to defaults and cleared ${clearedKeyCount.toString()} cached Tavi preference${clearedKeyCount === 1 ? "" : "s"}.`,
+      );
+    },
+    onError: (error) => {
+      setWorkspaceNotice(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to reset your user settings.",
+      );
+    },
+  });
+  const handleResetUserSettings = () => {
+    if (resetUserSettingsMutation.isPending) {
+      return;
+    }
+
     if (
       !window.confirm(
-        "Clear all Tavi browser-local preferences stored in this browser?",
+        "Reset all server-backed and browser-cached user settings for this account to their defaults?",
       )
     ) {
       return;
     }
 
-    const clearedKeyCount = clearTaviStorage();
-
-    setWorkspaceFilters({
-      assigneeUserIds: [],
-      groupBy: "owner",
-      sortBy: [],
-      statusFilters: [],
-    });
-    setCollapsedGroupsByGroup({});
-    setPanelState({ ...DEFAULT_WORKSPACE_PANEL_STATE });
-    setAddTaskPanels({});
-    setHideDoneTasksByProject({});
-    setHideDonePersonalTodos(false);
-    onResetPreferences();
-    setWorkspaceNotice(
-      clearedKeyCount === 0
-        ? "Tavi browser-local preferences were already clear."
-        : `Cleared ${clearedKeyCount.toString()} Tavi browser-local preference${clearedKeyCount === 1 ? "" : "s"}.`,
-    );
+    resetUserSettingsMutation.mutate();
   };
 
   const applyBulkTaskChanges = () => {
@@ -2295,7 +2492,7 @@ function WorkspaceScreen({
               }
               onAutoCollapseChange={onAutoCollapseChange}
               onBulkActionsChange={handleBulkActionsChange}
-              onClearLocalStorage={handleClearLocalStorage}
+              onResetUserSettings={handleResetUserSettings}
               onClose={() => setWorkspacePanelOpen("profile", false)}
               onFullWidthChange={onFullWidthChange}
               onNotice={setWorkspaceNotice}
@@ -4250,7 +4447,7 @@ type ProfilePanelProps = {
   isUserHistoryOpen: boolean;
   onAutoCollapseChange: (autoCollapse: boolean) => void;
   onBulkActionsChange: (bulkActions: boolean) => void;
-  onClearLocalStorage: () => void;
+  onResetUserSettings: () => void;
   onClose: () => void;
   onFullWidthChange: (fullWidth: boolean) => void;
   onNotice: (message: string) => void;
@@ -4270,7 +4467,7 @@ function ProfilePanel({
   isUserHistoryOpen,
   onAutoCollapseChange,
   onBulkActionsChange,
-  onClearLocalStorage,
+  onResetUserSettings,
   onClose,
   onFullWidthChange,
   onNotice,
@@ -4305,6 +4502,8 @@ function ProfilePanel({
     () => utcTimeToLocalTime(configuredDigestTimeUtc),
     [configuredDigestTimeUtc],
   );
+  const personalTodoRetention =
+    notificationPreferencesQuery.data?.personalTodoRetention ?? "never";
   const localTimeZoneLabel = useMemo(() => getLocalTimeZoneLabel(), []);
   const currentThemeLabel = getWorkspaceThemeLabel(theme);
   const nextTheme = getNextWorkspaceTheme(theme);
@@ -4339,6 +4538,10 @@ function ProfilePanel({
             variables.dailyDigestTime ??
             current?.dailyDigestTime ??
             configuredDigestTimeUtc,
+          personalTodoRetention:
+            variables.personalTodoRetention ??
+            current?.personalTodoRetention ??
+            "never",
           personalTodoRemindersEnabled:
             variables.personalTodoRemindersEnabled ??
             current?.personalTodoRemindersEnabled ??
@@ -4360,7 +4563,7 @@ function ProfilePanel({
       setDigestPrefError(
         error instanceof ApiError
           ? error.message
-          : "Unable to update daily digest preferences.",
+          : "Unable to update personal preferences.",
       );
     },
   });
@@ -4798,18 +5001,62 @@ function ProfilePanel({
           </label>
         </div>
 
-        <div
-          className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(onClearLocalStorage)}
-        >
+        <div className="settings-item">
           <div className="settings-item-header">
-            <strong>Clear Local Storage</strong>
-            <span>Tavi only</span>
+            <strong>Personal ToDo Retention</strong>
+            <span>
+              {formatPersonalTodoRetentionLabel(personalTodoRetention)}
+            </span>
           </div>
           <p className="toolbar-hint">
-            Remove only Tavi-owned browser state, including theme, auto
-            collapse, bulk actions, full width, panel toggles, and per-project
-            Add Task preferences.
+            Control how long completed personal to dos stay visible in your
+            private list.
+          </p>
+          <label className="settings-time-field">
+            <span className="settings-switch-label">Completed items</span>
+            <select
+              aria-label="Personal todo retention"
+              disabled={
+                notificationPreferencesMutation.isPending ||
+                notificationPreferencesQuery.isPending
+              }
+              onChange={(event) => {
+                setDigestPrefError(null);
+                notificationPreferencesMutation.mutate({
+                  personalTodoRetention: event.target
+                    .value as NotificationPreferences["personalTodoRetention"],
+                });
+              }}
+              value={personalTodoRetention}
+            >
+              {PERSONAL_TODO_RETENTION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="toolbar-hint">
+            {personalTodoRetention === "delete_when_done"
+              ? "Completed items are removed as soon as you mark them done."
+              : personalTodoRetention === "never"
+                ? "Completed items remain until you delete them yourself."
+                : `Completed items are removed ${formatPersonalTodoRetentionLabel(personalTodoRetention).toLowerCase()} after completion.`}
+          </p>
+        </div>
+
+        <div
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(onResetUserSettings)}
+        >
+          <div className="settings-item-header">
+            <strong>Reset all user settings</strong>
+            <span>Defaults</span>
+          </div>
+          <p className="toolbar-hint">
+            Reset server-backed and browser-cached personal settings, including
+            theme, layout, panel state, digest preferences, and personal to do
+            defaults.
           </p>
         </div>
 
@@ -4846,6 +5093,26 @@ function ProfilePanel({
       </div>
     </section>
   );
+}
+
+function formatPersonalTodoRetentionLabel(
+  value: NotificationPreferences["personalTodoRetention"],
+) {
+  switch (value) {
+    case "one_month":
+      return "1 month";
+    case "three_months":
+      return "3 months";
+    case "six_months":
+      return "6 months";
+    case "twelve_months":
+      return "12 months";
+    case "delete_when_done":
+      return "Delete when done";
+    case "never":
+    default:
+      return "Never";
+  }
 }
 
 type SettingsPanelProps = {
@@ -5844,6 +6111,29 @@ function normalizeWorkspacePreferences(
     bulkActions: value?.bulkActions !== false,
     fullWidth: value?.fullWidth === true,
     theme: normalizeWorkspaceTheme(value?.theme),
+  };
+}
+
+function normalizeWorkspaceUserConfig(
+  value: Partial<WorkspaceUserConfig> | null | undefined,
+): WorkspaceUserConfig {
+  const defaultUserConfig = createDefaultWorkspaceUserConfig();
+
+  return {
+    addTaskPanels: normalizeBooleanSelection(value?.addTaskPanels),
+    collapsedGroups: normalizeCollapsedGroupsByGroup(value?.collapsedGroups),
+    filters: normalizeWorkspaceFilterState(
+      value?.filters ?? defaultUserConfig.filters,
+    ),
+    hideDonePersonalTodos: value?.hideDonePersonalTodos === true,
+    hideDoneTasksByProject: normalizeBooleanSelection(
+      value?.hideDoneTasksByProject,
+    ),
+    noteEditorHeights: normalizeNoteEditorHeights(
+      value?.noteEditorHeights ?? defaultUserConfig.noteEditorHeights,
+    ),
+    panels: normalizeWorkspacePanelState(value?.panels),
+    preferences: normalizeWorkspacePreferences(value?.preferences),
   };
 }
 
@@ -7505,11 +7795,64 @@ function sameStringArray<Value extends string>(left: Value[], right: Value[]) {
   );
 }
 
+function sameWorkspacePreferences(
+  left: WorkspacePreferences,
+  right: WorkspacePreferences,
+) {
+  return (
+    left.autoCollapse === right.autoCollapse &&
+    left.bulkActions === right.bulkActions &&
+    left.fullWidth === right.fullWidth &&
+    left.theme === right.theme
+  );
+}
+
 function sameBooleanSelection(
   left: Record<string, boolean>,
   right: Record<string, boolean>,
 ) {
   return sameStringArray(activeSelectionKeys(left), activeSelectionKeys(right));
+}
+
+function serializeWorkspaceUserConfig(value: WorkspaceUserConfig) {
+  const normalized = normalizeWorkspaceUserConfig(value);
+
+  return JSON.stringify({
+    addTaskPanels: sortBooleanSelection(normalized.addTaskPanels),
+    collapsedGroups: sortCollapsedGroups(normalized.collapsedGroups),
+    filters: {
+      assigneeUserIds: [...normalized.filters.assigneeUserIds],
+      groupBy: normalized.filters.groupBy,
+      sortBy: [...normalized.filters.sortBy],
+      statusFilters: [...normalized.filters.statusFilters],
+    },
+    hideDonePersonalTodos: normalized.hideDonePersonalTodos,
+    hideDoneTasksByProject: sortBooleanSelection(
+      normalized.hideDoneTasksByProject,
+    ),
+    noteEditorHeights: normalized.noteEditorHeights,
+    panels: normalized.panels,
+    preferences: normalized.preferences,
+  });
+}
+
+function sortBooleanSelection(selection: Record<string, boolean>) {
+  return Object.fromEntries(
+    Object.entries(selection).sort(([leftKey], [rightKey]) =>
+      leftKey.localeCompare(rightKey),
+    ),
+  );
+}
+
+function sortCollapsedGroups(value: WorkspaceCollapsedGroups) {
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .map(([groupBy, selection]) => [
+        groupBy,
+        sortBooleanSelection(selection),
+      ]),
+  );
 }
 
 function isGroupBy(value: unknown): value is GroupBy {

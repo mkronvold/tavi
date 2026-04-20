@@ -14,6 +14,7 @@ import {
   resetPasswordWithOtpSchema,
   updateEmailSettingsSchema,
   updateNotificationPreferencesSchema,
+  workspaceUserConfigSchema,
 } from '@tavi/schemas';
 import type { FastifyReply } from 'fastify';
 import type { AuthenticatedRequest } from './auth.types';
@@ -141,5 +142,21 @@ export class AuthController {
   ) {
     const input = parseInput(updateNotificationPreferencesSchema, body);
     return this.authService.updateNotificationPreferences(request.user!, input);
+  }
+
+  @Put('user-config')
+  @UseGuards(SessionGuard)
+  async updateUserConfig(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(workspaceUserConfigSchema, body);
+    return this.authService.updateUserConfig(request.user!, input);
+  }
+
+  @Post('settings/reset')
+  @UseGuards(SessionGuard)
+  async resetUserSettings(@Req() request: AuthenticatedRequest) {
+    return this.authService.resetUserSettings(request.user!);
   }
 }

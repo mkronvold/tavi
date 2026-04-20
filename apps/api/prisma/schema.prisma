@@ -124,6 +124,15 @@ enum AuditLogRetentionWindow {
   one_year
 }
 
+enum PersonalTodoRetentionPolicy {
+  never
+  one_month
+  three_months
+  six_months
+  twelve_months
+  delete_when_done
+}
+
 model User {
   id                         String                @id @default(cuid())
   email                      String                @unique
@@ -133,7 +142,9 @@ model User {
   passwordResetOtpExpiresAt  DateTime?
   dailyDigestEnabled         Boolean               @default(false)
   dailyDigestTime            String                @default("11:00")
+  personalTodoRetention      PersonalTodoRetentionPolicy @default(never)
   personalTodoRemindersEnabled Boolean             @default(true)
+  userConfigJson             String?
   roleAssignment             RoleAssignment?
   ownedProjects              Project[]             @relation("ProjectOwner")
   assignedTasks              Task[]                @relation("TaskAssignee")

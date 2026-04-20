@@ -10,7 +10,9 @@ import type {
   LocalLoginHintResponse,
   NotificationPreferences,
   ResetPasswordWithOtpInput,
+  ResetUserSettingsResponse,
   UpdateNotificationPreferencesInput,
+  WorkspaceUserConfig,
 } from '@tavi/schemas';
 import { Prisma, Role } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -22,6 +24,12 @@ import {
 } from './default-local-users';
 import { EmailService } from './email.service';
 import { PrismaService } from './prisma.service';
+import {
+  createDefaultWorkspaceUserConfig,
+  normalizeWorkspaceUserConfig,
+  parseStoredWorkspaceUserConfig,
+  serializeWorkspaceUserConfig,
+} from './user-config';
 
 const SESSION_COOKIE = 'tavi_session';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -384,6 +392,7 @@ export class AuthService {
       select: {
         dailyDigestEnabled: true,
         dailyDigestTime: true,
+        personalTodoRetention: true,
         personalTodoRemindersEnabled: true,
       },
     });
@@ -391,8 +400,36 @@ export class AuthService {
     return {
       dailyDigestEnabled: user?.dailyDigestEnabled ?? false,
       dailyDigestTime: user?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      personalTodoRetention: user?.personalTodoRetention ?? 'never',
       personalTodoRemindersEnabled: user?.personalTodoRemindersEnabled ?? true,
     };
+  }
+
+  async getUserConfig(userId: string): Promise<WorkspaceUserConfig> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        userConfigJson: true,
+      },
+    });
+
+    return parseStoredWorkspaceUserConfig(user?.userConfigJson);
+  }
+
+  async updateUserConfig(
+    actor: SessionUser,
+    input: WorkspaceUserConfig,
+  ): Promise<WorkspaceUserConfig> {
+    const normalizedConfig = normalizeWorkspaceUserConfig(input);
+
+    await this.prisma.user.update({
+      where: { id: actor.id },
+      data: {
+        userConfigJson: serializeWorkspaceUserConfig(normalizedConfig),
+      },
+    });
+
+    return normalizedConfig;
   }
 
   async updateNotificationPreferences(
@@ -407,6 +444,9 @@ export class AuthService {
           : {}),
         ...(input.dailyDigestTime !== undefined
           ? { dailyDigestTime: input.dailyDigestTime }
+          : {}),
+        ...(input.personalTodoRetention !== undefined
+          ? { personalTodoRetention: input.personalTodoRetention }
           : {}),
         ...(input.personalTodoRemindersEnabled !== undefined
           ? {
@@ -428,6 +468,9 @@ export class AuthService {
         ...(input.dailyDigestTime !== undefined
           ? { dailyDigestTime: input.dailyDigestTime }
           : {}),
+        ...(input.personalTodoRetention !== undefined
+          ? { personalTodoRetention: input.personalTodoRetention }
+          : {}),
         ...(input.personalTodoRemindersEnabled !== undefined
           ? {
               personalTodoRemindersEnabled: input.personalTodoRemindersEnabled,
@@ -437,6 +480,38 @@ export class AuthService {
     );
 
     return this.getNotificationPreferences(actor.id);
+  }
+
+  async resetUserSettings(
+    actor: SessionUser,
+  ): Promise<ResetUserSettingsResponse> {
+    await this.prisma.user.update({
+      where: { id: actor.id },
+      data: {
+        dailyDigestEnabled: false,
+        dailyDigestTime: DEFAULT_DAILY_DIGEST_TIME,
+        personalTodoRetention: 'never',
+        personalTodoRemindersEnabled: true,
+        userConfigJson: null,
+      },
+    });
+
+    await this.recordAudit(actor, 'auth', actor.id, 'user_settings_reset', {
+      dailyDigestEnabled: false,
+      dailyDigestTime: DEFAULT_DAILY_DIGEST_TIME,
+      personalTodoRetention: 'never',
+      personalTodoRemindersEnabled: true,
+    });
+
+    return {
+      notificationPreferences: {
+        dailyDigestEnabled: false,
+        dailyDigestTime: DEFAULT_DAILY_DIGEST_TIME,
+        personalTodoRetention: 'never',
+        personalTodoRemindersEnabled: true,
+      },
+      userConfig: createDefaultWorkspaceUserConfig(),
+    };
   }
 
   async hashPassword(password: string) {

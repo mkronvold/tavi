@@ -33,6 +33,7 @@ import type {
   UpdateLoopImportRowDecisionsInput,
   UpdateEmailSettingsInput,
   UpdateBackupSettingsInput,
+  WorkspaceUserConfig,
 } from "@tavi/schemas";
 
 export type {
@@ -93,6 +94,10 @@ export type {
   SuccessResponse,
   TaskStatus,
   UploadBackupFileInput,
+  WorkspacePreferences,
+  WorkspaceTheme,
+  WorkspaceUserConfig,
+  ResetUserSettingsResponse,
 } from "@tavi/schemas";
 
 export type WorkspaceUser = {
@@ -168,6 +173,7 @@ export type WorkspaceResponse = {
   users: WorkspaceUser[];
   projects: WorkspaceProject[];
   savedViews: SavedView[];
+  userConfig: WorkspaceUserConfig;
   workspaceSettings?: WorkspaceSettings;
 };
 

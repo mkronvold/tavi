@@ -2,9 +2,11 @@ import { Injectable } from '@nestjs/common';
 import type { ResetWorkspaceExamplesInput } from '@tavi/schemas';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import { PersonalTodosService } from './personal-todos.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsService } from './projects.service';
 import { SavedViewsService } from './saved-views.service';
+import { parseStoredWorkspaceUserConfig } from './user-config';
 import { buildWorkspaceResetExamples } from './workspace-reset-examples';
 
 @Injectable()
@@ -14,45 +16,60 @@ export class WorkspaceService {
     private readonly authService: AuthService,
     private readonly projectsService: ProjectsService,
     private readonly savedViewsService: SavedViewsService,
+    private readonly personalTodosService: PersonalTodosService,
   ) {}
 
   async getWorkspace(currentUser: SessionUser) {
-    const [users, projects, savedViews, emailSettings, personalTodos] =
-      await Promise.all([
-        this.prisma.user.findMany({
-          include: { roleAssignment: true },
-          orderBy: { name: 'asc' },
-        }),
-        this.prisma.project.findMany({
-          where: { archivedAt: null },
-          include: {
-            owner: {
-              include: { roleAssignment: true },
-            },
-            tasks: {
-              where: { archivedAt: null },
-              include: {
-                assignee: {
-                  include: { roleAssignment: true },
-                },
+    await this.personalTodosService.pruneCompletedPersonalTodosForUser(
+      currentUser.id,
+    );
+
+    const [
+      users,
+      projects,
+      savedViews,
+      emailSettings,
+      personalTodos,
+      userConfig,
+    ] = await Promise.all([
+      this.prisma.user.findMany({
+        include: { roleAssignment: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.project.findMany({
+        where: { archivedAt: null },
+        include: {
+          owner: {
+            include: { roleAssignment: true },
+          },
+          tasks: {
+            where: { archivedAt: null },
+            include: {
+              assignee: {
+                include: { roleAssignment: true },
               },
-              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
             },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
           },
-          orderBy: [{ displayStatus: 'asc' }, { updatedAt: 'desc' }],
-        }),
-        this.savedViewsService.listSavedViews(currentUser),
-        this.prisma.emailSettings.findUnique({
-          where: { id: 'global' },
-          select: { dragHandlesEnabled: true },
-        }),
-        this.prisma.personalTodo.findMany({
-          where: {
-            userId: currentUser.id,
-          },
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        }),
-      ]);
+        },
+        orderBy: [{ displayStatus: 'asc' }, { updatedAt: 'desc' }],
+      }),
+      this.savedViewsService.listSavedViews(currentUser),
+      this.prisma.emailSettings.findUnique({
+        where: { id: 'global' },
+        select: { dragHandlesEnabled: true },
+      }),
+      this.prisma.personalTodo.findMany({
+        where: {
+          userId: currentUser.id,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
+      this.prisma.user.findUnique({
+        where: { id: currentUser.id },
+        select: { userConfigJson: true },
+      }),
+    ]);
 
     return {
       currentUser: {
@@ -105,6 +122,7 @@ export class WorkspaceService {
         })),
       })),
       savedViews,
+      userConfig: parseStoredWorkspaceUserConfig(userConfig?.userConfigJson),
       personalTodos: personalTodos.map((todo) => ({
         id: todo.id,
         title: todo.title,

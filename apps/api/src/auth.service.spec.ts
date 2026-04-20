@@ -43,7 +43,9 @@ describe('AuthService', () => {
     const findManyUsersMock = jest.fn();
     const findUniqueUserMock = jest.fn();
     const updateUserMock = jest.fn();
-    const auditEventCreateMock = jest.fn(() => Promise.resolve());
+    const auditEventCreateMock = jest.fn<Promise<void>, AuditEventCreateCall>(
+      () => Promise.resolve(),
+    );
     const prisma: AuthServicePrismaMock = {
       $transaction: jest.fn(
         (callback: (tx: AuthServicePrismaMock) => unknown) =>
@@ -466,6 +468,7 @@ describe('AuthService', () => {
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: true,
       dailyDigestTime: '14:30',
+      personalTodoRetention: 'three_months',
       personalTodoRemindersEnabled: false,
     });
 
@@ -473,6 +476,7 @@ describe('AuthService', () => {
       {
         dailyDigestEnabled: true,
         dailyDigestTime: '14:30',
+        personalTodoRetention: 'three_months',
         personalTodoRemindersEnabled: false,
       },
     );
@@ -493,6 +497,7 @@ describe('AuthService', () => {
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: true,
       dailyDigestTime: '11:00',
+      personalTodoRetention: 'never',
       personalTodoRemindersEnabled: false,
     });
 
@@ -503,6 +508,7 @@ describe('AuthService', () => {
     ).resolves.toEqual({
       dailyDigestEnabled: true,
       dailyDigestTime: '11:00',
+      personalTodoRetention: 'never',
       personalTodoRemindersEnabled: false,
     });
 
@@ -529,6 +535,7 @@ describe('AuthService', () => {
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: false,
       dailyDigestTime: '11:00',
+      personalTodoRetention: 'never',
       personalTodoRemindersEnabled: false,
     });
 
@@ -539,6 +546,7 @@ describe('AuthService', () => {
     ).resolves.toEqual({
       dailyDigestEnabled: false,
       dailyDigestTime: '11:00',
+      personalTodoRetention: 'never',
       personalTodoRemindersEnabled: false,
     });
 
@@ -565,6 +573,7 @@ describe('AuthService', () => {
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: false,
       dailyDigestTime: '14:30',
+      personalTodoRetention: 'never',
       personalTodoRemindersEnabled: true,
     });
 
@@ -575,6 +584,7 @@ describe('AuthService', () => {
     ).resolves.toEqual({
       dailyDigestEnabled: false,
       dailyDigestTime: '14:30',
+      personalTodoRetention: 'never',
       personalTodoRemindersEnabled: true,
     });
 
@@ -584,5 +594,315 @@ describe('AuthService', () => {
         dailyDigestTime: '14:30',
       },
     });
+  });
+
+  it('updates personal todo retention without changing other preferences', async () => {
+    const { findUniqueUserMock, updateUserMock, service } = createService();
+    const actor = {
+      id: 'user-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor' as const,
+    };
+
+    updateUserMock.mockResolvedValue({
+      id: actor.id,
+    });
+    findUniqueUserMock.mockResolvedValue({
+      dailyDigestEnabled: false,
+      dailyDigestTime: '11:00',
+      personalTodoRetention: 'delete_when_done',
+      personalTodoRemindersEnabled: true,
+    });
+
+    await expect(
+      service.updateNotificationPreferences(actor, {
+        personalTodoRetention: 'delete_when_done',
+      }),
+    ).resolves.toEqual({
+      dailyDigestEnabled: false,
+      dailyDigestTime: '11:00',
+      personalTodoRetention: 'delete_when_done',
+      personalTodoRemindersEnabled: true,
+    });
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: actor.id },
+      data: {
+        personalTodoRetention: 'delete_when_done',
+      },
+    });
+  });
+
+  it('returns the current server-backed user config', async () => {
+    const { findUniqueUserMock, service } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      userConfigJson: JSON.stringify({
+        addTaskPanels: {
+          'project-1': true,
+        },
+        collapsedGroups: {},
+        filters: {
+          assigneeUserIds: ['user-2'],
+          groupBy: 'status',
+          sortBy: ['priority'],
+          statusFilters: ['blocked'],
+        },
+        hideDonePersonalTodos: true,
+        hideDoneTasksByProject: {
+          'project-1': true,
+        },
+        noteEditorHeights: {
+          project: 240,
+          task: 180,
+        },
+        panels: {
+          backups: false,
+          importExport: false,
+          newProject: false,
+          personalTodo: false,
+          profile: true,
+          settings: false,
+          view: true,
+        },
+        preferences: {
+          autoCollapse: false,
+          bulkActions: true,
+          fullWidth: true,
+          theme: 'forest',
+        },
+      }),
+    });
+
+    await expect(service.getUserConfig('user-1')).resolves.toEqual({
+      addTaskPanels: {
+        'project-1': true,
+      },
+      collapsedGroups: {},
+      filters: {
+        assigneeUserIds: ['user-2'],
+        groupBy: 'status',
+        sortBy: ['priority'],
+        statusFilters: ['blocked'],
+      },
+      hideDonePersonalTodos: true,
+      hideDoneTasksByProject: {
+        'project-1': true,
+      },
+      noteEditorHeights: {
+        project: 240,
+        task: 180,
+      },
+      panels: {
+        backups: false,
+        importExport: false,
+        newProject: false,
+        personalTodo: false,
+        profile: true,
+        settings: false,
+        view: true,
+      },
+      preferences: {
+        autoCollapse: false,
+        bulkActions: true,
+        fullWidth: true,
+        theme: 'forest',
+      },
+    });
+  });
+
+  it('updates the current user server-backed config', async () => {
+    const { updateUserMock, service } = createService();
+    const actor = {
+      id: 'user-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor' as const,
+    };
+
+    updateUserMock.mockResolvedValue({
+      id: actor.id,
+    });
+
+    await expect(
+      service.updateUserConfig(actor, {
+        addTaskPanels: {
+          'project-1': true,
+        },
+        collapsedGroups: {},
+        filters: {
+          assigneeUserIds: [],
+          groupBy: 'owner',
+          sortBy: [],
+          statusFilters: [],
+        },
+        hideDonePersonalTodos: false,
+        hideDoneTasksByProject: {},
+        noteEditorHeights: {
+          project: null,
+          task: null,
+        },
+        panels: {
+          backups: false,
+          importExport: false,
+          newProject: false,
+          personalTodo: false,
+          profile: true,
+          settings: false,
+          view: true,
+        },
+        preferences: {
+          autoCollapse: true,
+          bulkActions: false,
+          fullWidth: false,
+          theme: 'light',
+        },
+      }),
+    ).resolves.toEqual({
+      addTaskPanels: {
+        'project-1': true,
+      },
+      collapsedGroups: {},
+      filters: {
+        assigneeUserIds: [],
+        groupBy: 'owner',
+        sortBy: [],
+        statusFilters: [],
+      },
+      hideDonePersonalTodos: false,
+      hideDoneTasksByProject: {},
+      noteEditorHeights: {
+        project: null,
+        task: null,
+      },
+      panels: {
+        backups: false,
+        importExport: false,
+        newProject: false,
+        personalTodo: false,
+        profile: true,
+        settings: false,
+        view: true,
+      },
+      preferences: {
+        autoCollapse: true,
+        bulkActions: false,
+        fullWidth: false,
+        theme: 'light',
+      },
+    });
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: actor.id },
+      data: {
+        userConfigJson: JSON.stringify({
+          addTaskPanels: {
+            'project-1': true,
+          },
+          collapsedGroups: {},
+          filters: {
+            assigneeUserIds: [],
+            groupBy: 'owner',
+            sortBy: [],
+            statusFilters: [],
+          },
+          hideDonePersonalTodos: false,
+          hideDoneTasksByProject: {},
+          noteEditorHeights: {
+            project: null,
+            task: null,
+          },
+          panels: {
+            backups: false,
+            importExport: false,
+            newProject: false,
+            personalTodo: false,
+            profile: true,
+            settings: false,
+            view: true,
+          },
+          preferences: {
+            autoCollapse: true,
+            bulkActions: false,
+            fullWidth: false,
+            theme: 'light',
+          },
+        }),
+      },
+    });
+  });
+
+  it('resets user settings back to defaults and records an audit event', async () => {
+    const { auditEventCreateMock, updateUserMock, service } = createService();
+    const actor = {
+      id: 'user-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor' as const,
+    };
+
+    updateUserMock.mockResolvedValue({
+      id: actor.id,
+    });
+
+    await expect(service.resetUserSettings(actor)).resolves.toEqual({
+      notificationPreferences: {
+        dailyDigestEnabled: false,
+        dailyDigestTime: '11:00',
+        personalTodoRetention: 'never',
+        personalTodoRemindersEnabled: true,
+      },
+      userConfig: {
+        addTaskPanels: {},
+        collapsedGroups: {},
+        filters: {
+          assigneeUserIds: [],
+          groupBy: 'owner',
+          sortBy: [],
+          statusFilters: [],
+        },
+        hideDonePersonalTodos: false,
+        hideDoneTasksByProject: {},
+        noteEditorHeights: {
+          project: null,
+          task: null,
+        },
+        panels: {
+          backups: false,
+          importExport: false,
+          newProject: false,
+          personalTodo: false,
+          profile: false,
+          settings: false,
+          view: false,
+        },
+        preferences: {
+          autoCollapse: true,
+          bulkActions: true,
+          fullWidth: false,
+          theme: 'light',
+        },
+      },
+    });
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: actor.id },
+      data: {
+        dailyDigestEnabled: false,
+        dailyDigestTime: '11:00',
+        personalTodoRetention: 'never',
+        personalTodoRemindersEnabled: true,
+        userConfigJson: null,
+      },
+    });
+    expect(auditEventCreateMock).toHaveBeenCalledTimes(1);
+
+    const auditCall = auditEventCreateMock.mock.calls[0]?.[0] as
+      | AuditEventCreateCall[0]
+      | undefined;
+
+    expect(auditCall?.data.action).toBe('user_settings_reset');
+    expect(auditCall?.data.entityId).toBe(actor.id);
   });
 });

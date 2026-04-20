@@ -36,11 +36,16 @@ import {
   projectStatusSchema,
   roleSchema,
   taskStatusSchema,
+  workspaceUserConfigSchema,
 } from '@tavi/schemas';
 import { z } from 'zod';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
 import { PrismaService } from './prisma.service';
+import {
+  parseStoredWorkspaceUserConfig,
+  serializeWorkspaceUserConfig,
+} from './user-config';
 
 const BACKUP_FORMAT = 'tavi-backup-v1';
 const BACKUP_SETTINGS_ID = 'global';
@@ -68,7 +73,19 @@ const backupUserRecordSchema = z.object({
   id: z.string().min(1),
   name: localAccountNameSchema,
   passwordHash: z.string().min(1),
+  personalTodoRetention: z
+    .enum([
+      'never',
+      'one_month',
+      'three_months',
+      'six_months',
+      'twelve_months',
+      'delete_when_done',
+    ])
+    .optional()
+    .default('never'),
   personalTodoRemindersEnabled: z.boolean().optional().default(true),
+  userConfig: workspaceUserConfigSchema.optional(),
   updatedAt: z.string().min(1),
 });
 
@@ -945,7 +962,11 @@ export class BackupsService {
             id: user.id,
             name: user.name,
             passwordHash: user.passwordHash,
+            personalTodoRetention: user.personalTodoRetention,
             personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
+            userConfigJson: user.userConfig
+              ? serializeWorkspaceUserConfig(user.userConfig)
+              : null,
             updatedAt: new Date(user.updatedAt),
           },
         });
@@ -1512,7 +1533,11 @@ export class BackupsService {
               email: user.email,
               name: user.name,
               passwordHash: user.passwordHash,
+              personalTodoRetention: user.personalTodoRetention,
               personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
+              userConfigJson: user.userConfig
+                ? serializeWorkspaceUserConfig(user.userConfig)
+                : null,
               roleAssignment: roleAssignment
                 ? {
                     upsert: {
@@ -1536,7 +1561,11 @@ export class BackupsService {
             id: user.id,
             name: user.name,
             passwordHash: user.passwordHash,
+            personalTodoRetention: user.personalTodoRetention,
             personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
+            userConfigJson: user.userConfig
+              ? serializeWorkspaceUserConfig(user.userConfig)
+              : null,
             roleAssignment: roleAssignment
               ? {
                   create: {
@@ -1915,7 +1944,9 @@ export class BackupsService {
           id: user.id,
           name: user.name,
           passwordHash: user.passwordHash,
+          personalTodoRetention: user.personalTodoRetention,
           personalTodoRemindersEnabled: user.personalTodoRemindersEnabled,
+          userConfig: parseStoredWorkspaceUserConfig(user.userConfigJson),
           updatedAt: user.updatedAt.toISOString(),
         })),
       },

@@ -11,18 +11,18 @@ Most launcher cards and audit cards are whole-card click targets. If a card open
 
 ## User Profile
 
-| Section       | Setting                                              | What it changes                                                                                   |
-| ------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Account       | Name / Email                                         | Updates the current signed-in local account                                                       |
-| Account       | Current password + Change password + Repeat password | Lets the current signed-in local account rotate its password                                      |
-| Browser-local | Theme                                                | Cycles through the Light, Sepia, Spring, Ocean, Forest, Autumn, and Night workspace themes        |
-| Browser-local | Auto Collapse                                        | Expands one project at a time by collapsing the rest automatically                                |
-| Browser-local | Bulk Actions                                         | Shows task selection checkboxes and the bulk action bar                                           |
-| Browser-local | Full Width                                           | Lets the workspace use the full browser width                                                     |
+| Section       | Setting                                              | What it changes                                                                                                                          |
+| ------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Account       | Name / Email                                         | Updates the current signed-in local account                                                                                              |
+| Account       | Current password + Change password + Repeat password | Lets the current signed-in local account rotate its password                                                                             |
+| User-specific | Theme                                                | Cycles through the Light, Sepia, Spring, Ocean, Forest, Autumn, and Night workspace themes and syncs across browsers after login         |
+| User-specific | Auto Collapse                                        | Expands one project at a time by collapsing the rest automatically                                                                       |
+| User-specific | Bulk Actions                                         | Shows task selection checkboxes and the bulk action bar                                                                                  |
+| User-specific | Full Width                                           | Lets the workspace use the full browser width                                                                                            |
 | User-specific | Daily Digest                                         | Sets the current user's digest time in browser-local time, saves it in UTC, and replaces immediate non-admin work emails with one digest |
-| Browser-local | Clear Local Storage                                  | Removes only tavi-owned browser preferences after confirmation                                    |
-| Browser-local | User History                                         | Opens the login and auth event history for the current signed-in identity                         |
-| User tool     | Import/Export                                        | Opens the dedicated import and export panel for non-admin users                                   |
+| User-specific | Reset all user settings                              | Resets the current user's synced settings and clears the cached browser copy after confirmation                                          |
+| User-specific | User History                                         | Opens the login and auth event history for the current signed-in identity                                                                |
+| User tool     | Import/Export                                        | Opens the dedicated import and export panel for non-admin users                                                                          |
 
 Saving profile edits closes the panel after the update is accepted.
 
@@ -36,7 +36,7 @@ Saving profile edits closes the panel after the update is accepted.
 | Admin-only | Import/Export       | Opens the dedicated import and export panel                                |
 | Admin-only | Local Accounts      | Opens the local-auth management panel                                      |
 | Admin-only | Audit Logins        | Opens system-wide sign-in audit history                                    |
-| Admin-only | Audit Notifications | Opens system-wide outbound notification and email delivery history          |
+| Admin-only | Audit Notifications | Opens system-wide outbound notification and email delivery history         |
 | Admin-only | Audit Changes       | Opens system-wide change audit history                                     |
 | Meta       | Version             | Shows the current app version and repository link                          |
 
@@ -59,9 +59,9 @@ Behavior depends on role:
 2. Non-admins use `User Profile` for their own name, email, and password changes instead.
 3. Users who are locked out of local auth can use the login-screen `Forgot password` flow after one failed sign-in attempt to receive a one-time password by email and set a new password without opening `User Profile` first.
 
-## Clear Local Storage
+## Reset all user settings
 
-`Clear Local Storage` removes only tavi browser state, including:
+`Reset all user settings` restores the current user's personal settings to defaults on the server and then clears the cached tavi copy in the current browser. That includes:
 
 1. Theme
 2. Auto Collapse
@@ -70,8 +70,10 @@ Behavior depends on role:
 5. Panel open or closed state
 6. Per-project `Add Task` visibility
 7. Per-project and personal `hide done` toggles
+8. Per-user daily digest settings
+9. Personal ToDo reminder and retention settings
 
-It does not delete projects, tasks, imports, backups, or accounts.
+It does not delete projects, tasks, imports, backups, accounts, or saved views.
 
 ## Related panels launched from Settings
 
@@ -82,9 +84,9 @@ It does not delete projects, tasks, imports, backups, or accounts.
 
 ## Non-obvious behavior
 
-1. Saved views are not the same as browser-local settings. Resetting local storage does not delete saved views from the server.
+1. Saved views are not the same as personal settings. Resetting user settings does not delete saved views from the server.
 2. `User History` is for the current user identity, not a full system-wide audit report.
 3. `Daily Digest` applies only to non-admin notification emails. Administrative account emails still send immediately when global email is enabled, and password-reset emails still send whenever SMTP is configured even if `Email Notifications` is off.
 4. Admin-only email controls do not force users into digest mode or pick a send time for them. Each user chooses whether non-admin notifications arrive immediately or in the daily digest and saves their own digest time.
 5. New users default to digest off and a stored UTC digest time of `11:00`, which corresponds to `5:00 AM` CST.
-5. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its local `hide done` preference is still cleared by `Clear Local Storage`.
+6. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its `hide done` preference is still reset by `Reset all user settings`.

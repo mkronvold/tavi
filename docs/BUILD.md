@@ -114,4 +114,4 @@ export TAVI_HOME_URL="https://your-preview-host.example.com"
 | API calls fail                    | Confirm `tavi-api` is healthy and port `4000` is free                                                                              |
 | Imports do not progress           | Confirm `tavi-worker` is running                                                                                                   |
 | Login hint is gone                | The default accounts were changed; use the current admin account or reset defaults from [`LOCAL_ACCOUNTS.md`](./LOCAL_ACCOUNTS.md) |
-| Layout feels wrong after a change | Use `Settings -> Clear Local Storage` to reset browser-only preferences                                                            |
+| Layout feels wrong after a change | Use `Settings -> Reset all user settings` to restore your synced preferences to defaults and clear the browser cache               |

@@ -1,5 +1,6 @@
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import { PersonalTodosService } from './personal-todos.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsService } from './projects.service';
 import { SavedViewsService } from './saved-views.service';
@@ -15,6 +16,7 @@ describe('WorkspaceService', () => {
 
   const createService = () => {
     const findUsersMock = jest.fn();
+    const findCurrentUserMock = jest.fn();
     const findProjectsMock = jest.fn();
     const countProjectsMock = jest.fn();
     const deleteProjectsMock = jest.fn();
@@ -39,6 +41,7 @@ describe('WorkspaceService', () => {
       ),
     );
     const listSavedViewsMock = jest.fn();
+    const pruneCompletedPersonalTodosForUserMock = jest.fn();
     const requireAdminAccessMock = jest.fn();
     const reauthenticateCurrentUserMock = jest.fn();
     const recordAuditMock = jest.fn();
@@ -47,6 +50,7 @@ describe('WorkspaceService', () => {
       $transaction: transactionMock,
       user: {
         findMany: findUsersMock,
+        findUnique: findCurrentUserMock,
       },
       project: {
         findMany: findProjectsMock,
@@ -69,6 +73,10 @@ describe('WorkspaceService', () => {
     const projectsService = {
       recalculateProject: recalculateProjectMock,
     } as unknown as ProjectsService;
+    const personalTodosService = {
+      pruneCompletedPersonalTodosForUser:
+        pruneCompletedPersonalTodosForUserMock,
+    } as unknown as PersonalTodosService;
 
     return {
       mocks: {
@@ -80,8 +88,10 @@ describe('WorkspaceService', () => {
         findEmailSettingsMock,
         findPersonalTodosMock,
         findProjectsMock,
+        findCurrentUserMock,
         findUsersMock,
         listSavedViewsMock,
+        pruneCompletedPersonalTodosForUserMock,
         reauthenticateCurrentUserMock,
         recordAuditMock,
         recalculateProjectMock,
@@ -93,6 +103,7 @@ describe('WorkspaceService', () => {
         authService,
         projectsService,
         savedViewsService,
+        personalTodosService,
       ),
     };
   };
@@ -137,6 +148,16 @@ describe('WorkspaceService', () => {
     mocks.findEmailSettingsMock.mockResolvedValue({
       dragHandlesEnabled: false,
     });
+    mocks.findCurrentUserMock.mockResolvedValue({
+      userConfigJson: JSON.stringify({
+        preferences: {
+          autoCollapse: false,
+          bulkActions: true,
+          fullWidth: true,
+          theme: 'forest',
+        },
+      }),
+    });
     mocks.findPersonalTodosMock.mockResolvedValue([
       {
         id: 'todo-1',
@@ -154,9 +175,22 @@ describe('WorkspaceService', () => {
 
     const result = await service.getWorkspace(currentUser);
 
+    expect(mocks.pruneCompletedPersonalTodosForUserMock).toHaveBeenCalledWith(
+      currentUser.id,
+    );
     expect(result.workspaceSettings).toEqual({
       dragHandlesEnabled: false,
     });
+    expect(result.userConfig).toEqual(
+      expect.objectContaining({
+        preferences: {
+          autoCollapse: false,
+          bulkActions: true,
+          fullWidth: true,
+          theme: 'forest',
+        },
+      }),
+    );
     expect(result.projects).toEqual([
       expect.objectContaining({
         id: 'project-1',

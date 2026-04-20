@@ -18,10 +18,10 @@ Use this page to choose the right way to run Tavi.
 
 ## Which guide fits which job?
 
-| Guide           | Best for                                                                  | Builds locally? |
-| --------------- | ------------------------------------------------------------------------- | --------------- |
-| [`BUILD.md`](./BUILD.md) | Day-to-day source development                                             | Yes             |
-| [`DOCKER.md`](./DOCKER.md) | Smoke tests, demos, and running published images locally                  | No              |
+| Guide                              | Best for                                                                  | Builds locally? |
+| ---------------------------------- | ------------------------------------------------------------------------- | --------------- |
+| [`BUILD.md`](./BUILD.md)           | Day-to-day source development                                             | Yes             |
+| [`DOCKER.md`](./DOCKER.md)         | Smoke tests, demos, and running published images locally                  | No              |
 | [`KUBERNETES.md`](./KUBERNETES.md) | Choosing among the four Kubernetes deployment variants and operating them | No              |
 
 All runtime guides now include backup-directory setup so automatic backups and restore have shared storage where they run.
@@ -31,7 +31,7 @@ All runtime guides now include backup-directory setup so automatic backups and r
 Once the app is running, the most useful feature guides are:
 
 1. [`WORKSPACE.md`](./WORKSPACE.md) for daily project and task review.
-2. [`SETTINGS.md`](./SETTINGS.md) for browser-local preferences, account-specific settings, and admin controls.
+2. [`SETTINGS.md`](./SETTINGS.md) for per-user synced preferences, account-specific settings, and admin controls.
 3. [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) for the settings-launched import/export panel.
 4. [`BACKUPS.md`](./BACKUPS.md) for the settings-launched backup and restore panel.
 5. [`NOTIFICATIONS.md`](./NOTIFICATIONS.md) for project/task update emails and daily digest behavior.

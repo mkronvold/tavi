@@ -7,6 +7,7 @@ jest.mock('@tavi/schemas', () => ({
   resetPasswordWithOtpSchema: {},
   updateEmailSettingsSchema: {},
   updateNotificationPreferencesSchema: {},
+  workspaceUserConfigSchema: {},
 }));
 
 import { AuthController } from './auth.controller';
@@ -22,9 +23,51 @@ describe('AuthController', () => {
 
   const createController = () => {
     const requireAdminAccessMock = jest.fn();
+    const resetUserSettingsMock = jest.fn(() =>
+      Promise.resolve({
+        notificationPreferences: {
+          dailyDigestEnabled: false,
+          dailyDigestTime: '11:00',
+          personalTodoRemindersEnabled: true,
+          personalTodoRetention: 'never',
+        },
+        userConfig: {
+          addTaskPanels: {},
+          collapsedGroups: {},
+          filters: {
+            assigneeUserIds: [],
+            groupBy: 'owner',
+            sortBy: [],
+            statusFilters: [],
+          },
+          hideDonePersonalTodos: false,
+          hideDoneTasksByProject: {},
+          noteEditorHeights: {
+            project: null,
+            task: null,
+          },
+          panels: {
+            backups: false,
+            importExport: false,
+            newProject: false,
+            personalTodo: false,
+            profile: false,
+            settings: false,
+            view: false,
+          },
+          preferences: {
+            autoCollapse: true,
+            bulkActions: true,
+            fullWidth: false,
+            theme: 'light',
+          },
+        },
+      }),
+    );
     const sendTestEmailMock = jest.fn(() => Promise.resolve());
     const authService = {
       requireAdminAccess: requireAdminAccessMock,
+      resetUserSettings: resetUserSettingsMock,
     } as never;
     const emailService = {
       sendTestEmail: sendTestEmailMock,
@@ -33,6 +76,7 @@ describe('AuthController', () => {
     return {
       controller: new AuthController(authService, emailService),
       requireAdminAccessMock,
+      resetUserSettingsMock,
       sendTestEmailMock,
     };
   };
@@ -69,5 +113,27 @@ describe('AuthController', () => {
       },
       adminUser,
     );
+  });
+
+  it('resets the signed-in user settings through POST auth/settings/reset', async () => {
+    const { controller, resetUserSettingsMock } = createController();
+    const request = {
+      user: adminUser,
+    } as AuthenticatedRequest;
+    const resetUserSettingsHandler = Object.getOwnPropertyDescriptor(
+      AuthController.prototype,
+      'resetUserSettings',
+    )?.value as object;
+
+    expect(Reflect.getMetadata(PATH_METADATA, resetUserSettingsHandler)).toBe(
+      'settings/reset',
+    );
+    expect(Reflect.getMetadata(METHOD_METADATA, resetUserSettingsHandler)).toBe(
+      RequestMethod.POST,
+    );
+
+    await controller.resetUserSettings(request);
+
+    expect(resetUserSettingsMock).toHaveBeenCalledWith(adminUser);
   });
 });

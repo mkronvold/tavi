@@ -18,6 +18,7 @@ describe('PersonalTodosService', () => {
     const deleteMock = jest.fn();
     const findFirstMock = jest.fn();
     const findManyMock = jest.fn();
+    const findUniqueUserMock = jest.fn();
     const updateMock = jest.fn();
     const tx = {
       personalTodo: {
@@ -33,10 +34,14 @@ describe('PersonalTodosService', () => {
       $transaction: transactionMock,
       personalTodo: {
         create: createMock,
+        deleteMany: deleteManyMock,
         delete: deleteMock,
         findFirst: findFirstMock,
         findMany: findManyMock,
         update: updateMock,
+      },
+      user: {
+        findUnique: findUniqueUserMock,
       },
     } as unknown as PrismaService;
 
@@ -48,6 +53,7 @@ describe('PersonalTodosService', () => {
         deleteMock,
         findFirstMock,
         findManyMock,
+        findUniqueUserMock,
         transactionMock,
         updateMock,
       },
@@ -92,6 +98,9 @@ describe('PersonalTodosService', () => {
   it('updates completion timestamps when toggling personal todo status', async () => {
     const { mocks, service } = createService();
 
+    mocks.findUniqueUserMock.mockResolvedValue({
+      personalTodoRetention: 'never',
+    });
     mocks.findFirstMock.mockResolvedValue({
       id: 'todo-1',
       title: 'Review notes',
@@ -135,6 +144,72 @@ describe('PersonalTodosService', () => {
       status: 'done',
     });
     expect(updateData.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('deletes completed personal todos immediately when retention is delete when done', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findUniqueUserMock.mockResolvedValue({
+      personalTodoRetention: 'delete_when_done',
+    });
+    mocks.findFirstMock.mockResolvedValue({
+      id: 'todo-1',
+      title: 'Review notes',
+      userId: actor.id,
+      notes: null,
+      dueDate: null,
+      status: 'todo',
+      sortOrder: 0,
+      completedAt: null,
+      createdAt: new Date('2026-04-17T09:00:00.000Z'),
+      updatedAt: new Date('2026-04-17T09:00:00.000Z'),
+    });
+
+    const result = await service.updatePersonalTodo(
+      'todo-1',
+      {
+        status: 'done',
+      },
+      actor,
+    );
+
+    expect(mocks.deleteMock).toHaveBeenCalledWith({
+      where: { id: 'todo-1' },
+    });
+    expect(mocks.updateMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: 'todo-1',
+      status: 'done',
+    });
+    expect(result.completedAt).toBeInstanceOf(Date);
+  });
+
+  it('prunes completed personal todos using the configured retention policy', async () => {
+    const { mocks, service } = createService();
+    const expectedCutoff = new Date('2026-04-20T12:00:00.000Z');
+    expectedCutoff.setMonth(expectedCutoff.getMonth() - 3);
+
+    jest
+      .useFakeTimers()
+      .setSystemTime(new Date('2026-04-20T12:00:00.000Z').getTime());
+    mocks.findUniqueUserMock.mockResolvedValue({
+      personalTodoRetention: 'three_months',
+    });
+    mocks.deleteManyMock.mockResolvedValue({ count: 2 });
+
+    const result = await service.pruneCompletedPersonalTodosForUser(actor.id);
+
+    expect(mocks.deleteManyMock).toHaveBeenCalledWith({
+      where: {
+        completedAt: {
+          lte: expectedCutoff,
+        },
+        status: 'done',
+        userId: actor.id,
+      },
+    });
+    expect(result).toEqual({ deletedCount: 2 });
+    jest.useRealTimers();
   });
 
   it('requires the full personal todo list when reordering', async () => {

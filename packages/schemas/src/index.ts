@@ -91,6 +91,18 @@ export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export const personalTodoStatusSchema = z.enum(["todo", "done"]);
 export type PersonalTodoStatus = z.infer<typeof personalTodoStatusSchema>;
 
+export const personalTodoRetentionPolicySchema = z.enum([
+  "never",
+  "one_month",
+  "three_months",
+  "six_months",
+  "twelve_months",
+  "delete_when_done",
+]);
+export type PersonalTodoRetentionPolicy = z.infer<
+  typeof personalTodoRetentionPolicySchema
+>;
+
 export const projectStatusSchema = z.enum([
   "not_started",
   "in_progress",
@@ -121,6 +133,17 @@ export const groupBySchema = z.enum([
   "progress",
 ]);
 export type GroupBy = z.infer<typeof groupBySchema>;
+
+export const workspaceThemeSchema = z.enum([
+  "light",
+  "sepia",
+  "spring",
+  "ocean",
+  "forest",
+  "autumn",
+  "night",
+]);
+export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
 
 export const emailAddressSchema = z
   .string()
@@ -2288,6 +2311,7 @@ export type UpdateEmailSettingsInput = z.infer<
 export const notificationPreferencesSchema = z.object({
   dailyDigestEnabled: z.boolean(),
   dailyDigestTime: dailyDigestTimeSchema,
+  personalTodoRetention: personalTodoRetentionPolicySchema,
   personalTodoRemindersEnabled: z.boolean(),
 });
 export type NotificationPreferences = z.infer<
@@ -2298,12 +2322,14 @@ export const updateNotificationPreferencesSchema = z
   .object({
     dailyDigestEnabled: z.boolean().optional(),
     dailyDigestTime: dailyDigestTimeSchema.optional(),
+    personalTodoRetention: personalTodoRetentionPolicySchema.optional(),
     personalTodoRemindersEnabled: z.boolean().optional(),
   })
   .refine(
     (value) =>
       value.dailyDigestEnabled !== undefined ||
       value.dailyDigestTime !== undefined ||
+      value.personalTodoRetention !== undefined ||
       value.personalTodoRemindersEnabled !== undefined,
     {
       message: "At least one notification preference must be provided.",
@@ -2311,6 +2337,72 @@ export const updateNotificationPreferencesSchema = z
   );
 export type UpdateNotificationPreferencesInput = z.infer<
   typeof updateNotificationPreferencesSchema
+>;
+
+const workspacePanelStateSchema = z.object({
+  backups: z.boolean(),
+  importExport: z.boolean(),
+  newProject: z.boolean(),
+  personalTodo: z.boolean(),
+  profile: z.boolean(),
+  settings: z.boolean(),
+  view: z.boolean(),
+});
+export type WorkspacePanelState = z.infer<typeof workspacePanelStateSchema>;
+
+export const workspacePreferencesSchema = z.object({
+  autoCollapse: z.boolean(),
+  bulkActions: z.boolean(),
+  fullWidth: z.boolean(),
+  theme: workspaceThemeSchema,
+});
+export type WorkspacePreferences = z.infer<typeof workspacePreferencesSchema>;
+
+export const workspaceFilterStateSchema = z.object({
+  assigneeUserIds: z.array(z.string().min(1)),
+  groupBy: groupBySchema,
+  sortBy: z.array(projectSortFieldSchema),
+  statusFilters: z.array(projectStatusSchema),
+});
+export type WorkspaceFilterState = z.infer<typeof workspaceFilterStateSchema>;
+
+const workspaceBooleanSelectionSchema = z.record(z.string(), z.boolean());
+
+const workspaceCollapsedGroupsSchema = z.object({
+  none: workspaceBooleanSelectionSchema.optional(),
+  owner: workspaceBooleanSelectionSchema.optional(),
+  priority: workspaceBooleanSelectionSchema.optional(),
+  progress: workspaceBooleanSelectionSchema.optional(),
+  status: workspaceBooleanSelectionSchema.optional(),
+});
+export type WorkspaceCollapsedGroups = z.infer<
+  typeof workspaceCollapsedGroupsSchema
+>;
+
+const noteEditorHeightsSchema = z.object({
+  project: z.number().int().positive().nullable(),
+  task: z.number().int().positive().nullable(),
+});
+export type NoteEditorHeights = z.infer<typeof noteEditorHeightsSchema>;
+
+export const workspaceUserConfigSchema = z.object({
+  addTaskPanels: workspaceBooleanSelectionSchema,
+  collapsedGroups: workspaceCollapsedGroupsSchema,
+  filters: workspaceFilterStateSchema,
+  hideDonePersonalTodos: z.boolean(),
+  hideDoneTasksByProject: workspaceBooleanSelectionSchema,
+  noteEditorHeights: noteEditorHeightsSchema,
+  panels: workspacePanelStateSchema,
+  preferences: workspacePreferencesSchema,
+});
+export type WorkspaceUserConfig = z.infer<typeof workspaceUserConfigSchema>;
+
+export const resetUserSettingsResponseSchema = z.object({
+  notificationPreferences: notificationPreferencesSchema,
+  userConfig: workspaceUserConfigSchema,
+});
+export type ResetUserSettingsResponse = z.infer<
+  typeof resetUserSettingsResponseSchema
 >;
 
 export const smtpStatusSchema = z.object({

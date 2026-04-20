@@ -213,6 +213,37 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
       updatedAt: new Date().toISOString(),
     },
   ],
+  userConfig: {
+    addTaskPanels: {},
+    collapsedGroups: {},
+    filters: {
+      assigneeUserIds: [],
+      groupBy: "owner",
+      sortBy: [],
+      statusFilters: [],
+    },
+    hideDonePersonalTodos: false,
+    hideDoneTasksByProject: {},
+    noteEditorHeights: {
+      project: null,
+      task: null,
+    },
+    panels: {
+      backups: false,
+      importExport: false,
+      newProject: false,
+      personalTodo: false,
+      profile: false,
+      settings: false,
+      view: false,
+    },
+    preferences: {
+      autoCollapse: true,
+      bulkActions: true,
+      fullWidth: false,
+      theme: "light",
+    },
+  },
   workspaceSettings: {
     dragHandlesEnabled: true,
   },
@@ -408,11 +439,19 @@ const createNotificationPreferencesPayload = (
   overrides: Partial<{
     dailyDigestEnabled: boolean;
     dailyDigestTime: string;
+    personalTodoRetention:
+      | "never"
+      | "one_month"
+      | "three_months"
+      | "six_months"
+      | "twelve_months"
+      | "delete_when_done";
     personalTodoRemindersEnabled: boolean;
   }> = {},
 ) => ({
   dailyDigestEnabled: false,
   dailyDigestTime: "11:00",
+  personalTodoRetention: "never",
   personalTodoRemindersEnabled: true,
   ...overrides,
 });
@@ -3031,6 +3070,71 @@ describe("App", () => {
     expect(digestTimeInput).toHaveValue(localDigestTime);
   });
 
+  it("updates personal todo retention from the user profile", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let notificationPreferencesRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/auth/notification/preferences") &&
+          init?.method === "PUT"
+        ) {
+          notificationPreferencesRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse(
+            createNotificationPreferencesPayload({
+              personalTodoRetention: "delete_when_done",
+            }),
+          );
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(createNotificationPreferencesPayload());
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+
+    const retentionSelect = await waitFor(() =>
+      screen.getByLabelText("Personal todo retention"),
+    );
+
+    expect(retentionSelect).toHaveValue("never");
+
+    fireEvent.change(retentionSelect, {
+      target: { value: "delete_when_done" },
+    });
+
+    await waitFor(() => {
+      expect(notificationPreferencesRequestBody).toBe(
+        JSON.stringify({ personalTodoRetention: "delete_when_done" }),
+      );
+      expect(retentionSelect).toHaveValue("delete_when_done");
+      expect(
+        screen.getByText(
+          "Completed items are removed as soon as you mark them done.",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("hides admin settings from non-admins", async () => {
     vi.stubGlobal(
       "fetch",
@@ -4887,12 +4991,33 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("clears only tavi-owned local storage keys from settings", async () => {
+  it("resets server-backed user settings and clears only tavi-owned browser cache", async () => {
     const confirmMock = vi.fn(() => true);
+    const resetResponse = {
+      notificationPreferences: createNotificationPreferencesPayload(),
+      userConfig: createWorkspacePayload().userConfig,
+    };
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => createResponse(createWorkspacePayload())),
+      vi.fn(async (input) => {
+        const url = typeof input === "string" ? input : input.url;
+
+        if (url.endsWith("/auth/settings/reset")) {
+          return createResponse(resetResponse);
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(
+            createNotificationPreferencesPayload({
+              dailyDigestEnabled: true,
+              personalTodoRetention: "delete_when_done",
+            }),
+          );
+        }
+
+        return createResponse(createWorkspacePayload());
+      }),
     );
     vi.stubGlobal("confirm", confirmMock);
     window.localStorage.setItem("unrelated", "keep");
@@ -4918,26 +5043,110 @@ describe("App", () => {
       expect(
         localStorage.getItem("tavi.workspace.projectAddTask"),
       ).not.toBeNull();
-      expect(screen.getByText("Clear Local Storage")).toBeInTheDocument();
+      expect(screen.getByText("Reset all user settings")).toBeInTheDocument();
     });
 
-    const clearLocalStorageCard = screen
-      .getByText("Clear Local Storage")
+    const resetUserSettingsCard = screen
+      .getByText("Reset all user settings")
       .closest(".settings-item");
 
-    expect(clearLocalStorageCard).not.toBeNull();
-    fireEvent.click(clearLocalStorageCard as HTMLElement);
+    expect(resetUserSettingsCard).not.toBeNull();
+    fireEvent.click(resetUserSettingsCard as HTMLElement);
 
     await waitFor(() => {
       expect(confirmMock).toHaveBeenCalledWith(
-        "Clear all Tavi browser-local preferences stored in this browser?",
+        "Reset all server-backed and browser-cached user settings for this account to their defaults?",
       );
       expect(localStorage.getItem("unrelated")).toBe("keep");
       expect(localStorage.getItem("tavi.workspace.panels")).toBeNull();
       expect(localStorage.getItem("tavi.workspace.projectAddTask")).toBeNull();
       expect(
-        screen.getByText(/Cleared 2 Tavi browser-local preferences/i),
+        screen.getByText(
+          /Reset all user settings to defaults and cleared 2 cached Tavi preferences/i,
+        ),
       ).toBeInTheDocument();
+    });
+  });
+
+  it("hydrates server-backed user config into browser cache and syncs changes back", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const userConfigRequests: unknown[] = [];
+
+    workspacePayload.userConfig = {
+      ...workspacePayload.userConfig,
+      panels: {
+        ...workspacePayload.userConfig.panels,
+        view: true,
+      },
+      preferences: {
+        autoCollapse: false,
+        bulkActions: false,
+        fullWidth: true,
+        theme: "forest",
+      },
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+
+        if (url.endsWith("/auth/user-config")) {
+          const payload = JSON.parse(String(init?.body ?? "{}"));
+
+          userConfigRequests.push(payload);
+          return createResponse(payload);
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(createNotificationPreferencesPayload());
+        }
+
+        return createResponse(workspacePayload);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(localStorage.getItem("tavi.workspace.preferences") ?? "{}"),
+      ).toEqual({
+        autoCollapse: false,
+        bulkActions: false,
+        fullWidth: true,
+        theme: "forest",
+      });
+      expect(
+        JSON.parse(localStorage.getItem("tavi.workspace.panels") ?? "{}"),
+      ).toEqual({ view: true });
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "Add Task" }),
+    );
+
+    await waitFor(() => {
+      expect(userConfigRequests).toContainEqual(
+        expect.objectContaining({
+          addTaskPanels: {
+            "project-1": true,
+          },
+          preferences: {
+            autoCollapse: false,
+            bulkActions: false,
+            fullWidth: true,
+            theme: "forest",
+          },
+        }),
+      );
     });
   });
 

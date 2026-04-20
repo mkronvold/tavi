@@ -107,8 +107,8 @@ Browser
 
 - Serves the React application
 - Reads session state from the API
-- Stores reusable workspace state in saved views and browser-local Tavi storage
-- Stores panel toggle state, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, per-project Add Task expansion, and Personal ToDo `hide done` visibility in browser-local Tavi storage
+- Stores reusable workspace state in saved views and per-user config mirrored into browser-local Tavi storage
+- Stores panel toggle state, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, per-project Add Task expansion, and Personal ToDo `hide done` visibility in per-user config mirrored into browser-local Tavi storage
 - Reads deployment-specific browser entry URLs such as the temporary header home link from a small runtime config file so Docker and Kubernetes can override them without rebuilding the app
 
 ### API
@@ -318,9 +318,9 @@ OpenAPI generation is recommended so the API contract remains explicit.
 
 - Server state comes from TanStack Query.
 - Local state stores expanded rows, transient editing state, and active inline editors.
-- Browser-local Tavi storage persists grouping, task filters, panel toggles, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, and other local-only UI preferences.
+- Server-backed per-user config, mirrored into browser-local Tavi storage after login, persists grouping, task filters, panel toggles, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, and other personal UI preferences.
 - Saved views persist reusable workspace configurations.
-- Saved views intentionally do not persist local panel toggles or other browser-only preferences.
+- Saved views intentionally do not persist per-user panel toggles or other personal UI preferences.
 
 ### UI Composition
 

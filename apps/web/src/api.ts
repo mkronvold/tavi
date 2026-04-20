@@ -59,11 +59,13 @@ import type {
   RenameSavedViewPayload,
   ResetWorkspaceExamplesPayload,
   ResetWorkspaceExamplesResponse,
+  ResetUserSettingsResponse,
   SavedView,
   SavedViewPayload,
   SuccessResponse,
   UpdateBackupSettingsPayload,
   UpdateRetentionSettingsPayload,
+  WorkspaceUserConfig,
   UploadBackupFileInput,
   WorkspaceResponse,
   PreviewBackupRestorePayload,
@@ -240,6 +242,17 @@ export const sendTestEmail = () =>
 
 export const logout = () =>
   request("/auth/logout", {
+    method: "POST",
+  });
+
+export const updateUserConfig = (payload: WorkspaceUserConfig) =>
+  request<WorkspaceUserConfig>("/auth/user-config", {
+    method: "PUT",
+    body: payload,
+  });
+
+export const resetUserSettings = () =>
+  request<ResetUserSettingsResponse>("/auth/settings/reset", {
     method: "POST",
   });
 

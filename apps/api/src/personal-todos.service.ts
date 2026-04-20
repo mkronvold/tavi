@@ -6,6 +6,7 @@ import {
 import type {
   CreatePersonalTodoInput,
   ImportPersonalTodosInput,
+  PersonalTodoRetentionPolicy,
   ReorderPersonalTodosInput,
   UpdatePersonalTodoInput,
 } from '@tavi/schemas';
@@ -18,6 +19,7 @@ type PersonalTodoTransactionClient = Pick<
   Prisma.TransactionClient,
   'personalTodo'
 >;
+const DEFAULT_PERSONAL_TODO_RETENTION: PersonalTodoRetentionPolicy = 'never';
 
 @Injectable()
 export class PersonalTodosService {
@@ -46,6 +48,29 @@ export class PersonalTodosService {
       actor.id,
     );
     const nextStatus = input.status ?? existingTodo.status;
+    const personalTodoRetention =
+      nextStatus === 'done'
+        ? await this.readPersonalTodoRetention(actor.id)
+        : DEFAULT_PERSONAL_TODO_RETENTION;
+
+    if (
+      input.status === 'done' &&
+      existingTodo.status !== 'done' &&
+      personalTodoRetention === 'delete_when_done'
+    ) {
+      const completedAt = existingTodo.completedAt ?? new Date();
+
+      await this.prisma.personalTodo.delete({
+        where: { id: todoId },
+      });
+
+      return {
+        ...existingTodo,
+        completedAt,
+        status: 'done' as const,
+        updatedAt: new Date(),
+      };
+    }
 
     return this.prisma.personalTodo.update({
       where: { id: todoId },
@@ -68,6 +93,34 @@ export class PersonalTodosService {
           : {}),
       },
     });
+  }
+
+  async pruneCompletedPersonalTodosForUser(userId: string) {
+    const retention = await this.readPersonalTodoRetention(userId);
+
+    if (retention === 'never') {
+      return { deletedCount: 0 };
+    }
+
+    const deleteWhere =
+      retention === 'delete_when_done'
+        ? {
+            status: 'done' as const,
+            userId,
+          }
+        : {
+            completedAt: {
+              lte: getRetentionCutoff(retention),
+            },
+            status: 'done' as const,
+            userId,
+          };
+
+    const result = await this.prisma.personalTodo.deleteMany({
+      where: deleteWhere,
+    });
+
+    return { deletedCount: result.count };
   }
 
   async deletePersonalTodo(todoId: string, actor: SessionUser) {
@@ -171,6 +224,17 @@ export class PersonalTodosService {
       importedCount: input.personalTodos.length,
     };
   }
+
+  private async readPersonalTodoRetention(
+    userId: string,
+  ): Promise<PersonalTodoRetentionPolicy> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { personalTodoRetention: true },
+    });
+
+    return user?.personalTodoRetention ?? DEFAULT_PERSONAL_TODO_RETENTION;
+  }
 }
 
 async function requireOwnedPersonalTodo(
@@ -212,4 +276,28 @@ function toOptionalDate(value?: string | null) {
 function normalizeOptionalNotes(value?: string | null) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function getRetentionCutoff(retention: PersonalTodoRetentionPolicy) {
+  const now = new Date();
+
+  switch (retention) {
+    case 'one_month':
+      return subtractMonths(now, 1);
+    case 'three_months':
+      return subtractMonths(now, 3);
+    case 'six_months':
+      return subtractMonths(now, 6);
+    case 'twelve_months':
+      return subtractMonths(now, 12);
+    case 'never':
+    case 'delete_when_done':
+      return now;
+  }
+}
+
+function subtractMonths(value: Date, months: number) {
+  const result = new Date(value);
+  result.setMonth(result.getMonth() - months);
+  return result;
 }

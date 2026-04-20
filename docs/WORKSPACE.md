@@ -4,17 +4,17 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 
 ## Main controls
 
-| Control | What it does |
-| --- | --- |
-| Search | Narrows the visible workspace so you can focus on matching projects and tasks |
-| Group by | Regroups projects by `None`, `Owner`, `Status`, or `Priority` |
-| Sort by | Orders projects by one or more fields including `Title`, `Progress`, `Priority`, `Due Date`, `Age`, and `Last Updated` |
-| Status | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects |
-| Assignee | Multi-select task filter for one or more assignees |
-| View | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state |
-| Personal ToDo | Opens the current user's private personal task panel without changing the shared workspace list |
-| New Project | Opens the inline project-creation panel |
-| Settings | Opens browser-local preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
+| Control       | What it does                                                                                                                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Search        | Narrows the visible workspace so you can focus on matching projects and tasks                                                                            |
+| Group by      | Regroups projects by `None`, `Owner`, `Status`, or `Priority`                                                                                            |
+| Sort by       | Orders projects by one or more fields including `Title`, `Progress`, `Priority`, `Due Date`, `Age`, and `Last Updated`                                   |
+| Status        | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects         |
+| Assignee      | Multi-select task filter for one or more assignees                                                                                                       |
+| View          | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state                    |
+| Personal ToDo | Opens the current user's private personal task panel without changing the shared workspace list                                                          |
+| New Project   | Opens the inline project-creation panel                                                                                                                  |
+| Settings      | Opens per-user synced preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
 
 ## Working with project rows
 
@@ -100,8 +100,8 @@ Once enabled:
 
 1. A project can show both a manual override and the task-derived status. The override changes the display status, but the underlying derived rollup is still tracked.
 2. `Status` filters whole projects by project display status. `Assignee` filters task rows inside the remaining visible projects.
-3. `Group by`, `Sort by`, `Status`, and `Assignee` selections are stored in browser-local Tavi storage and can also be captured in a saved view.
-4. `Add Task` visibility is stored in the browser, not in a saved view.
+3. `Group by`, `Sort by`, `Status`, and `Assignee` selections are stored in per-user synced config and can also be captured in a saved view.
+4. `Add Task` visibility is stored in per-user synced config, not in a saved view.
 5. Auto-collapse behavior is controlled from [`SETTINGS.md`](./SETTINGS.md), not from the workspace row actions.
 6. Viewer users can browse and search the workspace, cannot edit shared projects or tasks, and can still use `Personal ToDo`.
 7. Project and task delete actions ask for confirmation before the workspace removes them.

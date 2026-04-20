@@ -86,8 +86,8 @@ Milestone 4A scope:
 - Team/shared views are deferred.
 - Visible columns, density, and other future display settings are deferred.
 
-Panel toggle state for View, Import/Export, New Project, Settings, and per-project Add Task is browser-local UI state and is not part of saved views.
-Theme choice, Auto Collapse, Bulk Actions visibility, and Full Width are also browser-local preferences and are not part of saved views.
+Panel toggle state for View, Import/Export, New Project, Settings, and per-project Add Task is per-user synced UI state and is not part of saved views.
+Theme choice, Auto Collapse, Bulk Actions visibility, and Full Width are also per-user synced preferences and are not part of saved views.
 
 ### Import Job
 

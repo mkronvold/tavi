@@ -1,4 +1,10 @@
-import { type DragEvent as ReactDragEvent, type FormEvent, useMemo, useRef, useState } from "react";
+import {
+  type DragEvent as ReactDragEvent,
+  type FormEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { appName, appVersion } from "@tavi/config";
 import { importPersonalTodosSchema } from "@tavi/schemas";
@@ -57,8 +63,8 @@ export function PersonalTodoPanel({
 }: PersonalTodoPanelProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [createDraft, setCreateDraft] = useState<PersonalTodoDraft>(
-    () => createEmptyPersonalTodoDraft(),
+  const [createDraft, setCreateDraft] = useState<PersonalTodoDraft>(() =>
+    createEmptyPersonalTodoDraft(),
   );
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PersonalTodoDraft>(
@@ -66,8 +72,12 @@ export function PersonalTodoPanel({
   );
   const [panelError, setPanelError] = useState<string | null>(null);
   const [remindersError, setRemindersError] = useState<string | null>(null);
-  const [dragState, setDragState] = useState<PersonalTodoDragState | null>(null);
-  const doneTodoCount = personalTodos.filter((todo) => todo.status === "done").length;
+  const [dragState, setDragState] = useState<PersonalTodoDragState | null>(
+    null,
+  );
+  const doneTodoCount = personalTodos.filter(
+    (todo) => todo.status === "done",
+  ).length;
   const visibleTodos = useMemo(
     () =>
       hideDoneTodos
@@ -101,7 +111,12 @@ export function PersonalTodoPanel({
             variables.dailyDigestEnabled ??
             current?.dailyDigestEnabled ??
             false,
-          dailyDigestTime: variables.dailyDigestTime ?? current?.dailyDigestTime ?? "11:00",
+          dailyDigestTime:
+            variables.dailyDigestTime ?? current?.dailyDigestTime ?? "11:00",
+          personalTodoRetention:
+            variables.personalTodoRetention ??
+            current?.personalTodoRetention ??
+            "never",
           personalTodoRemindersEnabled:
             variables.personalTodoRemindersEnabled ??
             current?.personalTodoRemindersEnabled ??
@@ -140,7 +155,9 @@ export function PersonalTodoPanel({
     },
     onError: (error) => {
       setPanelError(
-        error instanceof ApiError ? error.message : "Unable to add personal to do.",
+        error instanceof ApiError
+          ? error.message
+          : "Unable to add personal to do.",
       );
     },
   });
@@ -168,12 +185,8 @@ export function PersonalTodoPanel({
   });
 
   const deletePersonalTodoMutation = useMutation({
-    mutationFn: ({
-      todoId,
-    }: {
-      title: string;
-      todoId: string;
-    }) => deletePersonalTodo(todoId),
+    mutationFn: ({ todoId }: { title: string; todoId: string }) =>
+      deletePersonalTodo(todoId),
     onSuccess: async (_result, variables) => {
       if (editingTodoId === variables.todoId) {
         setEditingTodoId(null);
@@ -195,7 +208,9 @@ export function PersonalTodoPanel({
     mutationFn: reorderPersonalTodos,
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: ["workspace"] });
-      const previous = queryClient.getQueryData<WorkspaceResponse>(["workspace"]);
+      const previous = queryClient.getQueryData<WorkspaceResponse>([
+        "workspace",
+      ]);
 
       queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
         reorderWorkspacePersonalTodos(current, variables.todoIds),
@@ -316,7 +331,11 @@ export function PersonalTodoPanel({
       const raw = JSON.parse(await file.text()) as {
         personalTodos?: unknown;
       };
-      if (typeof raw !== "object" || raw === null || !("personalTodos" in raw)) {
+      if (
+        typeof raw !== "object" ||
+        raw === null ||
+        !("personalTodos" in raw)
+      ) {
         throw new Error("Import file must include a personalTodos array.");
       }
 
@@ -392,7 +411,9 @@ export function PersonalTodoPanel({
             ref={fileInputRef}
             accept="application/json"
             className="hidden-file-input"
-            onChange={(event) => void handleImportFile(event.target.files?.[0] ?? null)}
+            onChange={(event) =>
+              void handleImportFile(event.target.files?.[0] ?? null)
+            }
             type="file"
           />
         </div>
@@ -453,10 +474,7 @@ export function PersonalTodoPanel({
             }))
           }
         />
-        <button
-          type="submit"
-          disabled={createPersonalTodoMutation.isPending}
-        >
+        <button type="submit" disabled={createPersonalTodoMutation.isPending}>
           {createPersonalTodoMutation.isPending ? "Adding..." : "Add"}
         </button>
       </form>
@@ -482,7 +500,11 @@ export function PersonalTodoPanel({
                   }
                   aria-pressed={hideDoneTodos}
                   onClick={() => onHideDoneChange(!hideDoneTodos)}
-                  title={hideDoneTodos ? "Show done personal to dos" : "Hide done personal to dos"}
+                  title={
+                    hideDoneTodos
+                      ? "Show done personal to dos"
+                      : "Hide done personal to dos"
+                  }
                 >
                   D
                 </button>
@@ -603,13 +625,19 @@ export function PersonalTodoPanel({
                 return (
                   <tr
                     key={todo.id}
-                    className={[
-                      isDragging ? "task-row--dragging" : null,
-                      reorderIndicator === "before" ? "task-row--drop-before" : null,
-                      reorderIndicator === "after" ? "task-row--drop-after" : null,
-                    ]
-                      .filter((value): value is string => Boolean(value))
-                      .join(" ") || undefined}
+                    className={
+                      [
+                        isDragging ? "task-row--dragging" : null,
+                        reorderIndicator === "before"
+                          ? "task-row--drop-before"
+                          : null,
+                        reorderIndicator === "after"
+                          ? "task-row--drop-after"
+                          : null,
+                      ]
+                        .filter((value): value is string => Boolean(value))
+                        .join(" ") || undefined
+                    }
                     onDragOver={(event) => {
                       if (!canReorderTodos) {
                         return;
@@ -641,7 +669,9 @@ export function PersonalTodoPanel({
                         readDropPosition(event),
                       );
 
-                      reorderPersonalTodosMutation.mutate({ todoIds: nextTodoIds });
+                      reorderPersonalTodosMutation.mutate({
+                        todoIds: nextTodoIds,
+                      });
                     }}
                   >
                     <td className="task-reorder-cell">
