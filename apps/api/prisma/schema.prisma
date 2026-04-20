@@ -132,6 +132,7 @@ model User {
   passwordResetOtpHash       String?
   passwordResetOtpExpiresAt  DateTime?
   dailyDigestEnabled         Boolean               @default(false)
+  dailyDigestTime            String                @default("11:00")
   personalTodoRemindersEnabled Boolean             @default(true)
   roleAssignment             RoleAssignment?
   ownedProjects              Project[]             @relation("ProjectOwner")
@@ -325,7 +326,6 @@ model AuditLogRetention {
 model EmailSettings {
   id                 String   @id @default("global")
   enabled            Boolean  @default(true)
-  dailyDigestTime    String   @default("09:00")
   dragHandlesEnabled Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

@@ -42,6 +42,7 @@ import { PrismaService } from './prisma.service';
 const BACKUP_FORMAT = 'tavi-backup-v1';
 const BACKUP_SETTINGS_ID = 'global';
 const DEFAULT_BACKUP_SCHEDULE_TIME = '02:00';
+const DEFAULT_DAILY_DIGEST_TIME = '11:00';
 
 function buildBackupFileName(now: Date) {
   const compact = now
@@ -54,6 +55,7 @@ function buildBackupFileName(now: Date) {
 const backupUserRecordSchema = z.object({
   createdAt: z.string().min(1),
   dailyDigestEnabled: z.boolean(),
+  dailyDigestTime: z.string().min(1).optional(),
   email: emailAddressSchema,
   id: z.string().min(1),
   name: localAccountNameSchema,
@@ -198,11 +200,11 @@ const backupAuditLogRetentionRecordSchema = z.object({
 
 const backupEmailSettingsRecordSchema = z.object({
   createdAt: z.string().min(1),
-  dailyDigestTime: z.string().min(1),
   dragHandlesEnabled: z.boolean(),
   enabled: z.boolean(),
   id: z.string().min(1),
   updatedAt: z.string().min(1),
+  dailyDigestTime: z.string().min(1).optional(),
 });
 
 const backupSettingsRecordSchema = z.object({
@@ -341,6 +343,17 @@ function sanitizeBackupFileName(fileName: string) {
 
 function toDateOrNull(value: string | null) {
   return value ? new Date(value) : null;
+}
+
+function readBackupUserDailyDigestTime(
+  user: BackupUserRecord,
+  snapshot: BackupSnapshot,
+) {
+  return (
+    user.dailyDigestTime ??
+    snapshot.data.emailSettings?.dailyDigestTime ??
+    DEFAULT_DAILY_DIGEST_TIME
+  );
 }
 
 function toJsonValue(value: unknown): Prisma.InputJsonValue {
@@ -758,6 +771,7 @@ export class BackupsService {
           data: {
             createdAt: new Date(user.createdAt),
             dailyDigestEnabled: user.dailyDigestEnabled,
+            dailyDigestTime: readBackupUserDailyDigestTime(user, snapshot),
             email: user.email,
             id: user.id,
             name: user.name,
@@ -946,7 +960,6 @@ export class BackupsService {
         await tx.emailSettings.create({
           data: {
             createdAt: new Date(snapshot.data.emailSettings.createdAt),
-            dailyDigestTime: snapshot.data.emailSettings.dailyDigestTime,
             dragHandlesEnabled: snapshot.data.emailSettings.dragHandlesEnabled,
             enabled: snapshot.data.emailSettings.enabled,
             id: snapshot.data.emailSettings.id,
@@ -1304,6 +1317,7 @@ export class BackupsService {
             where: { id: existingUser.id },
             data: {
               dailyDigestEnabled: user.dailyDigestEnabled,
+              dailyDigestTime: readBackupUserDailyDigestTime(user, snapshot),
               email: user.email,
               name: user.name,
               passwordHash: user.passwordHash,
@@ -1326,6 +1340,7 @@ export class BackupsService {
           data: {
             createdAt: new Date(user.createdAt),
             dailyDigestEnabled: user.dailyDigestEnabled,
+            dailyDigestTime: readBackupUserDailyDigestTime(user, snapshot),
             email: user.email,
             id: user.id,
             name: user.name,
@@ -1546,7 +1561,6 @@ export class BackupsService {
         emailSettings: emailSettings
           ? {
               createdAt: emailSettings.createdAt.toISOString(),
-              dailyDigestTime: emailSettings.dailyDigestTime,
               dragHandlesEnabled: emailSettings.dragHandlesEnabled,
               enabled: emailSettings.enabled,
               id: emailSettings.id,
@@ -1682,6 +1696,7 @@ export class BackupsService {
         users: users.map((user) => ({
           createdAt: user.createdAt.toISOString(),
           dailyDigestEnabled: user.dailyDigestEnabled,
+          dailyDigestTime: user.dailyDigestTime,
           email: user.email,
           id: user.id,
           name: user.name,

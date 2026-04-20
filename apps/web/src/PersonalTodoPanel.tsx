@@ -101,7 +101,7 @@ export function PersonalTodoPanel({
             variables.dailyDigestEnabled ??
             current?.dailyDigestEnabled ??
             false,
-          dailyDigestTime: current?.dailyDigestTime ?? "09:00",
+          dailyDigestTime: variables.dailyDigestTime ?? current?.dailyDigestTime ?? "11:00",
           personalTodoRemindersEnabled:
             variables.personalTodoRemindersEnabled ??
             current?.personalTodoRemindersEnabled ??

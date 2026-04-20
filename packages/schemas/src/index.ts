@@ -677,20 +677,106 @@ export const auditChangesQuerySchema = z.object({
   action: z.string().trim().min(1).max(80).optional(),
   actorUserId: z.string().min(1).optional(),
   fromDate: auditDateSchema.optional(),
+  fromDateTime: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(5_000).default(250),
   search: z.string().trim().max(250).default(""),
   toDate: auditDateSchema.optional(),
+  toDateTime: z.string().datetime().optional(),
 });
 export type AuditChangesQuery = z.infer<typeof auditChangesQuerySchema>;
 
 export const auditLoginsQuerySchema = z.object({
   actorUserId: z.string().min(1).optional(),
   fromDate: auditDateSchema.optional(),
+  fromDateTime: z.string().datetime().optional(),
   limit: z.coerce.number().int().min(1).max(5_000).default(250),
   search: z.string().trim().max(250).default(""),
   toDate: auditDateSchema.optional(),
+  toDateTime: z.string().datetime().optional(),
 });
 export type AuditLoginsQuery = z.infer<typeof auditLoginsQuerySchema>;
+
+export const emailAuditStatusSchema = z.enum([
+  "queued",
+  "processing",
+  "sent",
+  "skipped",
+  "failed",
+]);
+export type EmailAuditStatus = z.infer<typeof emailAuditStatusSchema>;
+
+export const emailAuditSourceSchema = z.enum([
+  "notification",
+  "account_update",
+  "password_email",
+  "password_reset",
+  "test_email",
+]);
+export type EmailAuditSource = z.infer<typeof emailAuditSourceSchema>;
+
+export const auditEmailsQuerySchema = z.object({
+  fromDate: auditDateSchema.optional(),
+  fromDateTime: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(5_000).default(250),
+  search: z.string().trim().max(250).default(""),
+  status: emailAuditStatusSchema.optional(),
+  toDate: auditDateSchema.optional(),
+  toDateTime: z.string().datetime().optional(),
+  userId: z.string().min(1).optional(),
+});
+export type AuditEmailsQuery = z.infer<typeof auditEmailsQuerySchema>;
+
+export const emailAuditActorSchema = z.object({
+  id: z.string().nullable(),
+  email: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  role: roleSchema,
+});
+export type EmailAuditActor = z.infer<typeof emailAuditActorSchema>;
+
+export const emailAuditRecipientSchema = z.object({
+  id: z.string().nullable(),
+  email: z.string().trim().min(1),
+  name: z.string().trim().min(1).nullable(),
+});
+export type EmailAuditRecipient = z.infer<typeof emailAuditRecipientSchema>;
+
+export const emailAuditStepSchema = z.object({
+  attemptNumber: z.number().int().positive().nullable(),
+  createdAt: z.string().datetime(),
+  detail: z.string().trim().min(1).nullable(),
+  host: z.string().trim().min(1).nullable(),
+  id: z.string().min(1),
+  nextAttemptAt: z.string().datetime().nullable(),
+  response: z.string().trim().min(1).nullable(),
+  status: emailAuditStatusSchema,
+  title: z.string().trim().min(1),
+});
+export type EmailAuditStep = z.infer<typeof emailAuditStepSchema>;
+
+export const emailAuditEventSchema = z.object({
+  action: z.string().trim().min(1),
+  actor: emailAuditActorSchema.nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  entityId: z.string().nullable(),
+  entityType: auditEntityTypeSchema.nullable(),
+  error: z.string().nullable(),
+  failedAt: z.string().datetime().nullable(),
+  id: z.string().min(1),
+  kind: z.string().trim().min(1).nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  nextAttemptAt: z.string().datetime().nullable(),
+  recipient: emailAuditRecipientSchema,
+  response: z.string().trim().min(1).nullable(),
+  sentAt: z.string().datetime().nullable(),
+  skippedAt: z.string().datetime().nullable(),
+  source: emailAuditSourceSchema,
+  status: emailAuditStatusSchema,
+  steps: z.array(emailAuditStepSchema),
+  subject: z.string().trim().min(1).nullable(),
+});
+export type EmailAuditEvent = z.infer<typeof emailAuditEventSchema>;
 
 export const auditLogRetentionPolicySchema = z.object({
   olderThan: auditLogRetentionWindowSchema.nullable(),
@@ -2092,14 +2178,12 @@ export const dailyDigestTimeSchema = timeOfDaySchema;
 
 export const emailSettingsSchema = z.object({
   enabled: z.boolean(),
-  dailyDigestTime: dailyDigestTimeSchema,
   dragHandlesEnabled: z.boolean(),
 });
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
 export const updateEmailSettingsSchema = z.object({
   enabled: z.boolean(),
-  dailyDigestTime: dailyDigestTimeSchema,
   dragHandlesEnabled: z.boolean(),
 });
 export type UpdateEmailSettingsInput = z.infer<
@@ -2118,11 +2202,13 @@ export type NotificationPreferences = z.infer<
 export const updateNotificationPreferencesSchema = z
   .object({
     dailyDigestEnabled: z.boolean().optional(),
+    dailyDigestTime: dailyDigestTimeSchema.optional(),
     personalTodoRemindersEnabled: z.boolean().optional(),
   })
   .refine(
     (value) =>
       value.dailyDigestEnabled !== undefined ||
+      value.dailyDigestTime !== undefined ||
       value.personalTodoRemindersEnabled !== undefined,
     {
       message: "At least one notification preference must be provided.",
@@ -2139,7 +2225,6 @@ export const smtpStatusSchema = z.object({
   port: z.number().int().nullable(),
   secure: z.boolean(),
   fromAddress: z.string(),
-  dailyDigestTime: dailyDigestTimeSchema,
   dragHandlesEnabled: z.boolean(),
 });
 export type SmtpStatus = z.infer<typeof smtpStatusSchema>;

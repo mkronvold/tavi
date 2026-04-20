@@ -26,7 +26,7 @@ import { PrismaService } from './prisma.service';
 const SESSION_COOKIE = 'tavi_session';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 const LOCAL_AUTH_MODE = 'local';
-const DEFAULT_DAILY_DIGEST_TIME = '09:00';
+const DEFAULT_DAILY_DIGEST_TIME = '11:00';
 const PASSWORD_RESET_OTP_TTL_MINUTES = 10;
 const PASSWORD_RESET_OTP_TTL_MS = PASSWORD_RESET_OTP_TTL_MINUTES * 60 * 1000;
 type AuditWriteClient = PrismaService | Prisma.TransactionClient;
@@ -200,11 +200,22 @@ export class AuthService {
       },
     });
 
+    const auditActor = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.roleAssignment.role,
+    } as const;
+
     try {
       await this.emailService.sendPasswordResetOtpEmail(
         { email: user.email, name: user.name },
         oneTimePassword,
         passwordResetOtpExpiresAt,
+        {
+          actor: auditActor,
+          entityId: user.id,
+        },
       );
     } catch (error) {
       await this.clearPasswordResetOtp(user.id);
@@ -212,12 +223,7 @@ export class AuthService {
     }
 
     await this.recordAudit(
-      {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.roleAssignment.role,
-      },
+      auditActor,
       'auth',
       user.id,
       'password_reset_requested',
@@ -373,26 +379,18 @@ export class AuthService {
   async getNotificationPreferences(
     userId: string,
   ): Promise<NotificationPreferences> {
-    const [user, emailSettings] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          dailyDigestEnabled: true,
-          personalTodoRemindersEnabled: true,
-        },
-      }),
-      this.prisma.emailSettings.findUnique({
-        where: { id: 'global' },
-        select: {
-          dailyDigestTime: true,
-        },
-      }),
-    ]);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        dailyDigestEnabled: true,
+        dailyDigestTime: true,
+        personalTodoRemindersEnabled: true,
+      },
+    });
 
     return {
       dailyDigestEnabled: user?.dailyDigestEnabled ?? false,
-      dailyDigestTime:
-        emailSettings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
+      dailyDigestTime: user?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
       personalTodoRemindersEnabled: user?.personalTodoRemindersEnabled ?? true,
     };
   }
@@ -406,6 +404,9 @@ export class AuthService {
       data: {
         ...(input.dailyDigestEnabled !== undefined
           ? { dailyDigestEnabled: input.dailyDigestEnabled }
+          : {}),
+        ...(input.dailyDigestTime !== undefined
+          ? { dailyDigestTime: input.dailyDigestTime }
           : {}),
         ...(input.personalTodoRemindersEnabled !== undefined
           ? {
@@ -423,6 +424,9 @@ export class AuthService {
       {
         ...(input.dailyDigestEnabled !== undefined
           ? { dailyDigestEnabled: input.dailyDigestEnabled }
+          : {}),
+        ...(input.dailyDigestTime !== undefined
+          ? { dailyDigestTime: input.dailyDigestTime }
           : {}),
         ...(input.personalTodoRemindersEnabled !== undefined
           ? {

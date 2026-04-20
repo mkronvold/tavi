@@ -5,8 +5,8 @@ Tavi supports immediate project and task update emails, an optional daily digest
 ## Global rules
 
 1. Outbound email must be enabled by an admin.
-2. The admin-configured daily digest time is shared across users.
-3. Each user can choose whether non-admin notifications arrive immediately or in the daily digest.
+2. Each user chooses whether non-admin notifications arrive immediately or in the daily digest.
+3. Each user saves their own digest time from `User Profile`; the UI shows browser-local time and the API stores UTC.
 4. Administrative account emails are separate from these project and task work-tracking notifications.
 
 ## Where to configure it
@@ -16,13 +16,14 @@ Tavi supports immediate project and task update emails, an optional daily digest
 Open `Settings` to manage:
 
 1. `Email Notifications` for the global outbound email on/off switch.
-2. `Daily Digest Time` for the shared digest send time.
+2. `Audit Notifications` to inspect notification delivery history and test-email flows.
 
 ### Any user
 
 Open `User Profile` from the signed-in user name to manage:
 
 1. `Daily Digest` to choose digest delivery instead of immediate non-admin update emails.
+2. The digest send time beside that toggle, shown in local browser time and saved in UTC when you click `Save`.
 
 ## Immediate update recipients
 
@@ -45,7 +46,7 @@ They now include:
 
 ## Daily digest behavior
 
-When a user enables `Daily Digest`, non-admin work-notification emails are batched into one digest sent at the shared admin-configured time.
+When a user enables `Daily Digest`, non-admin work-notification emails are batched into one digest sent at that user's saved digest time.
 
 Use digest mode when you want:
 
@@ -53,6 +54,15 @@ Use digest mode when you want:
 2. A single review summary each day.
 
 Keep digest mode off when you want immediate update emails instead.
+
+Digest mode replaces immediate emails for:
+
+1. Project updates
+2. Task updates
+3. Assignments and unassignments
+4. Task due-date notifications for shared work
+
+Administrative account emails still send immediately and are not batched into the digest.
 
 ## Personal ToDo reminders
 
@@ -79,6 +89,6 @@ Use the `Enable reminders` switch at the top of the `Personal ToDo` panel to tur
 ## Non-obvious behavior
 
 1. A user can enable daily digest only for themselves; admins do not force digest mode for everyone.
-2. The shared digest time is configured once by an admin, but each user independently chooses digest on or off.
+2. The stored default digest time is `11:00` UTC, which is `5:00 AM` CST, and digest starts off by default for each user.
 3. If global email is disabled, neither immediate update emails nor daily digests are sent.
 4. Personal ToDo reminder emails also depend on the global email switch, but they are not batched into the daily digest.

@@ -12,7 +12,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { AuditHistoryEvent, WorkspaceResponse } from "./types";
+import type {
+  AuditHistoryEvent,
+  EmailAuditEvent,
+  WorkspaceResponse,
+} from "./types";
 
 const originalScrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
   HTMLElement.prototype,
@@ -28,7 +32,6 @@ const createResponse = (payload: unknown, status = 200) =>
 const createSmtpStatusPayload = (
   overrides: Partial<{
     configured: boolean;
-    dailyDigestTime: string;
     dragHandlesEnabled: boolean;
     enabled: boolean;
     fromAddress: string;
@@ -38,7 +41,6 @@ const createSmtpStatusPayload = (
   }> = {},
 ) => ({
   configured: true,
-  dailyDigestTime: "09:00",
   dragHandlesEnabled: true,
   enabled: true,
   fromAddress: "noreply@tavi.local",
@@ -52,6 +54,20 @@ const formatExpectedCalendarDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { timeZone: "UTC" }).format(
     new Date(value),
   );
+
+const toLocalTimeInputFromUtc = (value: string) => {
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+  const date = new Date();
+  date.setUTCHours(hours ?? 0, minutes ?? 0, 0, 0);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+};
+
+const toUtcTimeInputFromLocal = (value: string) => {
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+  const date = new Date();
+  date.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+  return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+};
 
 const createWorkspacePayload = (): WorkspaceResponse => ({
   currentUser: {
@@ -368,7 +384,7 @@ const createNotificationPreferencesPayload = (
   }> = {},
 ) => ({
   dailyDigestEnabled: false,
-  dailyDigestTime: "09:00",
+  dailyDigestTime: "11:00",
   personalTodoRemindersEnabled: true,
   ...overrides,
 });
@@ -2549,7 +2565,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -2709,11 +2725,7 @@ describe("App", () => {
         }
 
         if (url.endsWith("/auth/email/status")) {
-          return createResponse(
-            createSmtpStatusPayload({
-              dailyDigestTime: "14:30",
-            }),
-          );
+          return createResponse(createSmtpStatusPayload());
         }
 
         if (url.endsWith("/auth/notification/preferences")) {
@@ -2728,7 +2740,6 @@ describe("App", () => {
             typeof init.body === "string" ? init.body : null;
           return createResponse(
             createSmtpStatusPayload({
-              dailyDigestTime: "14:30",
               enabled: false,
             }),
           );
@@ -2763,7 +2774,6 @@ describe("App", () => {
     await waitFor(() => {
       expect(emailSettingsRequestBody).toBe(
         JSON.stringify({
-          dailyDigestTime: "14:30",
           dragHandlesEnabled: true,
           enabled: false,
         }),
@@ -2792,7 +2802,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -2840,7 +2850,6 @@ describe("App", () => {
     await waitFor(() => {
       expect(emailSettingsRequestBody).toBe(
         JSON.stringify({
-          dailyDigestTime: "09:00",
           dragHandlesEnabled: false,
           enabled: true,
         }),
@@ -2920,6 +2929,80 @@ describe("App", () => {
     });
   });
 
+  it("saves the daily digest time in UTC while showing browser-local time", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const initialUtcDigestTime = "11:00";
+    const savedUtcDigestTime = "14:30";
+    const localDigestTime = toLocalTimeInputFromUtc(savedUtcDigestTime);
+    let notificationPreferencesRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/auth/notification/preferences") &&
+          init?.method === "PUT"
+        ) {
+          notificationPreferencesRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse(
+            createNotificationPreferencesPayload({
+              dailyDigestEnabled: false,
+              dailyDigestTime: savedUtcDigestTime,
+            }),
+          );
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(
+            createNotificationPreferencesPayload({
+              dailyDigestEnabled: false,
+              dailyDigestTime: initialUtcDigestTime,
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+
+    const digestTimeInput = await waitFor(() =>
+      screen.getByLabelText("Daily digest time"),
+    );
+
+    expect(digestTimeInput).toHaveValue(
+      toLocalTimeInputFromUtc(initialUtcDigestTime),
+    );
+
+    fireEvent.change(digestTimeInput, {
+      target: { value: localDigestTime },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(notificationPreferencesRequestBody).toBe(
+        JSON.stringify({
+          dailyDigestTime: toUtcTimeInputFromLocal(localDigestTime),
+        }),
+      );
+    });
+    expect(digestTimeInput).toHaveValue(localDigestTime);
+  });
+
   it("hides admin settings from non-admins", async () => {
     vi.stubGlobal(
       "fetch",
@@ -2929,7 +3012,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -2967,7 +3050,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -2990,12 +3073,12 @@ describe("App", () => {
     expect(settingsItems).not.toHaveLength(0);
     expect(settingsItems).toHaveLength(8);
     expect(settingsItems[0]?.textContent).toContain("Email Notifications");
-    expect(settingsItems[1]?.textContent).toContain("Daily Digest Time");
-    expect(settingsItems[2]?.textContent).toContain("Task Drag Handles");
-    expect(settingsItems[3]?.textContent).toContain("Backups");
-    expect(settingsItems[4]?.textContent).toContain("Import/Export");
-    expect(settingsItems[5]?.textContent).toContain("Local Accounts");
-    expect(settingsItems[6]?.textContent).toContain("Audit logins");
+    expect(settingsItems[1]?.textContent).toContain("Task Drag Handles");
+    expect(settingsItems[2]?.textContent).toContain("Backups");
+    expect(settingsItems[3]?.textContent).toContain("Import/Export");
+    expect(settingsItems[4]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[5]?.textContent).toContain("Audit logins");
+    expect(settingsItems[6]?.textContent).toContain("Audit notifications");
     expect(settingsItems[7]?.textContent).toContain("Audit changes");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
@@ -3024,7 +3107,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -3215,7 +3298,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -3239,9 +3322,13 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByText("User Profile")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
       expect(
         screen.getByPlaceholderText("Current password"),
+      ).toBeInTheDocument();
+      expect(
+        within(
+          screen.getByPlaceholderText("Current password").closest("form")!,
+        ).getByRole("button", { name: "Save" }),
       ).toBeInTheDocument();
     });
   });
@@ -3262,7 +3349,7 @@ describe("App", () => {
         if (url.endsWith("/auth/notification/preferences")) {
           return createResponse({
             dailyDigestEnabled: false,
-            dailyDigestTime: "09:00",
+            dailyDigestTime: "11:00",
           });
         }
 
@@ -3320,7 +3407,11 @@ describe("App", () => {
     fireEvent.change(screen.getByDisplayValue("editor@tavi.local"), {
       target: { value: "renamed@tavi.local" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(
+      within(
+        screen.getByPlaceholderText("Current password").closest("form")!,
+      ).getByRole("button", { name: "Save" }),
+    );
 
     await waitFor(() => {
       expect(JSON.parse(updateProfileRequestBody ?? "{}")).toEqual({
@@ -4901,6 +4992,22 @@ describe("App", () => {
       ).toBeInTheDocument();
     });
     expect(
+      within(panel).getByText(/Dates and times use your local timezone \(.+\)\./),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByText(
+        new Intl.DateTimeFormat(undefined, {
+          year: "numeric",
+          month: "numeric",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        }).format(new Date("2026-02-01T08:30:00.000Z")),
+      ),
+    ).toBeInTheDocument();
+    expect(
       within(panel).getByRole("button", { name: "Purge logs" }),
     ).toBeInTheDocument();
     expect(
@@ -4932,6 +5039,8 @@ describe("App", () => {
           return (
             params.get("actorUserId") === "user-2" &&
             params.get("fromDate") === "2026-02-01" &&
+            params.get("fromDateTime") ===
+              new Date(2026, 1, 1, 0, 0, 0, 0).toISOString() &&
             params.get("search") === "viewer"
           );
         }),
@@ -4943,6 +5052,491 @@ describe("App", () => {
     await waitFor(() => {
       expect(
         screen.queryByText("Admin-only sign-in and sign-out history"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows admin audit emails with status and user filters", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const auditRequests: string[] = [];
+    const auditEvents: EmailAuditEvent[] = [
+      {
+        id: "email-event-1",
+        action: "email_password_reset_failed",
+        actor: {
+          id: "user-2",
+          email: "viewer@tavi.local",
+          name: "Tavi Viewer",
+          role: "viewer",
+        },
+        attemptCount: 1,
+        createdAt: "2026-02-05T08:30:00.000Z",
+        entityId: "user-2",
+        entityType: "auth",
+        error: "SMTP timeout",
+        failedAt: "2026-02-05T08:30:00.000Z",
+        kind: "password_reset",
+        metadata: {
+          expiresAt: "2026-02-05T08:45:00.000Z",
+        },
+        nextAttemptAt: null,
+        recipient: {
+          id: "user-2",
+          email: "viewer@tavi.local",
+          name: "Tavi Viewer",
+        },
+        response: null,
+        sentAt: null,
+        skippedAt: null,
+        source: "password_reset",
+        status: "failed",
+        steps: [
+          {
+            attemptNumber: 1,
+            createdAt: "2026-02-05T08:30:00.000Z",
+            detail: "SMTP timeout",
+            host: "10.120.64.99:25",
+            id: "step-1",
+            nextAttemptAt: null,
+            response: "554 5.7.1 blocked",
+            status: "failed",
+            title: "Host rejected password reset",
+          },
+        ],
+        subject: "Your Tavi one-time password",
+      },
+    ];
+    const testEmailRequests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method =
+        init?.method ?? (input instanceof Request ? input.method : undefined) ?? "GET";
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      if (url.endsWith("/auth/email/test") && method === "POST") {
+        testEmailRequests.push(url);
+        return createResponse({ success: true });
+      }
+
+      if (url.includes("/audit/emails")) {
+        auditRequests.push(url);
+        return createResponse(auditEvents);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const auditEmailsCard = screen
+      .getByText("Audit notifications")
+      .closest(".settings-item");
+
+    expect(auditEmailsCard).not.toBeNull();
+    fireEvent.click(auditEmailsCard as HTMLElement);
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText("Admin-only email notification delivery history")
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Tavi Viewer · viewer@tavi.local"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      within(panel).getAllByText(
+        new Intl.DateTimeFormat(undefined, {
+          year: "numeric",
+          month: "numeric",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        }).format(new Date("2026-02-05T08:30:00.000Z")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(within(panel).queryByLabelText("Log aging")).not.toBeInTheDocument();
+    expect(
+      within(panel).queryByRole("button", { name: "Purge logs" }),
+    ).not.toBeInTheDocument();
+    expect(within(panel).getByText("password reset")).toBeInTheDocument();
+    expect(within(panel).getByText("failed")).toBeInTheDocument();
+    expect(
+      within(panel).queryByText(/Host rejected password reset/i),
+    ).not.toBeInTheDocument();
+
+    const toggleButton = within(panel).getByRole("button", {
+      name: "Expand password reset notification flow",
+    });
+    fireEvent.click(toggleButton);
+
+    await waitFor(() => {
+      expect(
+        within(panel).getByText(/Host rejected password reset/i),
+      ).toBeInTheDocument();
+    });
+    expect(toggleButton).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Test email" }));
+
+    await waitFor(() => {
+      expect(testEmailRequests).toEqual(["/api/auth/email/test"]);
+    });
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Test email sent to editor@tavi.local."),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(panel).getByLabelText("User"), {
+      target: { value: "user-2" },
+    });
+    fireEvent.change(within(panel).getByLabelText("Status"), {
+      target: { value: "failed" },
+    });
+    fireEvent.change(within(panel).getByLabelText("Search"), {
+      target: { value: "viewer" },
+    });
+
+    await waitFor(() => {
+      expect(
+        auditRequests.some((requestUrl) => {
+          const params = new URL(requestUrl, "http://localhost").searchParams;
+
+          return (
+            params.get("userId") === "user-2" &&
+            params.get("status") === "failed" &&
+            params.get("search") === "viewer"
+          );
+        }),
+      ).toBe(true);
+    });
+
+    fireEvent.click(auditEmailsCard as HTMLElement);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Admin-only email notification delivery history"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("renders legacy audit email payloads without crashing", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const legacyAuditEvents = [
+      {
+        id: "legacy-email-1",
+        action: "email_password_reset_failed",
+        attemptCount: 1,
+        createdAt: "2026-02-05T08:30:00.000Z",
+        entityId: "user-2",
+        entityType: "auth",
+        error: "SMTP timeout",
+        failedAt: "2026-02-05T08:30:00.000Z",
+        kind: "password_reset",
+        metadata: {
+          expiresAt: "2026-02-05T08:45:00.000Z",
+        },
+        recipient: {
+          email: "viewer@tavi.local",
+          id: "user-2",
+          name: "Tavi Viewer",
+        },
+        source: "password_reset",
+        status: "failed",
+        subject: "Your Tavi one-time password",
+      },
+    ];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.includes("/audit/emails")) {
+          return createResponse(legacyAuditEvents);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const auditEmailsCard = screen
+      .getByText("Audit notifications")
+      .closest(".settings-item");
+
+    expect(auditEmailsCard).not.toBeNull();
+    fireEvent.click(auditEmailsCard as HTMLElement);
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText("Admin-only email notification delivery history")
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    await waitFor(() => {
+      expect(
+        within(panel).getByText("Tavi Viewer · viewer@tavi.local"),
+      ).toBeInTheDocument();
+    });
+    expect(within(panel).getByText("password reset")).toBeInTheDocument();
+    expect(within(panel).getByText("failed")).toBeInTheDocument();
+    expect(
+      within(panel).queryByText(/Host rejected password reset/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows actionable test email errors and refreshes the audit timeline", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const auditRequests: string[] = [];
+    const auditEvents: EmailAuditEvent[] = [];
+    const detailedError =
+      "Test email is unavailable right now. SMTP configuration error: Invalid SMTP_URL: missing host. From noreply@tavi.local. Check SMTP_URL and any required SMTP_USER/SMTP_PASS settings.";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method =
+          init?.method ?? (input instanceof Request ? input.method : undefined) ?? "GET";
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/email/test") && method === "POST") {
+          return createResponse({ message: detailedError }, 503);
+        }
+
+        if (url.includes("/audit/emails")) {
+          auditRequests.push(url);
+          return createResponse(auditEvents);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const auditEmailsCard = screen
+      .getByText("Audit notifications")
+      .closest(".settings-item");
+
+    expect(auditEmailsCard).not.toBeNull();
+    fireEvent.click(auditEmailsCard as HTMLElement);
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText("Admin-only email notification delivery history")
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Test email" }));
+
+    await waitFor(() => {
+      expect(within(panel).getByText(detailedError)).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(auditRequests.length).toBeGreaterThan(1);
+    });
+  });
+
+  it("copies notification flows without expanding them and still lets rows collapse", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    const auditEvents: EmailAuditEvent[] = [
+      {
+        action: "email_password_reset_failed",
+        actor: {
+          email: "editor@tavi.local",
+          id: "user-1",
+          name: "Tavi Editor",
+          role: "admin",
+        },
+        attemptCount: 1,
+        createdAt: "2026-02-05T08:30:00.000Z",
+        entityId: "user-2",
+        entityType: "auth",
+        error: "SMTP timeout",
+        failedAt: "2026-02-05T08:30:00.000Z",
+        id: "email-audit-copy",
+        kind: "password_reset",
+        metadata: {
+          expiresAt: "2026-02-05T08:45:00.000Z",
+          title: "Reset password for viewer",
+        },
+        nextAttemptAt: null,
+        recipient: {
+          email: "viewer@tavi.local",
+          id: "user-2",
+          name: "Tavi Viewer",
+        },
+        response: null,
+        sentAt: null,
+        skippedAt: null,
+        source: "password_reset",
+        status: "failed",
+        steps: [
+          {
+            attemptNumber: 1,
+            createdAt: "2026-02-05T08:30:00.000Z",
+            detail: "SMTP timeout",
+            host: "10.120.64.99:25",
+            id: "copy-step-1",
+            nextAttemptAt: null,
+            response: "554 5.7.1 blocked",
+            status: "failed",
+            title: "Host rejected password reset",
+          },
+        ],
+        subject: "Your Tavi one-time password",
+      },
+    ];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.includes("/audit/emails")) {
+          return createResponse(auditEvents);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: writeTextMock,
+      },
+    });
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const auditEmailsCard = screen
+      .getByText("Audit notifications")
+      .closest(".settings-item");
+
+    expect(auditEmailsCard).not.toBeNull();
+    fireEvent.click(auditEmailsCard as HTMLElement);
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText("Admin-only email notification delivery history")
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    const toggleButton = await waitFor(() =>
+      within(panel).getByRole("button", {
+        name: "Expand password reset notification flow",
+      }),
+    );
+
+    expect(
+      within(panel).queryByText(/Host rejected password reset/i),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      within(panel).getByRole("button", {
+        name: "Copy password reset notification flow",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledTimes(1);
+    });
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining("Notification: password reset"),
+    );
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining("Recipient: Tavi Viewer · viewer@tavi.local"),
+    );
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining("Timeline:"),
+    );
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining("Host rejected password reset"),
+    );
+    expect(
+      within(panel).getByText(
+        "Copied password reset notification flow for Tavi Viewer · viewer@tavi.local.",
+      ),
+    ).toBeInTheDocument();
+    expect(toggleButton).toHaveAttribute("aria-expanded", "false");
+    expect(
+      within(panel).queryByText(/Host rejected password reset/i),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(toggleButton);
+
+    await waitFor(() => {
+      expect(
+        within(panel).getByText(/Host rejected password reset/i),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(panel).getByRole("button", {
+        name: "Collapse password reset notification flow",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(panel).queryByText(/Host rejected password reset/i),
       ).not.toBeInTheDocument();
     });
   });

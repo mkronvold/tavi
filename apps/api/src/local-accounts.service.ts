@@ -432,6 +432,10 @@ export class LocalAccountsService {
       await this.emailService.sendPasswordEmail(
         { email: created.email, name: created.name },
         input.password,
+        {
+          actor,
+          entityId: created.id,
+        },
       );
     }
 
@@ -524,6 +528,10 @@ export class LocalAccountsService {
       await this.emailService.sendAccountUpdateEmail(
         { email: updated.email, name: updated.name },
         changedFields,
+        {
+          actor,
+          entityId: updated.id,
+        },
       );
 
     return {
@@ -734,6 +742,10 @@ export class LocalAccountsService {
       await this.emailService.sendPasswordEmail(
         { email: user.email, name: user.name },
         input.password,
+        {
+          actor,
+          entityId: userId,
+        },
       );
     }
   }

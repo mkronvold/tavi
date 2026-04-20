@@ -272,7 +272,7 @@ export class BackupWorker {
         emailSettings: emailSettings
           ? {
               createdAt: emailSettings.createdAt.toISOString(),
-              dailyDigestTime: emailSettings.dailyDigestTime,
+              dragHandlesEnabled: emailSettings.dragHandlesEnabled,
               enabled: emailSettings.enabled,
               id: emailSettings.id,
               updatedAt: emailSettings.updatedAt.toISOString(),
@@ -407,6 +407,7 @@ export class BackupWorker {
         users: users.map((user) => ({
           createdAt: user.createdAt.toISOString(),
           dailyDigestEnabled: user.dailyDigestEnabled,
+          dailyDigestTime: user.dailyDigestTime,
           email: user.email,
           id: user.id,
           name: user.name,

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import {
   auditChangesQuerySchema,
+  auditEmailsQuerySchema,
   auditHistoryParamsSchema,
   auditHistoryQuerySchema,
   auditLoginsQuerySchema,
@@ -69,6 +70,17 @@ export class AuditController {
   ) {
     return this.auditService.listAuditLogins(
       parseInput(auditLoginsQuerySchema, query),
+      request.user!,
+    );
+  }
+
+  @Get('emails')
+  listAuditEmails(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.auditService.listAuditEmails(
+      parseInput(auditEmailsQuerySchema, query),
       request.user!,
     );
   }

@@ -9,9 +9,15 @@ const DEFAULT_WORK_DELAY_MS = 500;
 const DEFAULT_SCHEDULE_INTERVAL_MS = 60_000;
 const DEFAULT_SMTP_URL = "smtp://10.120.64.99:25";
 const DEFAULT_SMTP_FROM = "noreply@tavi.local";
-const DEFAULT_DAILY_DIGEST_TIME = "09:00";
+const DEFAULT_DAILY_DIGEST_TIME = "11:00";
 const MAX_ATTEMPTS = 5;
 const RETRY_MINUTES = [1, 2, 5, 13, 34];
+const EMAIL_AUDIT_SYSTEM_ACTOR = {
+  actorEmail: "system@tavi.local",
+  actorName: "Tavi System",
+  actorRole: "admin" as const,
+  actorUserId: null,
+};
 
 type ScheduledNotificationKind =
   | "daily_non_admin_digest"
@@ -50,6 +56,7 @@ export class NotificationWorker {
   private readonly homeUrl: string;
   private readonly transporter: Transporter | null;
   private readonly configured: boolean;
+  private readonly smtpHostLabel: string | null;
   private lastScheduleCheckAt = 0;
 
   constructor(
@@ -69,6 +76,7 @@ export class NotificationWorker {
       const smtpUser = process.env.SMTP_USER || undefined;
       const smtpPass = process.env.SMTP_PASS || undefined;
       const { host, port, secure } = parseSmtpUrl(smtpUrl);
+      this.smtpHostLabel = `${host}:${port.toString()}`;
 
       this.transporter = createTransport({
         host,
@@ -87,6 +95,7 @@ export class NotificationWorker {
     } catch (error) {
       this.transporter = null;
       this.configured = false;
+      this.smtpHostLabel = null;
       this.observability.logger.warn("worker.notifications.transport_unavailable", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -138,7 +147,7 @@ export class NotificationWorker {
       const skipReason = await this.getSkipReason(event.kind, event.recipient);
 
       if (skipReason) {
-        await this.completeEvent(event.id, "skipped", { reason: skipReason });
+        await this.completeEvent(event, "skipped", { reason: skipReason });
         this.observability.finishJob("notification", "completed", startedAt);
         return true;
       }
@@ -150,14 +159,27 @@ export class NotificationWorker {
         recipientName: event.recipient!.name,
       });
 
-      await this.transporter!.sendMail({
+      await this.recordNotificationAuditStep({
+        attemptNumber: event.attemptCount,
+        detail: `Sending ${email.subject} to ${event.recipient!.email} via ${this.smtpHostLabel ?? "unknown host"}`,
+        event,
+        status: "processing",
+        subject: email.subject,
+        title: `Sending ${event.kind.replace(/_/g, " ")}`,
+      });
+
+      const sendResult = await this.transporter!.sendMail({
         from: this.fromAddress,
         html: email.html,
         subject: email.subject,
         to: event.recipient!.email,
       });
 
-      await this.completeEvent(event.id, "sent");
+      await this.completeEvent(event, "sent", {
+        response:
+          typeof sendResult.response === "string" ? sendResult.response : null,
+        subject: email.subject,
+      });
       this.observability.logger.info("worker.notifications.sent", {
         eventId: event.id,
         kind: event.kind,
@@ -183,29 +205,16 @@ export class NotificationWorker {
     const startedAt = this.observability.startJob("digest");
 
     try {
-      const [
-        dueReminderCount,
-        dailyTaskSummaryCount,
-        dailyProjectSummaryCount,
-        dailyDigestCount,
-      ] = await Promise.all([
+      const [dueReminderCount, dailyDigestCount] = await Promise.all([
         this.queueDueDateNotifications(new Date(now)),
-        this.queueDailyTaskSummaries(new Date(now)),
-        this.queueDailyProjectSummaries(new Date(now)),
         this.queueDailyNonAdminDigests(new Date(now)),
       ]);
 
-      const queuedCount =
-        dueReminderCount +
-        dailyTaskSummaryCount +
-        dailyProjectSummaryCount +
-        dailyDigestCount;
+      const queuedCount = dueReminderCount + dailyDigestCount;
 
       if (queuedCount > 0) {
         this.observability.logger.info("worker.notifications.scheduled", {
           dailyDigestCount,
-          dailyProjectSummaryCount,
-          dailyTaskSummaryCount,
           dueReminderCount,
           queuedCount,
         });
@@ -259,15 +268,24 @@ export class NotificationWorker {
   }
 
   private async completeEvent(
-    eventId: string,
+    event: {
+      attemptCount: number;
+      id: string;
+      kind: string;
+      payload: unknown;
+      recipient: NotificationRecipient | null;
+      recipientUserId: string | null;
+    },
     status: "sent" | "skipped",
     details: {
       reason?: string;
+      response?: string | null;
+      subject?: string;
     } = {},
   ) {
     await this.prisma.$transaction([
       this.prisma.notificationEvent.update({
-        where: { id: eventId },
+        where: { id: event.id },
         data: {
           failedAt: null,
           lastError: details.reason ?? null,
@@ -280,11 +298,27 @@ export class NotificationWorker {
       this.prisma.notificationDeliveryAttempt.create({
         data: {
           error: details.reason ?? null,
-          notificationId: eventId,
+          notificationId: event.id,
           status,
         },
       }),
     ]);
+
+    await this.recordNotificationAuditStep({
+      attemptNumber: event.attemptCount,
+      detail:
+        status === "sent"
+          ? `Host accepted delivery for ${event.recipient?.email ?? "unknown recipient"}`
+          : details.reason ?? "Notification was skipped",
+      event,
+      response: details.response ?? null,
+      status,
+      ...(details.subject !== undefined ? { subject: details.subject } : {}),
+      title:
+        status === "sent"
+          ? `Host accepted ${event.kind.replace(/_/g, " ")}`
+          : `Skipped ${event.kind.replace(/_/g, " ")}`,
+    });
   }
 
   private async failEvent(eventId: string, error: unknown) {
@@ -295,6 +329,21 @@ export class NotificationWorker {
       },
     });
     const message = error instanceof Error ? error.message : String(error);
+
+    const event = await this.prisma.notificationEvent.findUnique({
+      where: { id: eventId },
+      include: {
+        recipient: {
+          select: {
+            dailyDigestEnabled: true,
+            email: true,
+            id: true,
+            name: true,
+            personalTodoRemindersEnabled: true,
+          },
+        },
+      },
+    });
 
     if (!current || current.attemptCount >= MAX_ATTEMPTS) {
       await this.prisma.$transaction([
@@ -319,6 +368,17 @@ export class NotificationWorker {
         error: message,
         eventId,
       });
+
+      if (event) {
+        await this.recordNotificationAuditStep({
+          attemptNumber: current?.attemptCount ?? null,
+          detail: message,
+          event,
+          response: readTransportResponse(error),
+          status: "failed",
+          title: `Host rejected ${event.kind.replace(/_/g, " ")}`,
+        });
+      }
       return;
     }
 
@@ -351,12 +411,93 @@ export class NotificationWorker {
       eventId,
       nextAttemptAt,
     });
+
+    if (event) {
+      await this.recordNotificationAuditStep({
+        attemptNumber: current.attemptCount,
+        detail: message,
+        event,
+        nextAttemptAt,
+        response: readTransportResponse(error),
+        status: "failed",
+        title: `Attempt ${current.attemptCount.toString()} failed`,
+      });
+      await this.recordNotificationAuditStep({
+        attemptNumber: current.attemptCount,
+        detail: `Retry scheduled for ${nextAttemptAt.toISOString()}`,
+        event,
+        nextAttemptAt,
+        status: "queued",
+        title: "Retry scheduled",
+      });
+    }
+  }
+
+  private async recordNotificationAuditStep({
+    attemptNumber,
+    detail,
+    event,
+    nextAttemptAt,
+    response,
+    status,
+    subject,
+    title,
+  }: {
+    attemptNumber: number | null;
+    detail: string | null;
+    event: {
+      id: string;
+      kind: string;
+      payload: unknown;
+      recipient: NotificationRecipient | null;
+      recipientUserId: string | null;
+    };
+    nextAttemptAt?: Date;
+    response?: string | null;
+    status: "failed" | "processing" | "queued" | "sent" | "skipped";
+    subject?: string;
+    title: string;
+  }) {
+    const payload = toRecord(event.payload);
+    const entityType = readNotificationEntityType(event.kind, payload);
+    const entityId = readNotificationEntityId(payload);
+
+    await this.prisma.auditEvent.create({
+      data: {
+        ...EMAIL_AUDIT_SYSTEM_ACTOR,
+        action: `email_notification_${status}`,
+        entityId: entityId ?? event.id,
+        entityType,
+        metadata: {
+          ...payload,
+          attemptNumber,
+          detail,
+          emailKind: event.kind,
+          host: this.smtpHostLabel,
+          nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
+          notificationAuditId: event.id,
+          notificationEventId: event.id,
+          recipientEmail: event.recipient?.email ?? null,
+          recipientName: event.recipient?.name ?? null,
+          recipientUserId: event.recipientUserId,
+          response: response ?? null,
+          source: "notification",
+          status,
+          stepTitle: title,
+          subject: subject ?? null,
+        } satisfies Prisma.InputJsonValue,
+      },
+    });
   }
 
   private async getSkipReason(
     kind: string,
     recipient: NotificationRecipient | null,
   ) {
+    if (isLegacyDailySummaryKind(kind)) {
+      return "legacy_daily_summary_disabled";
+    }
+
     if (!recipient) {
       return "recipient_missing";
     }
@@ -372,6 +513,10 @@ export class NotificationWorker {
 
     if (settings?.enabled === false) {
       return "email_disabled";
+    }
+
+    if (kind === "daily_non_admin_digest" && !recipient.dailyDigestEnabled) {
+      return "daily_digest_disabled";
     }
 
     if (recipient.dailyDigestEnabled && shouldBatchIntoDailyDigest(kind)) {
@@ -487,151 +632,13 @@ export class NotificationWorker {
     return this.queueEvents(events);
   }
 
-  private async queueDailyTaskSummaries(now: Date) {
-    const summaryDate = formatUtcDate(now);
-    const tasks = await this.prisma.task.findMany({
-      where: {
-        archivedAt: null,
-        assigneeUserId: {
-          not: null,
-        },
-        status: {
-          notIn: ["canceled", "done"],
-        },
-      },
-      select: {
-        assigneeUserId: true,
-        dueDate: true,
-        id: true,
-        project: {
-          select: {
-            title: true,
-          },
-        },
-        status: true,
-        title: true,
-      },
-      orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
-    });
-
-    const tasksByAssignee = new Map<string, typeof tasks>();
-
-    for (const task of tasks) {
-      if (!task.assigneeUserId) {
-        continue;
-      }
-
-      const current = tasksByAssignee.get(task.assigneeUserId) ?? [];
-      current.push(task);
-      tasksByAssignee.set(task.assigneeUserId, current);
-    }
-
-    const events = [...tasksByAssignee.entries()].map(([recipientUserId, items]) => {
-      const summary = summarizeAssignedTasks(items, now);
-
-      return {
-        dedupeKey: `daily_task_summary:${recipientUserId}:${summaryDate}`,
-        kind: "daily_task_summary" as const,
-        payload: {
-          ...summary,
-          summaryDate,
-        },
-        recipientUserId,
-      };
-    });
-
-    return this.queueEvents(events);
-  }
-
-  private async queueDailyProjectSummaries(now: Date) {
-    const summaryDate = formatUtcDate(now);
-    const projects = await this.prisma.project.findMany({
-      where: {
-        archivedAt: null,
-        owner: {
-          is: {
-            dailyDigestEnabled: false,
-          },
-        },
-        ownerUserId: {
-          not: null,
-        },
-        OR: [
-          {
-            displayStatus: {
-              not: "done",
-            },
-          },
-          {
-            taskOverdueCount: {
-              gt: 0,
-            },
-          },
-        ],
-      },
-      select: {
-        displayStatus: true,
-        dueDate: true,
-        id: true,
-        ownerUserId: true,
-        taskBlockedCount: true,
-        taskDoneCount: true,
-        taskOnHoldCount: true,
-        taskOverdueCount: true,
-        taskTotalCount: true,
-        title: true,
-      },
-      orderBy: [{ updatedAt: "desc" }],
-    });
-
-    const projectsByOwner = new Map<string, typeof projects>();
-
-    for (const project of projects) {
-      if (!project.ownerUserId) {
-        continue;
-      }
-
-      const current = projectsByOwner.get(project.ownerUserId) ?? [];
-      current.push(project);
-      projectsByOwner.set(project.ownerUserId, current);
-    }
-
-    const events = [...projectsByOwner.entries()].map(([recipientUserId, items]) => {
-      const summary = summarizeOwnedProjects(items);
-
-      return {
-        dedupeKey: `daily_project_summary:${recipientUserId}:${summaryDate}`,
-        kind: "daily_project_summary" as const,
-        payload: {
-          ...summary,
-          summaryDate,
-        },
-        recipientUserId,
-      };
-    });
-
-    return this.queueEvents(events);
-  }
-
   private async queueDailyNonAdminDigests(now: Date) {
-    const settings = await this.prisma.emailSettings.findUnique({
-      where: { id: "global" },
-      select: {
-        dailyDigestTime: true,
-      },
-    });
-    const digestTime = settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME;
-    const digestWindow = getDigestWindow(now, digestTime);
-
-    if (!digestWindow) {
-      return 0;
-    }
-
     const digestUsers = await this.prisma.user.findMany({
       where: {
         dailyDigestEnabled: true,
       },
       select: {
+        dailyDigestTime: true,
         id: true,
       },
     });
@@ -640,185 +647,195 @@ export class NotificationWorker {
       return 0;
     }
 
-    const recipientUserIds = digestUsers.map((user) => user.id);
-    const [notifications, tasks, projects] = await Promise.all([
-      this.prisma.notificationEvent.findMany({
-        where: {
-          createdAt: {
-            gt: digestWindow.windowStart,
-            lte: digestWindow.windowEnd,
+    const recipientIdsByDigestTime = new Map<string, string[]>();
+
+    for (const user of digestUsers) {
+      const digestTime = user.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME;
+      const current = recipientIdsByDigestTime.get(digestTime) ?? [];
+      current.push(user.id);
+      recipientIdsByDigestTime.set(digestTime, current);
+    }
+
+    let queuedCount = 0;
+
+    for (const [digestTime, recipientUserIds] of recipientIdsByDigestTime) {
+      const digestWindow = getDigestWindow(now, digestTime);
+
+      if (!digestWindow) {
+        continue;
+      }
+
+      const [notifications, tasks, projects] = await Promise.all([
+        this.prisma.notificationEvent.findMany({
+          where: {
+            createdAt: {
+              gt: digestWindow.windowStart,
+              lte: digestWindow.windowEnd,
+            },
+            kind: {
+              notIn: [
+                "daily_non_admin_digest",
+                "daily_project_summary",
+                "daily_task_summary",
+              ],
+            },
+            recipientUserId: {
+              in: recipientUserIds,
+            },
+            status: {
+              not: "failed",
+            },
           },
-          kind: {
-            notIn: [
-              "daily_non_admin_digest",
-              "daily_project_summary",
-              "daily_task_summary",
+          orderBy: [{ createdAt: "asc" }],
+          select: {
+            createdAt: true,
+            kind: true,
+            payload: true,
+            recipientUserId: true,
+          },
+        }),
+        this.prisma.task.findMany({
+          where: {
+            archivedAt: null,
+            assigneeUserId: {
+              in: recipientUserIds,
+            },
+            status: {
+              notIn: ["canceled", "done"],
+            },
+          },
+          select: {
+            assigneeUserId: true,
+            dueDate: true,
+            id: true,
+            project: {
+              select: {
+                title: true,
+              },
+            },
+            status: true,
+            title: true,
+          },
+          orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
+        }),
+        this.prisma.project.findMany({
+          where: {
+            archivedAt: null,
+            ownerUserId: {
+              in: recipientUserIds,
+            },
+            OR: [
+              {
+                displayStatus: {
+                  not: "done",
+                },
+              },
+              {
+                taskOverdueCount: {
+                  gt: 0,
+                },
+              },
             ],
           },
-          recipientUserId: {
-            in: recipientUserIds,
+          select: {
+            displayStatus: true,
+            dueDate: true,
+            id: true,
+            ownerUserId: true,
+            taskBlockedCount: true,
+            taskDoneCount: true,
+            taskOnHoldCount: true,
+            taskOverdueCount: true,
+            taskTotalCount: true,
+            title: true,
           },
-          status: {
-            not: "failed",
-          },
-        },
-        orderBy: [{ createdAt: "asc" }],
-        select: {
-          createdAt: true,
-          kind: true,
-          payload: true,
-          recipientUserId: true,
-        },
-      }),
-      this.prisma.task.findMany({
-        where: {
-          archivedAt: null,
-          assignee: {
-            is: {
-              dailyDigestEnabled: true,
-            },
-          },
-          assigneeUserId: {
-            in: recipientUserIds,
-          },
-          status: {
-            notIn: ["canceled", "done"],
-          },
-        },
-        select: {
-          assigneeUserId: true,
-          dueDate: true,
-          id: true,
-          project: {
-            select: {
-              title: true,
-            },
-          },
-          status: true,
-          title: true,
-        },
-        orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
-      }),
-      this.prisma.project.findMany({
-        where: {
-          archivedAt: null,
-          owner: {
-            is: {
-              dailyDigestEnabled: true,
-            },
-          },
-          ownerUserId: {
-            in: recipientUserIds,
-          },
-          OR: [
-            {
-              displayStatus: {
-                not: "done",
-              },
-            },
-            {
-              taskOverdueCount: {
-                gt: 0,
-              },
-            },
-          ],
-        },
-        select: {
-          displayStatus: true,
-          dueDate: true,
-          id: true,
-          ownerUserId: true,
-          taskBlockedCount: true,
-          taskDoneCount: true,
-          taskOnHoldCount: true,
-          taskOverdueCount: true,
-          taskTotalCount: true,
-          title: true,
-        },
-        orderBy: [{ updatedAt: "desc" }],
-      }),
-    ]);
+          orderBy: [{ updatedAt: "desc" }],
+        }),
+      ]);
 
-    const notificationsByRecipient = new Map<string, typeof notifications>();
+      const notificationsByRecipient = new Map<string, typeof notifications>();
 
-    for (const notification of notifications) {
-      if (!notification.recipientUserId) {
-        continue;
+      for (const notification of notifications) {
+        if (!notification.recipientUserId) {
+          continue;
+        }
+
+        const current =
+          notificationsByRecipient.get(notification.recipientUserId) ?? [];
+        current.push(notification);
+        notificationsByRecipient.set(notification.recipientUserId, current);
       }
 
-      const current =
-        notificationsByRecipient.get(notification.recipientUserId) ?? [];
-      current.push(notification);
-      notificationsByRecipient.set(notification.recipientUserId, current);
+      const tasksByAssignee = new Map<string, typeof tasks>();
+
+      for (const task of tasks) {
+        if (!task.assigneeUserId) {
+          continue;
+        }
+
+        const current = tasksByAssignee.get(task.assigneeUserId) ?? [];
+        current.push(task);
+        tasksByAssignee.set(task.assigneeUserId, current);
+      }
+
+      const projectsByOwner = new Map<string, typeof projects>();
+
+      for (const project of projects) {
+        if (!project.ownerUserId) {
+          continue;
+        }
+
+        const current = projectsByOwner.get(project.ownerUserId) ?? [];
+        current.push(project);
+        projectsByOwner.set(project.ownerUserId, current);
+      }
+
+      const events = recipientUserIds.flatMap((recipientUserId) => {
+        const digestNotifications =
+          notificationsByRecipient.get(recipientUserId) ?? [];
+        const taskSummaryItems = tasksByAssignee.get(recipientUserId) ?? [];
+        const projectSummaryItems = projectsByOwner.get(recipientUserId) ?? [];
+
+        if (
+          digestNotifications.length === 0 &&
+          taskSummaryItems.length === 0 &&
+          projectSummaryItems.length === 0
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            dedupeKey: `daily_non_admin_digest:${recipientUserId}:${digestWindow.summaryDate}`,
+            kind: "daily_non_admin_digest" as const,
+            payload: {
+              itemCount: digestNotifications.length,
+              items: digestNotifications.map((notification) => ({
+                createdAt: notification.createdAt.toISOString(),
+                kind: notification.kind,
+                payload: toRecord(notification.payload),
+              })),
+              projectSummary:
+                projectSummaryItems.length > 0
+                  ? summarizeOwnedProjects(projectSummaryItems)
+                  : null,
+              summaryDate: digestWindow.summaryDate,
+              taskSummary:
+                taskSummaryItems.length > 0
+                  ? summarizeAssignedTasks(taskSummaryItems, now)
+                  : null,
+              windowEnd: digestWindow.windowEnd.toISOString(),
+              windowStart: digestWindow.windowStart.toISOString(),
+            },
+            recipientUserId,
+          },
+        ];
+      });
+
+      queuedCount += await this.queueEvents(events);
     }
 
-    const tasksByAssignee = new Map<string, typeof tasks>();
-
-    for (const task of tasks) {
-      if (!task.assigneeUserId) {
-        continue;
-      }
-
-      const current = tasksByAssignee.get(task.assigneeUserId) ?? [];
-      current.push(task);
-      tasksByAssignee.set(task.assigneeUserId, current);
-    }
-
-    const projectsByOwner = new Map<string, typeof projects>();
-
-    for (const project of projects) {
-      if (!project.ownerUserId) {
-        continue;
-      }
-
-      const current = projectsByOwner.get(project.ownerUserId) ?? [];
-      current.push(project);
-      projectsByOwner.set(project.ownerUserId, current);
-    }
-
-    const events = recipientUserIds.flatMap((recipientUserId) => {
-      const digestNotifications =
-        notificationsByRecipient.get(recipientUserId) ?? [];
-      const taskSummaryItems = tasksByAssignee.get(recipientUserId) ?? [];
-      const projectSummaryItems = projectsByOwner.get(recipientUserId) ?? [];
-
-      if (
-        digestNotifications.length === 0 &&
-        taskSummaryItems.length === 0 &&
-        projectSummaryItems.length === 0
-      ) {
-        return [];
-      }
-
-      return [
-        {
-          dedupeKey: `daily_non_admin_digest:${recipientUserId}:${digestWindow.summaryDate}`,
-          kind: "daily_non_admin_digest" as const,
-          payload: {
-            itemCount: digestNotifications.length,
-            items: digestNotifications.map((notification) => ({
-              createdAt: notification.createdAt.toISOString(),
-              kind: notification.kind,
-              payload: toRecord(notification.payload),
-            })),
-            projectSummary:
-              projectSummaryItems.length > 0
-                ? summarizeOwnedProjects(projectSummaryItems)
-                : null,
-            summaryDate: digestWindow.summaryDate,
-            taskSummary:
-              taskSummaryItems.length > 0
-                ? summarizeAssignedTasks(taskSummaryItems, now)
-                : null,
-            windowEnd: digestWindow.windowEnd.toISOString(),
-            windowStart: digestWindow.windowStart.toISOString(),
-          },
-          recipientUserId,
-        },
-      ];
-    });
-
-    return this.queueEvents(events);
+    return queuedCount;
   }
 
   private async queueEvents(
@@ -1425,12 +1442,41 @@ function readStringArray(value: unknown) {
     : [];
 }
 
+const DAILY_DIGEST_BATCH_KINDS = new Set([
+  "daily_project_summary",
+  "daily_task_summary",
+  "project_blocked",
+  "project_on_hold",
+  "project_owner_assigned",
+  "project_owner_changed",
+  "project_owner_removed",
+  "project_resumed",
+  "project_updated",
+  "task_assigned",
+  "task_blocked",
+  "task_completed",
+  "task_due_3_days",
+  "task_due_7_days",
+  "task_due_date_added",
+  "task_due_date_changed",
+  "task_due_today",
+  "task_due_tomorrow",
+  "task_moved",
+  "task_on_hold",
+  "task_overdue",
+  "task_reopened",
+  "task_resumed",
+  "task_unassigned",
+  "task_unblocked",
+  "task_updated",
+]);
+
 function shouldBatchIntoDailyDigest(kind: string) {
-  return (
-    kind !== "daily_non_admin_digest" &&
-    !kind.startsWith("personal_todo_due_") &&
-    kind !== "personal_todo_overdue"
-  );
+  return DAILY_DIGEST_BATCH_KINDS.has(kind);
+}
+
+function isLegacyDailySummaryKind(kind: string) {
+  return kind === "daily_task_summary" || kind === "daily_project_summary";
 }
 
 function isPersonalTodoReminderKind(kind: string) {
@@ -1458,28 +1504,20 @@ function getDigestWindow(now: Date, digestTime: string) {
   const [hours, minutes] = digestTime.split(":").map((value) => Number(value));
   const windowEnd = new Date(now);
 
-  windowEnd.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+  windowEnd.setUTCHours(hours ?? 0, minutes ?? 0, 0, 0);
 
   if (now < windowEnd) {
     return null;
   }
 
   const windowStart = new Date(windowEnd);
-  windowStart.setDate(windowStart.getDate() - 1);
+  windowStart.setUTCDate(windowStart.getUTCDate() - 1);
 
   return {
-    summaryDate: formatLocalDate(windowEnd),
+    summaryDate: formatUtcDate(windowEnd),
     windowEnd,
     windowStart,
   };
-}
-
-function formatLocalDate(value: Date) {
-  return [
-    value.getFullYear(),
-    String(value.getMonth() + 1).padStart(2, "0"),
-    String(value.getDate()).padStart(2, "0"),
-  ].join("-");
 }
 
 function toNullableRecord(value: unknown) {
@@ -1492,4 +1530,40 @@ function toRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function readNotificationEntityType(
+  kind: string,
+  payload: Record<string, unknown>,
+) {
+  if (kind.startsWith("project_") || readString(payload.projectId)) {
+    return "project" as const;
+  }
+
+  if (
+    kind.startsWith("task_") ||
+    kind.startsWith("personal_todo_") ||
+    readString(payload.taskId)
+  ) {
+    return "task" as const;
+  }
+
+  return "auth" as const;
+}
+
+function readNotificationEntityId(payload: Record<string, unknown>) {
+  return readString(payload.projectId) ?? readString(payload.taskId) ?? null;
+}
+
+function readTransportResponse(error: unknown) {
+  if (
+    error &&
+    typeof error === "object" &&
+    "response" in error &&
+    typeof error.response === "string"
+  ) {
+    return error.response;
+  }
+
+  return null;
 }

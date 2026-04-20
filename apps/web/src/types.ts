@@ -36,6 +36,7 @@ import type {
 export type {
   ApplyBackupRestoreResult,
   AuditChangesQuery as AuditChangesQueryPayload,
+  AuditEmailsQuery as AuditEmailsQueryPayload,
   AuditEntityType,
   AuditLogRetentionPolicy,
   AuditLogRetentionWindow,
@@ -49,6 +50,7 @@ export type {
   DeletePersonalTodoResponse,
   DeleteProjectResponse,
   DeleteTaskResponse,
+  EmailAuditEvent,
   EmailSettings,
   ExportLocalAccountsResponse,
   ImportPersonalTodosResponse,

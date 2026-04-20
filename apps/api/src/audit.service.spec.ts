@@ -20,6 +20,7 @@ describe('AuditService', () => {
     const auditLogRetentionUpsertMock = jest.fn();
     const loggerErrorMock = jest.fn();
     const loggerLogMock = jest.fn();
+    const notificationEventFindManyMock = jest.fn();
     const projectFindFirstMock = jest.fn();
     const savedViewFindFirstMock = jest.fn();
     const taskFindFirstMock = jest.fn();
@@ -32,6 +33,9 @@ describe('AuditService', () => {
       auditLogRetention: {
         findUnique: auditLogRetentionFindUniqueMock,
         upsert: auditLogRetentionUpsertMock,
+      },
+      notificationEvent: {
+        findMany: notificationEventFindManyMock,
       },
       project: {
         findFirst: projectFindFirstMock,
@@ -60,6 +64,7 @@ describe('AuditService', () => {
         auditLogRetentionUpsertMock,
         loggerErrorMock,
         loggerLogMock,
+        notificationEventFindManyMock,
         projectFindFirstMock,
         requireAdminAccessMock,
         savedViewFindFirstMock,
@@ -264,6 +269,40 @@ describe('AuditService', () => {
     ]);
   });
 
+  it('uses explicit localized audit date-time boundaries when provided', async () => {
+    const { service, mocks } = createService();
+
+    mocks.auditEventFindManyMock.mockResolvedValue([]);
+
+    await service.listAuditChanges(
+      {
+        limit: 25,
+        search: '',
+        action: undefined,
+        actorUserId: undefined,
+        fromDate: '2026-02-01',
+        fromDateTime: '2026-02-01T06:00:00.000Z',
+        toDate: '2026-02-02',
+        toDateTime: '2026-02-03T05:59:59.999Z',
+      },
+      actor,
+    );
+
+    expect(mocks.auditEventFindManyMock).toHaveBeenCalledWith({
+      where: {
+        entityType: {
+          in: ['project', 'task'],
+        },
+        createdAt: {
+          gte: new Date('2026-02-01T06:00:00.000Z'),
+          lte: new Date('2026-02-03T05:59:59.999Z'),
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    });
+  });
+
   it('lists admin audit logins using login and logout events only', async () => {
     const { service, mocks } = createService();
 
@@ -313,6 +352,170 @@ describe('AuditService', () => {
       name: actor.name,
       role: actor.role,
     });
+  });
+
+  it('lists admin email audit entries from notifications and password resets', async () => {
+    const { service, mocks } = createService();
+
+    mocks.auditEventFindManyMock.mockResolvedValue([
+      {
+        id: 'event-reset-1',
+        entityType: 'auth',
+        entityId: 'user-2',
+        action: 'email_password_reset_failed',
+        metadata: {
+          detail: 'SMTP timeout',
+          emailKind: 'password_reset',
+          error: 'SMTP timeout',
+          host: '10.120.64.99:25',
+          recipientEmail: 'viewer@tavi.local',
+          recipientName: 'Tavi Viewer',
+          recipientUserId: 'user-2',
+          response: '554 5.7.1 blocked',
+          source: 'password_reset',
+          status: 'failed',
+          stepTitle: 'Host rejected password reset',
+          subject: 'Your Tavi one-time password',
+        },
+        createdAt: new Date('2026-02-04T09:15:00.000Z'),
+        actorUserId: 'user-2',
+        actorEmail: 'viewer@tavi.local',
+        actorName: 'Tavi Viewer',
+        actorRole: 'viewer',
+      },
+    ]);
+    mocks.notificationEventFindManyMock.mockResolvedValue([
+      {
+        id: 'notification-1',
+        recipientUserId: 'user-3',
+        recipient: {
+          id: 'user-3',
+          email: 'owner@tavi.local',
+          name: 'Tavi Owner',
+        },
+        kind: 'task_updated',
+        payload: {
+          projectId: 'project-1',
+          title: 'Kickoff',
+        },
+        status: 'sent',
+        attemptCount: 2,
+        deliveryAttempts: [],
+        lastError: null,
+        nextAttemptAt: new Date('2026-02-04T10:01:00.000Z'),
+        sentAt: new Date('2026-02-04T10:00:00.000Z'),
+        skippedAt: null,
+        failedAt: null,
+        createdAt: new Date('2026-02-04T09:45:00.000Z'),
+      },
+    ]);
+
+    const result = await service.listAuditEmails(
+      {
+        limit: 25,
+        search: 'viewer',
+        status: undefined,
+        fromDate: '2026-02-04',
+        toDate: '2026-02-04',
+        userId: undefined,
+      },
+      actor,
+    );
+
+    expect(mocks.requireAdminAccessMock).toHaveBeenCalledWith(actor);
+    expect(mocks.auditEventFindManyMock).toHaveBeenCalledWith({
+      where: {
+        action: {
+          startsWith: 'email_',
+        },
+        createdAt: {
+          gte: new Date('2026-02-04T00:00:00.000Z'),
+          lte: new Date('2026-02-04T23:59:59.999Z'),
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+    expect(mocks.notificationEventFindManyMock).toHaveBeenCalledWith({
+      where: {
+        createdAt: {
+          gte: new Date('2026-02-04T00:00:00.000Z'),
+          lte: new Date('2026-02-04T23:59:59.999Z'),
+        },
+      },
+      include: {
+        deliveryAttempts: {
+          orderBy: { createdAt: 'asc' },
+        },
+        recipient: {
+          select: {
+            email: true,
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    });
+    expect(result).toEqual([
+      {
+        id: 'event-reset-1',
+        action: 'email_password_reset_failed',
+        actor: {
+          id: 'user-2',
+          email: 'viewer@tavi.local',
+          name: 'Tavi Viewer',
+          role: 'viewer',
+        },
+        attemptCount: 1,
+        createdAt: '2026-02-04T09:15:00.000Z',
+        entityId: 'user-2',
+        entityType: 'auth',
+        error: 'SMTP timeout',
+        failedAt: '2026-02-04T09:15:00.000Z',
+        kind: 'password_reset',
+        metadata: {
+          detail: 'SMTP timeout',
+          emailKind: 'password_reset',
+          error: 'SMTP timeout',
+          host: '10.120.64.99:25',
+          recipientEmail: 'viewer@tavi.local',
+          recipientName: 'Tavi Viewer',
+          recipientUserId: 'user-2',
+          response: '554 5.7.1 blocked',
+          source: 'password_reset',
+          status: 'failed',
+          stepTitle: 'Host rejected password reset',
+          subject: 'Your Tavi one-time password',
+        },
+        nextAttemptAt: null,
+        recipient: {
+          id: 'user-2',
+          email: 'viewer@tavi.local',
+          name: 'Tavi Viewer',
+        },
+        response: '554 5.7.1 blocked',
+        sentAt: null,
+        skippedAt: null,
+        source: 'password_reset',
+        status: 'failed',
+        steps: [
+          {
+            attemptNumber: null,
+            createdAt: '2026-02-04T09:15:00.000Z',
+            detail: 'SMTP timeout',
+            host: '10.120.64.99:25',
+            id: 'event-reset-1',
+            nextAttemptAt: null,
+            response: '554 5.7.1 blocked',
+            status: 'failed',
+            title: 'Host rejected password reset',
+          },
+        ],
+        subject: 'Your Tavi one-time password',
+      },
+    ]);
   });
 
   it('returns the configured audit log retention policy for admins', async () => {

@@ -19,7 +19,7 @@ Most launcher cards and audit cards are whole-card click targets. If a card open
 | Browser-local | Auto Collapse                                        | Expands one project at a time by collapsing the rest automatically                                |
 | Browser-local | Bulk Actions                                         | Shows task selection checkboxes and the bulk action bar                                           |
 | Browser-local | Full Width                                           | Lets the workspace use the full browser width                                                     |
-| User-specific | Daily Digest                                         | Replaces immediate non-admin email notifications for the current user with one daily digest email |
+| User-specific | Daily Digest                                         | Sets the current user's digest time in browser-local time, saves it in UTC, and replaces immediate non-admin work emails with one digest |
 | Browser-local | Clear Local Storage                                  | Removes only tavi-owned browser preferences after confirmation                                    |
 | Browser-local | User History                                         | Opens the login and auth event history for the current signed-in identity                         |
 | User tool     | Import/Export                                        | Opens the dedicated import and export panel for non-admin users                                   |
@@ -31,12 +31,12 @@ Saving profile edits closes the panel after the update is accepted.
 | Section    | Setting             | What it changes                                                            |
 | ---------- | ------------------- | -------------------------------------------------------------------------- |
 | Admin-only | Email Notifications | Controls the global outbound email switch                                  |
-| Admin-only | Daily Digest Time   | Sets the shared digest send time in server local time                      |
 | Admin-only | Task Drag Handles   | Shows or hides manual task-reorder handles for every user in the workspace |
 | Admin-only | Backups             | Opens the dedicated backup and restore panel                               |
 | Admin-only | Import/Export       | Opens the dedicated import and export panel                                |
 | Admin-only | Local Accounts      | Opens the local-auth management panel                                      |
 | Admin-only | Audit Logins        | Opens system-wide sign-in audit history                                    |
+| Admin-only | Audit Notifications | Opens system-wide outbound notification and email delivery history          |
 | Admin-only | Audit Changes       | Opens system-wide change audit history                                     |
 | Meta       | Version             | Shows the current app version and repository link                          |
 
@@ -45,7 +45,7 @@ Saving profile edits closes the panel after the update is accepted.
 1. Turn on `Auto Collapse` when you want only one project open during a live review.
 2. Turn on `Bulk Actions` before doing large task cleanups.
 3. Turn on `Full Width` when project titles, notes, references, or dense task tables need more horizontal space.
-4. Turn on `Daily Digest` if you want one scheduled summary email instead of immediate task and project update emails.
+4. Turn on `Daily Digest` if you want one scheduled summary email instead of immediate task and project update, assignment, and due-date emails, then save the time shown in your browser's local timezone.
 5. Leave `Task Drag Handles` on when editors should be able to manually reorder visible task lists, or turn it off for cleaner review-only sessions.
 6. Use the `Import/Export` and `Backups` launcher cards when you need data-management tools without keeping those panels open all the time.
 
@@ -85,5 +85,6 @@ It does not delete projects, tasks, imports, backups, or accounts.
 1. Saved views are not the same as browser-local settings. Resetting local storage does not delete saved views from the server.
 2. `User History` is for the current user identity, not a full system-wide audit report.
 3. `Daily Digest` applies only to non-admin notification emails. Administrative account emails still send immediately when global email is enabled, and password-reset emails still send whenever SMTP is configured even if `Email Notifications` is off.
-4. Admin-only email controls do not force users into digest mode. Each user still chooses whether non-admin notifications arrive immediately or in the daily digest.
+4. Admin-only email controls do not force users into digest mode or pick a send time for them. Each user chooses whether non-admin notifications arrive immediately or in the daily digest and saves their own digest time.
+5. New users default to digest off and a stored UTC digest time of `11:00`, which corresponds to `5:00 AM` CST.
 5. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its local `hide done` preference is still cleared by `Clear Local Storage`.

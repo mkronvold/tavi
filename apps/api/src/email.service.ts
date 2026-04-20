@@ -3,23 +3,65 @@ import {
   ServiceUnavailableException,
   type OnModuleInit,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-import type { SmtpStatus, UpdateEmailSettingsInput } from '@tavi/schemas';
+import type {
+  AuditEntityType,
+  EmailAuditSource,
+  SmtpStatus,
+  UpdateEmailSettingsInput,
+} from '@tavi/schemas';
 import { AppLogger } from './app-logger';
+import type { SessionUser } from './auth.types';
 import { buildEmailHtml, escapeHtml, parseSmtpUrl } from './email-helpers';
 import { PrismaService } from './prisma.service';
 
 const DEFAULT_SMTP_URL = 'smtp://10.120.64.99:25';
 const DEFAULT_SMTP_FROM = 'noreply@tavi.local';
 const EMAIL_SETTINGS_ID = 'global';
-const DEFAULT_DAILY_DIGEST_TIME = '09:00';
 const PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE =
   'Password reset email is unavailable right now';
+const TEST_EMAIL_UNAVAILABLE_MESSAGE = 'Test email is unavailable right now';
+const EMAIL_AUDIT_SYSTEM_ACTOR = {
+  email: 'system@tavi.local',
+  id: null,
+  name: 'Tavi System',
+  role: 'admin' as const,
+};
 
 type EmailRecipient = {
   email: string;
   name: string;
+};
+
+type EmailAuditActor = {
+  email: string;
+  id: string | null;
+  name: string;
+  role: SessionUser['role'];
+};
+
+type EmailAuditContext = {
+  actor?: EmailAuditActor;
+  entityId: string | null;
+  entityType: AuditEntityType;
+  kind: string;
+  metadata?: Record<string, unknown>;
+  notificationAuditId?: string;
+  source: EmailAuditSource;
+};
+
+type ReadyTransportOptions = {
+  ignoreEmailEnabled?: boolean;
+  throwWhenUnavailable?: boolean;
+  unavailableMessage?: string;
+};
+
+type ReadyTransportResult = {
+  skipReason: string | null;
+  transporter: Transporter<SMTPTransport.SentMessageInfo> | null;
 };
 
 function buildPasswordEmailBody(password: string, homeUrl: string): string {
@@ -72,6 +114,19 @@ function buildPasswordResetOtpEmailBody(
 
 <p style="margin:12px 0 0;color:#94a3b8;font-size:14px;">
   Enter the code on the <a href="${homeUrl}" style="color:#a5b4fc;text-decoration:none;">Tavi login screen</a>, set a new password, and sign in again with that new password.
+ </p>`;
+}
+
+function buildTestEmailBody(homeUrl: string): string {
+  return `This is a Tavi test email.
+
+<p style="margin:16px 0 0;">
+  If you received this message, outbound email delivery from Tavi is working for your account.
+</p>
+
+<p style="margin:12px 0 0;color:#94a3b8;font-size:14px;">
+  Return to <a href="${homeUrl}" style="color:#a5b4fc;text-decoration:none;">Tavi</a>
+  to review the notification audit timeline.
 </p>`;
 }
 
@@ -84,6 +139,7 @@ export class EmailService implements OnModuleInit {
   private fromAddress: string = DEFAULT_SMTP_FROM;
   private homeUrl: string = 'http://localhost:5173';
   private configured = false;
+  private configurationIssue: string | null = null;
 
   constructor(
     private readonly logger: AppLogger,
@@ -115,12 +171,15 @@ export class EmailService implements OnModuleInit {
       });
 
       this.configured = true;
+      this.configurationIssue = null;
       this.logger.log(
         `Email transport configured: ${host}:${port} (${secure ? 'TLS' : 'plain'})`,
         'EmailService',
       );
     } catch (error) {
       this.configured = false;
+      this.configurationIssue =
+        error instanceof Error ? error.message : String(error);
       this.logger.warn(
         `Email transport not configured: ${error instanceof Error ? error.message : String(error)}`,
         'EmailService',
@@ -136,7 +195,6 @@ export class EmailService implements OnModuleInit {
     const settings = await this.readEmailSettings();
 
     return {
-      dailyDigestTime: settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
       dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled: settings?.enabled ?? true,
       configured: this.configured,
@@ -153,12 +211,10 @@ export class EmailService implements OnModuleInit {
     await this.prisma.emailSettings.upsert({
       where: { id: EMAIL_SETTINGS_ID },
       update: {
-        dailyDigestTime: input.dailyDigestTime,
         dragHandlesEnabled: input.dragHandlesEnabled,
         enabled: input.enabled,
       },
       create: {
-        dailyDigestTime: input.dailyDigestTime,
         dragHandlesEnabled: input.dragHandlesEnabled,
         id: EMAIL_SETTINGS_ID,
         enabled: input.enabled,
@@ -172,7 +228,6 @@ export class EmailService implements OnModuleInit {
     const settings = await this.readEmailSettings();
 
     return this.updateEmailSettings({
-      dailyDigestTime: settings?.dailyDigestTime ?? DEFAULT_DAILY_DIGEST_TIME,
       dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled,
     });
@@ -181,72 +236,49 @@ export class EmailService implements OnModuleInit {
   async sendPasswordEmail(
     recipient: EmailRecipient,
     plainPassword: string,
+    context: Pick<EmailAuditContext, 'actor' | 'entityId'>,
   ): Promise<void> {
-    const transporter = await this.getReadyTransport('password email');
-
-    if (!transporter) {
-      return;
-    }
-
     const body = buildPasswordEmailBody(plainPassword, this.homeUrl);
-    const html = buildEmailHtml(this.homeUrl, recipient.name, body);
+    const sent = await this.sendAuditedEmail({
+      context: {
+        ...context,
+        entityType: 'auth',
+        kind: 'password_email',
+        source: 'password_email',
+      },
+      html: buildEmailHtml(this.homeUrl, recipient.name, body),
+      recipient,
+      subject: 'Your Tavi account password',
+      transportOptions: {},
+    });
 
-    try {
-      await transporter.sendMail({
-        from: this.fromAddress,
-        to: recipient.email,
-        subject: 'Your Tavi account password',
-        html,
-      });
-
-      this.logger.log(
-        `Password email sent to ${recipient.email}`,
-        'EmailService',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to send password email to ${recipient.email}: ${error instanceof Error ? error.message : String(error)}`,
-        undefined,
-        'EmailService',
-      );
-      throw new Error('Unable to send password email');
+    if (!sent) {
+      return;
     }
   }
 
   async sendAccountUpdateEmail(
     recipient: EmailRecipient,
     changedFields: string[],
+    context: Pick<EmailAuditContext, 'actor' | 'entityId'>,
   ): Promise<boolean> {
-    const transporter = await this.getReadyTransport('account update email');
-
-    if (!transporter) {
-      return false;
-    }
-
     const body = buildAccountUpdateEmailBody(changedFields, this.homeUrl);
-    const html = buildEmailHtml(this.homeUrl, recipient.name, body);
-
-    try {
-      await transporter.sendMail({
-        from: this.fromAddress,
-        to: recipient.email,
-        subject: 'Your Tavi account was updated',
-        html,
-      });
-
-      this.logger.log(
-        `Account update email sent to ${recipient.email}`,
-        'EmailService',
-      );
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to send account update email to ${recipient.email}: ${error instanceof Error ? error.message : String(error)}`,
-        undefined,
-        'EmailService',
-      );
-      return false;
-    }
+    return this.sendAuditedEmail({
+      context: {
+        ...context,
+        entityType: 'auth',
+        kind: 'account_update',
+        metadata: {
+          changedFields,
+        },
+        source: 'account_update',
+      },
+      html: buildEmailHtml(this.homeUrl, recipient.name, body),
+      recipient,
+      subject: 'Your Tavi account was updated',
+      transportOptions: {},
+      suppressFailure: true,
+    });
   }
 
   async assertPasswordResetEmailAvailable(): Promise<void> {
@@ -260,61 +292,74 @@ export class EmailService implements OnModuleInit {
     recipient: EmailRecipient,
     oneTimePassword: string,
     expiresAt: Date,
+    context: Pick<EmailAuditContext, 'actor' | 'entityId'>,
   ): Promise<void> {
-    const transporter = await this.getReadyTransport('password reset email', {
-      ignoreEmailEnabled: true,
-      throwWhenUnavailable: true,
-    });
-
-    if (!transporter) {
-      throw new ServiceUnavailableException(
-        PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
-      );
-    }
-
     const body = buildPasswordResetOtpEmailBody(
       oneTimePassword,
       this.homeUrl,
       expiresAt,
     );
-    const html = buildEmailHtml(this.homeUrl, recipient.name, body);
+    await this.sendAuditedEmail({
+      context: {
+        ...context,
+        entityType: 'auth',
+        kind: 'password_reset',
+        metadata: {
+          expiresAt: expiresAt.toISOString(),
+        },
+        source: 'password_reset',
+      },
+      html: buildEmailHtml(this.homeUrl, recipient.name, body),
+      recipient,
+      subject: 'Your Tavi one-time password',
+      transportOptions: {
+        ignoreEmailEnabled: true,
+        throwWhenUnavailable: true,
+        unavailableMessage: PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+      },
+      failureErrorMessage: 'Unable to send password reset email',
+    });
+  }
 
-    try {
-      await transporter.sendMail({
-        from: this.fromAddress,
-        to: recipient.email,
-        subject: 'Your Tavi one-time password',
-        html,
-      });
+  async sendTestEmail(
+    recipient: EmailRecipient,
+    actor: SessionUser,
+  ): Promise<void> {
+    const body = buildTestEmailBody(this.homeUrl);
 
-      this.logger.log(
-        `Password reset email sent to ${recipient.email}`,
-        'EmailService',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to send password reset email to ${recipient.email}: ${error instanceof Error ? error.message : String(error)}`,
-        undefined,
-        'EmailService',
-      );
-      throw new Error('Unable to send password reset email');
-    }
+    await this.sendAuditedEmail({
+      context: {
+        actor,
+        entityId: actor.id,
+        entityType: 'auth',
+        kind: 'test_email',
+        source: 'test_email',
+      },
+      html: buildEmailHtml(this.homeUrl, recipient.name, body),
+      recipient,
+      subject: 'Your Tavi test email',
+      transportOptions: {
+        ignoreEmailEnabled: true,
+        throwWhenUnavailable: true,
+        unavailableMessage: this.buildTransportUnavailableMessage(),
+      },
+      failureErrorMessage: 'Unable to send test email',
+    });
   }
 
   private async getReadyTransport(
     emailType:
       | 'account update email'
       | 'password email'
+      | 'test email'
       | 'password reset email',
-    options?: {
-      ignoreEmailEnabled?: boolean;
-      throwWhenUnavailable?: boolean;
-    },
-  ): Promise<Transporter<SMTPTransport.SentMessageInfo> | null> {
+    options?: ReadyTransportOptions,
+  ): Promise<ReadyTransportResult> {
     if (!this.transporter) {
       if (options?.throwWhenUnavailable) {
         throw new ServiceUnavailableException(
-          PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+          options.unavailableMessage ??
+            PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
         );
       }
 
@@ -322,7 +367,10 @@ export class EmailService implements OnModuleInit {
         `Skipping ${emailType} — SMTP not configured`,
         'EmailService',
       );
-      return null;
+      return {
+        skipReason: 'SMTP not configured',
+        transporter: null,
+      };
     }
 
     if (!options?.ignoreEmailEnabled) {
@@ -331,7 +379,8 @@ export class EmailService implements OnModuleInit {
       if (settings?.enabled === false) {
         if (options?.throwWhenUnavailable) {
           throw new ServiceUnavailableException(
-            PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
+            options.unavailableMessage ??
+              PASSWORD_RESET_EMAIL_UNAVAILABLE_MESSAGE,
           );
         }
 
@@ -339,18 +388,252 @@ export class EmailService implements OnModuleInit {
           `Skipping ${emailType} — email delivery is disabled`,
           'EmailService',
         );
-        return null;
+        return {
+          skipReason: 'Email delivery is disabled',
+          transporter: null,
+        };
       }
     }
 
-    return this.transporter;
+    return {
+      skipReason: null,
+      transporter: this.transporter,
+    };
+  }
+
+  private async sendAuditedEmail({
+    context,
+    failureErrorMessage,
+    html,
+    recipient,
+    subject,
+    transportOptions,
+    suppressFailure = false,
+  }: {
+    context: EmailAuditContext;
+    html: string;
+    recipient: EmailRecipient;
+    subject: string;
+    failureErrorMessage?: string;
+    suppressFailure?: boolean;
+    transportOptions: ReadyTransportOptions;
+  }): Promise<boolean> {
+    const notificationAuditId = context.notificationAuditId ?? randomUUID();
+    let readyTransport: ReadyTransportResult;
+
+    try {
+      readyTransport = await this.getReadyTransport(
+        toEmailTypeLabel(context.kind),
+        transportOptions,
+      );
+    } catch (error) {
+      await this.recordEmailAuditStep({
+        context,
+        detail: error instanceof Error ? error.message : String(error),
+        notificationAuditId,
+        recipient,
+        status: 'failed',
+        subject,
+        title: `Unable to start ${formatEmailAuditKindLabel(context.kind)}`,
+      });
+      throw error;
+    }
+
+    const { skipReason, transporter } = readyTransport;
+
+    if (!transporter) {
+      await this.recordEmailAuditStep({
+        context,
+        detail: skipReason,
+        notificationAuditId,
+        recipient,
+        status: 'skipped',
+        subject,
+        title: `Skipped ${formatEmailAuditKindLabel(context.kind)}`,
+      });
+      return false;
+    }
+
+    await this.recordEmailAuditStep({
+      context,
+      detail: `Sending to ${recipient.email} via ${this.formatSmtpHostLabel()}`,
+      host: this.formatSmtpHostLabel(),
+      notificationAuditId,
+      recipient,
+      status: 'processing',
+      subject,
+      title: `Sending ${formatEmailAuditKindLabel(context.kind)}`,
+    });
+
+    try {
+      const result = await transporter.sendMail({
+        from: this.fromAddress,
+        to: recipient.email,
+        subject,
+        html,
+      });
+
+      await this.recordEmailAuditStep({
+        context,
+        detail: `Accepted by host for ${recipient.email}`,
+        host: this.formatSmtpHostLabel(),
+        notificationAuditId,
+        recipient,
+        response: result.response ?? null,
+        status: 'sent',
+        subject,
+        title: `Host accepted ${formatEmailAuditKindLabel(context.kind)}`,
+      });
+
+      this.logger.log(
+        `${formatEmailAuditKindLogPrefix(context.kind)} sent to ${recipient.email}`,
+        'EmailService',
+      );
+
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const response = readEmailTransportResponse(error);
+
+      await this.recordEmailAuditStep({
+        context,
+        detail: message,
+        host: this.formatSmtpHostLabel(),
+        notificationAuditId,
+        recipient,
+        response,
+        status: 'failed',
+        subject,
+        title: `Host rejected ${formatEmailAuditKindLabel(context.kind)}`,
+      });
+
+      this.logger.error(
+        `Failed to send ${formatEmailAuditKindLogPrefix(context.kind)} to ${recipient.email}: ${message}`,
+        undefined,
+        'EmailService',
+      );
+
+      if (suppressFailure) {
+        return false;
+      }
+
+      throw new Error(
+        this.buildSendFailureMessage({
+          host: this.formatSmtpHostLabel(),
+          message,
+          prefix:
+            failureErrorMessage ??
+            `Unable to send ${formatEmailAuditKindLabel(context.kind)}`,
+          recipient,
+          response,
+        }),
+      );
+    }
+  }
+
+  private async recordEmailAuditStep({
+    context,
+    detail,
+    host,
+    notificationAuditId,
+    recipient,
+    response,
+    status,
+    subject,
+    title,
+  }: {
+    context: EmailAuditContext;
+    detail: string | null;
+    host?: string | null;
+    notificationAuditId: string;
+    recipient: EmailRecipient;
+    response?: string | null;
+    status: 'failed' | 'processing' | 'sent' | 'skipped';
+    subject: string;
+    title: string;
+  }) {
+    const actor = context.actor ?? EMAIL_AUDIT_SYSTEM_ACTOR;
+
+    await this.prisma.auditEvent.create({
+      data: {
+        actorEmail: actor.email,
+        actorName: actor.name,
+        actorRole: actor.role,
+        actorUserId: actor.id,
+        entityId: context.entityId ?? notificationAuditId,
+        entityType: context.entityType,
+        action: `email_${context.kind}_${status}`,
+        metadata: {
+          ...context.metadata,
+          detail,
+          emailKind: context.kind,
+          host: host ?? null,
+          notificationAuditId,
+          recipientEmail: recipient.email,
+          recipientName: recipient.name,
+          recipientUserId: context.entityId,
+          response: response ?? null,
+          source: context.source,
+          status,
+          stepTitle: title,
+          subject,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private formatSmtpHostLabel() {
+    if (!this.smtpHost || !this.smtpPort) {
+      return null;
+    }
+
+    return `${this.smtpHost}:${this.smtpPort.toString()}`;
+  }
+
+  private buildTransportUnavailableMessage() {
+    const details = [
+      this.configurationIssue
+        ? `SMTP configuration error: ${this.configurationIssue}`
+        : 'SMTP transport is not configured',
+      this.formatSmtpHostLabel()
+        ? `Configured host ${this.formatSmtpHostLabel()}`
+        : null,
+      `From ${this.fromAddress}`,
+      'Check SMTP_URL and any required SMTP_USER/SMTP_PASS settings',
+    ].filter((value): value is string => Boolean(value));
+
+    return `${TEST_EMAIL_UNAVAILABLE_MESSAGE}. ${details.join('. ')}.`;
+  }
+
+  private buildSendFailureMessage({
+    host,
+    message,
+    prefix,
+    recipient,
+    response,
+  }: {
+    host: string | null;
+    message: string;
+    prefix: string;
+    recipient: EmailRecipient;
+    response: string | null;
+  }) {
+    const details = [
+      prefix,
+      `Recipient ${recipient.email}`,
+      `From ${this.fromAddress}`,
+      host ? `Host ${host}` : null,
+      response ? `SMTP response ${response}` : null,
+      `Error ${message}`,
+    ].filter((value): value is string => Boolean(value));
+
+    return `${details.join('. ')}.`;
   }
 
   private readEmailSettings() {
     return this.prisma.emailSettings.findUnique({
       where: { id: EMAIL_SETTINGS_ID },
       select: {
-        dailyDigestTime: true,
         dragHandlesEnabled: true,
         enabled: true,
       },
@@ -362,6 +645,69 @@ export {
   buildAccountUpdateEmailBody,
   buildEmailHtml,
   buildPasswordEmailBody,
+  buildTestEmailBody,
   parseSmtpUrl,
   escapeHtml,
 };
+
+function formatEmailAuditKindLabel(kind: string) {
+  switch (kind) {
+    case 'account_update':
+      return 'account update email';
+    case 'password_email':
+      return 'password email';
+    case 'password_reset':
+      return 'password reset email';
+    case 'test_email':
+      return 'test email';
+    default:
+      return kind.replace(/_/g, ' ');
+  }
+}
+
+function formatEmailAuditKindLogPrefix(kind: string) {
+  switch (kind) {
+    case 'account_update':
+      return 'account update email';
+    case 'password_email':
+      return 'password email';
+    case 'password_reset':
+      return 'password reset email';
+    case 'test_email':
+      return 'test email';
+    default:
+      return kind.replace(/_/g, ' ');
+  }
+}
+
+function readEmailTransportResponse(error: unknown) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'response' in error &&
+    typeof error.response === 'string'
+  ) {
+    return error.response;
+  }
+
+  return null;
+}
+
+function toEmailTypeLabel(
+  kind: string,
+):
+  | 'account update email'
+  | 'password email'
+  | 'password reset email'
+  | 'test email' {
+  switch (kind) {
+    case 'account_update':
+      return 'account update email';
+    case 'password_email':
+      return 'password email';
+    case 'test_email':
+      return 'test email';
+    default:
+      return 'password reset email';
+  }
+}

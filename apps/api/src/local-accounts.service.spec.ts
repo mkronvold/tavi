@@ -790,6 +790,10 @@ describe('LocalAccountsService', () => {
         name: 'Updated Editor',
       },
       ['email', 'name', 'role'],
+      {
+        actor: adminActor,
+        entityId: 'user-2',
+      },
     );
     expect(result.account.role).toBe('viewer');
     expect(result.notificationEmailSent).toBe(true);

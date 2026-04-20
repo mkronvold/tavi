@@ -39,6 +39,7 @@ import {
   getWorkspace,
   isApiUnavailableError,
   listAuditChanges,
+  listAuditEmails,
   listAuditLogins,
   login,
   logout,
@@ -47,6 +48,7 @@ import {
   renameSavedView,
   reorderProjectTasks,
   resetPasswordWithOtp,
+  sendTestEmail,
   setAuditLogRetention,
   updateEmailSettings,
   updateMyProfile,
@@ -74,6 +76,7 @@ import {
   writeTaviStorage,
 } from "./storage";
 import type {
+  EmailAuditEvent,
   AuditHistoryEvent,
   AuditLogRetentionWindow,
   CreateProjectPayload,
@@ -154,6 +157,7 @@ const SCROLL_TO_TOP_VISIBILITY_OFFSET = 240;
 const PASSWORD_RESET_NOTICE =
   "If that account can receive email, a one-time password was sent. It expires in 10 minutes.";
 const PASSWORD_RESET_CODE_PATTERN = /^[0-9A-F]{4}-[0-9A-F]{4}$/;
+const DEFAULT_DAILY_DIGEST_TIME_UTC = "11:00";
 const EDITOR_INPUT_SELECTOR =
   'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 const ROW_EDIT_INTERACTIVE_SELECTOR =
@@ -240,7 +244,7 @@ type AuditTarget = {
   title: string;
 };
 
-type AdminAuditReportType = "changes" | "logins";
+type AdminAuditReportType = "changes" | "emails" | "logins";
 
 const AUDIT_CHANGE_ACTION_OPTIONS = [
   { label: "All actions", value: "" },
@@ -4295,6 +4299,9 @@ function ProfilePanel({
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [digestPrefError, setDigestPrefError] = useState<string | null>(null);
+  const [dailyDigestTimeDraft, setDailyDigestTimeDraft] = useState(() =>
+    utcTimeToLocalTime(DEFAULT_DAILY_DIGEST_TIME_UTC),
+  );
   const notificationPreferencesQuery = useQuery({
     queryFn: getNotificationPreferences,
     queryKey: ["notification-preferences"],
@@ -4302,8 +4309,14 @@ function ProfilePanel({
   });
   const dailyDigestEnabled =
     notificationPreferencesQuery.data?.dailyDigestEnabled ?? false;
-  const configuredDigestTime =
-    notificationPreferencesQuery.data?.dailyDigestTime ?? "09:00";
+  const configuredDigestTimeUtc =
+    notificationPreferencesQuery.data?.dailyDigestTime ??
+    DEFAULT_DAILY_DIGEST_TIME_UTC;
+  const configuredDigestTimeLocal = useMemo(
+    () => utcTimeToLocalTime(configuredDigestTimeUtc),
+    [configuredDigestTimeUtc],
+  );
+  const localTimeZoneLabel = useMemo(() => getLocalTimeZoneLabel(), []);
   const currentThemeLabel = getWorkspaceThemeLabel(theme);
   const nextTheme = getNextWorkspaceTheme(theme);
   const nextThemeLabel = getWorkspaceThemeLabel(nextTheme);
@@ -4315,6 +4328,9 @@ function ProfilePanel({
     setPasswordConfirmation("");
     setProfileError(null);
   };
+  useEffect(() => {
+    setDailyDigestTimeDraft(configuredDigestTimeLocal);
+  }, [configuredDigestTimeLocal]);
 
   const notificationPreferencesMutation = useMutation({
     mutationFn: updateNotificationPreferences,
@@ -4330,7 +4346,10 @@ function ProfilePanel({
             variables.dailyDigestEnabled ??
             current?.dailyDigestEnabled ??
             false,
-          dailyDigestTime: current?.dailyDigestTime ?? configuredDigestTime,
+          dailyDigestTime:
+            variables.dailyDigestTime ??
+            current?.dailyDigestTime ??
+            configuredDigestTimeUtc,
           personalTodoRemindersEnabled:
             variables.personalTodoRemindersEnabled ??
             current?.personalTodoRemindersEnabled ??
@@ -4366,6 +4385,18 @@ function ProfilePanel({
 
     notificationPreferencesMutation.mutate({
       dailyDigestEnabled: !dailyDigestEnabled,
+    });
+  };
+  const saveDailyDigestTime = () => {
+    if (
+      notificationPreferencesMutation.isPending ||
+      notificationPreferencesQuery.isPending
+    ) {
+      return;
+    }
+
+    notificationPreferencesMutation.mutate({
+      dailyDigestTime: localTimeToUtcTime(dailyDigestTimeDraft),
     });
   };
   const updateProfileMutation = useMutation({
@@ -4714,25 +4745,53 @@ function ProfilePanel({
           </label>
         </div>
 
-        <div
-          className="settings-item settings-item-toggle"
-          onClick={toggleDailyDigest}
-        >
+        <div className="settings-item">
           <div className="settings-item-header">
             <strong>Daily Digest</strong>
             <span>{dailyDigestEnabled ? "On" : "Off"}</span>
           </div>
           <p className="toolbar-hint">
             {dailyDigestEnabled
-              ? `Replace immediate non-admin emails with one digest sent at ${configuredDigestTime} server time.`
-              : "Replace immediate non-admin emails with one daily digest instead of sending them right away."}
+              ? `Task and project updates, assignments, and due date emails are bundled into one digest at ${configuredDigestTimeLocal} (${localTimeZoneLabel}). Administrative emails still send immediately.`
+              : `When enabled, task and project updates, assignments, and due date emails are bundled into one digest at ${configuredDigestTimeLocal} (${localTimeZoneLabel}). Administrative emails still send immediately.`}
           </p>
           {digestPrefError ? (
             <p className="error-banner">{digestPrefError}</p>
           ) : null}
+          <div className="settings-time-controls">
+            <label className="settings-time-field">
+              <span className="settings-switch-label">Digest time</span>
+              <input
+                aria-label="Daily digest time"
+                disabled={
+                  notificationPreferencesMutation.isPending ||
+                  notificationPreferencesQuery.isPending
+                }
+                onChange={(event) => {
+                  setDailyDigestTimeDraft(event.target.value);
+                  setDigestPrefError(null);
+                }}
+                type="time"
+                value={dailyDigestTimeDraft}
+              />
+            </label>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                disabled={
+                  notificationPreferencesMutation.isPending ||
+                  notificationPreferencesQuery.isPending ||
+                  dailyDigestTimeDraft === configuredDigestTimeLocal
+                }
+                onClick={saveDailyDigestTime}
+              >
+                {notificationPreferencesMutation.isPending ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
           <label
             className="settings-switch"
-            onClick={(event) => event.stopPropagation()}
           >
             <span className="settings-switch-label">Daily Digest</span>
             <input
@@ -4825,7 +4884,6 @@ function SettingsPanel({
   const [adminAuditPanel, setAdminAuditPanel] =
     useState<AdminAuditReportType | null>(null);
   const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
-  const [dailyDigestTimeDraft, setDailyDigestTimeDraft] = useState("09:00");
 
   const queryClient = useQueryClient();
   const smtpStatusQuery = useQuery({
@@ -4838,13 +4896,8 @@ function SettingsPanel({
     smtpStatusQuery.data?.host && smtpStatusQuery.data?.port != null
       ? `${smtpStatusQuery.data.secure ? "smtps" : "smtp"}://${smtpStatusQuery.data.host}:${smtpStatusQuery.data.port}`
       : null;
-  const configuredDigestTime = smtpStatusQuery.data?.dailyDigestTime ?? "09:00";
   const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
   const dragHandlesEnabled = smtpStatusQuery.data?.dragHandlesEnabled ?? true;
-
-  useEffect(() => {
-    setDailyDigestTimeDraft(configuredDigestTime);
-  }, [configuredDigestTime]);
 
   const syncWorkspaceDragHandlesEnabled = (enabled: boolean) => {
     queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
@@ -4871,7 +4924,6 @@ function SettingsPanel({
         current
           ? {
               ...current,
-              dailyDigestTime: variables.dailyDigestTime,
               dragHandlesEnabled: variables.dragHandlesEnabled,
               enabled: variables.enabled,
             }
@@ -4904,20 +4956,8 @@ function SettingsPanel({
     }
 
     emailSettingsMutation.mutate({
-      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
       dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
       enabled: !smtpStatusQuery.data.enabled,
-    });
-  };
-  const saveDailyDigestTime = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
-      return;
-    }
-
-    emailSettingsMutation.mutate({
-      dailyDigestTime: dailyDigestTimeDraft,
-      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: smtpStatusQuery.data.enabled,
     });
   };
   const toggleDragHandles = () => {
@@ -4926,7 +4966,6 @@ function SettingsPanel({
     }
 
     emailSettingsMutation.mutate({
-      dailyDigestTime: smtpStatusQuery.data.dailyDigestTime,
       dragHandlesEnabled: !smtpStatusQuery.data.dragHandlesEnabled,
       enabled: smtpStatusQuery.data.enabled,
     });
@@ -5002,44 +5041,6 @@ function SettingsPanel({
               type="checkbox"
             />
           </label>
-        </div>
-        <div className="settings-item">
-          <div className="settings-item-header">
-            <strong>Daily Digest Time</strong>
-            <span>{configuredDigestTime}</span>
-          </div>
-          <p className="toolbar-hint">
-            Choose when daily digest emails are sent in server local time.
-          </p>
-          {emailPrefError ? (
-            <p className="error-banner">{emailPrefError}</p>
-          ) : null}
-          <div className="settings-time-controls">
-            <label className="settings-time-field">
-              <input
-                aria-label="Daily digest time"
-                onChange={(event) =>
-                  setDailyDigestTimeDraft(event.target.value)
-                }
-                type="time"
-                value={dailyDigestTimeDraft}
-              />
-            </label>
-            <div className="settings-actions">
-              <button
-                type="button"
-                className="ghost-button compact-button"
-                disabled={
-                  emailSettingsMutation.isPending ||
-                  !smtpStatusQuery.data ||
-                  dailyDigestTimeDraft === smtpStatusQuery.data.dailyDigestTime
-                }
-                onClick={saveDailyDigestTime}
-              >
-                Save digest time
-              </button>
-            </div>
-          </div>
         </div>
         <div
           className="settings-item settings-item-toggle"
@@ -5129,6 +5130,20 @@ function SettingsPanel({
           </p>
         </div>
         <div
+          aria-expanded={adminAuditPanel === "emails"}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(() => toggleAdminAuditPanel("emails"))}
+        >
+          <div className="settings-item-header">
+            <strong>Audit notifications</strong>
+            <span>Email timelines</span>
+          </div>
+          <p className="toolbar-hint">
+            Review email-backed notification timelines, delivery attempts,
+            host responses, retries, and outcomes.
+          </p>
+        </div>
+        <div
           aria-expanded={adminAuditPanel === "changes"}
           className="settings-item settings-item-toggle"
           {...settingsCardButtonProps(() => toggleAdminAuditPanel("changes"))}
@@ -5182,14 +5197,21 @@ function AdminAuditReportPanel({
 }: AdminAuditReportPanelProps) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [actorUserId, setActorUserId] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
   const [action, setAction] = useState("");
+  const [status, setStatus] = useState<EmailAuditEvent["status"] | "">("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [retentionWindowOverride, setRetentionWindowOverride] =
     useState<AuditLogRetentionWindow | null>(null);
   const [retentionMessage, setRetentionMessage] = useState<string | null>(null);
   const [retentionError, setRetentionError] = useState<string | null>(null);
+  const [expandedEmailEvents, setExpandedEmailEvents] = useState<
+    Record<string, boolean>
+  >({});
+  const isChangeReport = type === "changes";
+  const isEmailReport = type === "emails";
+  const usesRetentionControls = !isEmailReport;
 
   const userLookup = useMemo(
     () =>
@@ -5203,32 +5225,56 @@ function AdminAuditReportPanel({
   const retentionQuery = useQuery({
     queryKey: ["audit-retention"],
     queryFn: getAuditLogRetention,
+    enabled: usesRetentionControls,
   });
   const retentionWindow =
     retentionWindowOverride ??
     retentionQuery.data?.olderThan ??
     DEFAULT_AUDIT_LOG_RETENTION_WINDOW;
+  const localizedFromDateTime = fromDate
+    ? toLocalDayBoundaryIso(fromDate, "start")
+    : undefined;
+  const localizedToDateTime = toDate
+    ? toLocalDayBoundaryIso(toDate, "end")
+    : undefined;
+  const localTimeZoneLabel = useMemo(() => getLocalTimeZoneLabel(), []);
 
   const reportQuery = useQuery({
     queryKey: [
       "audit-report",
       type,
       search,
-      actorUserId,
+      selectedUserId,
       action,
+      status,
       fromDate,
       toDate,
     ],
     queryFn: async () => {
+      if (isEmailReport) {
+        return listAuditEmails({
+          fromDate: fromDate || undefined,
+          fromDateTime: localizedFromDateTime,
+          limit: 250,
+          search,
+          status: status || undefined,
+          toDate: toDate || undefined,
+          toDateTime: localizedToDateTime,
+          userId: selectedUserId || undefined,
+        });
+      }
+
       const filters = {
-        actorUserId: actorUserId || undefined,
+        actorUserId: selectedUserId || undefined,
         fromDate: fromDate || undefined,
+        fromDateTime: localizedFromDateTime,
         limit: 250,
         search,
         toDate: toDate || undefined,
+        toDateTime: localizedToDateTime,
       };
 
-      if (type === "changes") {
+      if (isChangeReport) {
         return listAuditChanges({
           ...filters,
           action: action || undefined,
@@ -5279,13 +5325,41 @@ function AdminAuditReportPanel({
       );
     },
   });
+  const testEmailMutation = useMutation({
+    mutationFn: sendTestEmail,
+    onSuccess: async () => {
+      setRetentionError(null);
+      setRetentionMessage(`Test email sent to ${currentUser.email}.`);
+      await queryClient.invalidateQueries({ queryKey: ["audit-report"] });
+    },
+    onError: async (error) => {
+      setRetentionMessage(null);
+      setRetentionError(
+        error instanceof ApiError ? error.message : "Unable to send test email",
+      );
+      await queryClient.invalidateQueries({ queryKey: ["audit-report"] });
+    },
+  });
 
-  const events = reportQuery.data ?? [];
-  const title = type === "changes" ? "Audit changes" : "Audit logins";
+  const historyEvents = isEmailReport
+    ? []
+    : ((reportQuery.data ?? []) as AuditHistoryEvent[]);
+  const emailEvents = isEmailReport ? normalizeEmailAuditEvents(reportQuery.data) : [];
+  const title =
+    type === "changes"
+      ? "Audit changes"
+      : type === "emails"
+        ? "Audit notifications"
+        : "Audit logins";
   const subtitle =
     type === "changes"
       ? "Admin-only project and task change history"
-      : "Admin-only sign-in and sign-out history";
+      : type === "emails"
+        ? "Admin-only email notification delivery history"
+        : "Admin-only sign-in and sign-out history";
+  const emptyMessage = isEmailReport
+    ? "No matching notification audit events."
+    : "No matching audit events.";
   const automaticRetentionStatus = retentionQuery.data?.olderThan
     ? `Automatic log aging: ${formatAuditLogRetentionWindowLabel(retentionQuery.data.olderThan)}.`
     : retentionQuery.isSuccess
@@ -5303,6 +5377,35 @@ function AdminAuditReportPanel({
     setRetentionMessage(null);
     purgeAuditLogsMutation.mutate(retentionWindow);
   };
+  const toggleEmailEvent = (eventId: string) => {
+    setExpandedEmailEvents((current) => ({
+      ...current,
+      [eventId]: !current[eventId],
+    }));
+  };
+  const handleCopyEmailEvent = async (event: EmailAuditEvent) => {
+    const notificationLabel = formatNotificationAuditKindLabel(event);
+    const recipientLabel = formatEmailAuditRecipient(event);
+
+    try {
+      if (typeof globalThis.navigator?.clipboard?.writeText !== "function") {
+        throw new Error("Clipboard access unavailable");
+      }
+
+      await globalThis.navigator.clipboard.writeText(
+        formatEmailAuditFlowTimeline(event),
+      );
+      setRetentionError(null);
+      setRetentionMessage(
+        `Copied ${notificationLabel} notification flow for ${recipientLabel}.`,
+      );
+    } catch {
+      setRetentionMessage(null);
+      setRetentionError(
+        `Browser blocked clipboard access for the ${notificationLabel} notification flow to ${recipientLabel}. Expand the entry and copy it manually.`,
+      );
+    }
+  };
 
   return (
     <section className="audit-card audit-card--report">
@@ -5312,17 +5415,38 @@ function AdminAuditReportPanel({
           <p className="toolbar-hint">{subtitle}</p>
         </div>
         <div className="settings-actions">
+          {isEmailReport ? (
+            <button
+              type="button"
+              className="ghost-button compact-button"
+              disabled={testEmailMutation.isPending}
+              onClick={() => {
+                setRetentionError(null);
+                setRetentionMessage(null);
+                testEmailMutation.mutate();
+              }}
+            >
+              {testEmailMutation.isPending ? "Sending..." : "Test email"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="ghost-button compact-button"
-            disabled={events.length === 0 || reportQuery.isLoading}
+            disabled={
+              (isEmailReport ? emailEvents.length : historyEvents.length) === 0 ||
+              reportQuery.isLoading
+            }
             onClick={() =>
-              exportAuditReportCsv({
-                currentUser,
-                events,
-                type,
-                users: userLookup,
-              })
+              isEmailReport
+                ? exportEmailAuditReportCsv({
+                    events: emailEvents,
+                  })
+                : exportAuditReportCsv({
+                    currentUser,
+                    events: historyEvents,
+                    type,
+                    users: userLookup,
+                  })
             }
           >
             Export CSV
@@ -5337,82 +5461,92 @@ function AdminAuditReportPanel({
         </div>
       </div>
 
-      <div className="audit-retention-row">
-        <label className="workspace-filter">
-          Log aging
-          <select
-            aria-label="Log aging"
-            value={retentionWindow}
-            onChange={(event) => {
-              if (isAuditLogRetentionWindow(event.target.value)) {
-                setRetentionWindowOverride(event.target.value);
-              }
-              setRetentionError(null);
-              setRetentionMessage(null);
-            }}
-          >
-            {AUDIT_LOG_RETENTION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="settings-actions">
-          <button
-            type="button"
-            className="ghost-button compact-button"
-            disabled={purgeAuditLogsMutation.isPending}
-            onClick={handlePurgeAuditLogs}
-          >
-            {purgeAuditLogsMutation.isPending ? "Purging..." : "Purge logs"}
-          </button>
-          <button
-            type="button"
-            className="ghost-button compact-button"
-            disabled={setAuditLogRetentionMutation.isPending}
-            onClick={() => {
-              setRetentionError(null);
-              setRetentionMessage(null);
-              setAuditLogRetentionMutation.mutate(retentionWindow);
-            }}
-          >
-            {setAuditLogRetentionMutation.isPending
-              ? "Saving..."
-              : "Set automatic aging"}
-          </button>
-        </div>
-      </div>
-      {retentionQuery.isLoading ? (
-        <p className="toolbar-hint audit-retention-status">
-          Loading automatic log aging...
-        </p>
+      {usesRetentionControls ? (
+        <>
+          <div className="audit-retention-row">
+            <label className="workspace-filter">
+              Log aging
+              <select
+                aria-label="Log aging"
+                value={retentionWindow}
+                onChange={(event) => {
+                  if (isAuditLogRetentionWindow(event.target.value)) {
+                    setRetentionWindowOverride(event.target.value);
+                  }
+                  setRetentionError(null);
+                  setRetentionMessage(null);
+                }}
+              >
+                {AUDIT_LOG_RETENTION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="settings-actions">
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                disabled={purgeAuditLogsMutation.isPending}
+                onClick={handlePurgeAuditLogs}
+              >
+                {purgeAuditLogsMutation.isPending ? "Purging..." : "Purge logs"}
+              </button>
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                disabled={setAuditLogRetentionMutation.isPending}
+                onClick={() => {
+                  setRetentionError(null);
+                  setRetentionMessage(null);
+                  setAuditLogRetentionMutation.mutate(retentionWindow);
+                }}
+              >
+                {setAuditLogRetentionMutation.isPending
+                  ? "Saving..."
+                  : "Set automatic aging"}
+              </button>
+            </div>
+          </div>
+          {retentionQuery.isLoading ? (
+            <p className="toolbar-hint audit-retention-status">
+              Loading automatic log aging...
+            </p>
+          ) : null}
+          {retentionQuery.isError ? (
+            <p className="error-banner">
+              {retentionQuery.error instanceof Error
+                ? retentionQuery.error.message
+                : "Unable to load automatic log aging."}
+            </p>
+          ) : null}
+          {automaticRetentionStatus ? (
+            <p className="toolbar-hint audit-retention-status">
+              {automaticRetentionStatus}
+            </p>
+          ) : null}
+        </>
       ) : null}
-      {retentionQuery.isError ? (
-        <p className="error-banner">
-          {retentionQuery.error instanceof Error
-            ? retentionQuery.error.message
-            : "Unable to load automatic log aging."}
-        </p>
-      ) : null}
-      {automaticRetentionStatus ? (
-        <p className="toolbar-hint audit-retention-status">
-          {automaticRetentionStatus}
-        </p>
-      ) : null}
+
       {retentionMessage ? (
-        <p className="toolbar-hint audit-retention-status">
-          {retentionMessage}
-        </p>
+        <p className="toolbar-hint audit-retention-status">{retentionMessage}</p>
       ) : null}
       {retentionError ? <p className="error-banner">{retentionError}</p> : null}
+      <p className="toolbar-hint audit-retention-status">
+        {`Dates and times use your local timezone (${localTimeZoneLabel}).`}
+      </p>
 
       <div className="audit-filter-grid">
         <label className="workspace-filter search-filter">
           Search
           <input
             type="search"
-            placeholder="Search audit history"
+            placeholder={
+              isEmailReport
+                ? "Search notification history"
+                : "Search audit history"
+            }
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -5420,8 +5554,8 @@ function AdminAuditReportPanel({
         <label className="workspace-filter">
           User
           <select
-            value={actorUserId}
-            onChange={(event) => setActorUserId(event.target.value)}
+            value={selectedUserId}
+            onChange={(event) => setSelectedUserId(event.target.value)}
           >
             <option value="">All users</option>
             {users.map((user) => (
@@ -5431,18 +5565,33 @@ function AdminAuditReportPanel({
             ))}
           </select>
         </label>
-        {type === "changes" ? (
+        {isChangeReport ? (
           <label className="workspace-filter">
             Action
-            <select
-              value={action}
-              onChange={(event) => setAction(event.target.value)}
-            >
+            <select value={action} onChange={(event) => setAction(event.target.value)}>
               {AUDIT_CHANGE_ACTION_OPTIONS.map((option) => (
                 <option key={option.value || "all"} value={option.value}>
                   {option.label}
                 </option>
               ))}
+            </select>
+          </label>
+        ) : null}
+        {isEmailReport ? (
+          <label className="workspace-filter">
+            Status
+            <select
+              value={status}
+              onChange={(event) =>
+                setStatus(event.target.value as EmailAuditEvent["status"] | "")
+              }
+            >
+              <option value="">All statuses</option>
+              <option value="queued">Queued</option>
+              <option value="processing">Processing</option>
+              <option value="sent">Sent</option>
+              <option value="skipped">Skipped</option>
+              <option value="failed">Failed</option>
             </select>
           </label>
         ) : null}
@@ -5464,28 +5613,129 @@ function AdminAuditReportPanel({
         </label>
       </div>
 
-      {reportQuery.isLoading ? <p>Loading audit history...</p> : null}
+      {reportQuery.isLoading ? (
+        <p>
+          {isEmailReport
+            ? "Loading notification history..."
+            : "Loading audit history..."}
+        </p>
+      ) : null}
       {reportQuery.isError ? (
         <p className="error-banner">
           {reportQuery.error instanceof Error
             ? reportQuery.error.message
-            : "Unable to load audit history."}
+            : isEmailReport
+              ? "Unable to load notification history."
+              : "Unable to load audit history."}
         </p>
       ) : null}
-      {!reportQuery.isLoading && !reportQuery.isError && events.length === 0 ? (
-        <p className="toolbar-hint">No matching audit events.</p>
+      {!reportQuery.isLoading &&
+      !reportQuery.isError &&
+      (isEmailReport ? emailEvents.length : historyEvents.length) === 0 ? (
+        <p className="toolbar-hint">{emptyMessage}</p>
       ) : null}
 
-      {!reportQuery.isLoading && !reportQuery.isError && events.length > 0 ? (
+      {!reportQuery.isLoading && !reportQuery.isError && isEmailReport ? (
         <ul className="audit-list">
-          {events.map((event) => {
+          {emailEvents.map((event) => {
+            const summary = summarizeEmailAuditEvent(event);
+            const isExpanded = expandedEmailEvents[event.id] === true;
+            const notificationLabel = formatNotificationAuditKindLabel(event);
+            const recipientLabel = formatEmailAuditRecipient(event);
+            const sourceLabel = formatNotificationAuditSourceLabel(event.source);
+
+            return (
+              <li
+                className={`audit-event audit-event--notification${isExpanded ? " is-expanded" : ""}`}
+                key={event.id}
+              >
+                <div className="audit-event-toolbar">
+                  <button
+                    type="button"
+                    className="audit-event-toggle"
+                    aria-expanded={isExpanded}
+                    aria-label={`${isExpanded ? "Collapse" : "Expand"} ${notificationLabel} notification flow`}
+                    onClick={() => toggleEmailEvent(event.id)}
+                  >
+                    <div className="audit-event-header">
+                      <strong>{notificationLabel}</strong>
+                      <span>{formatEmailAuditStatusLabel(event.status)}</span>
+                      <span>{formatDateTime(event.createdAt)}</span>
+                      <span className="audit-event-toggle-indicator">
+                        {isExpanded ? "Collapse" : "Expand"}
+                      </span>
+                    </div>
+                    <div className="audit-event-subtitle">
+                      <span>{recipientLabel}</span>
+                      <span>{sourceLabel}</span>
+                    </div>
+                    {summary.length > 0 ? (
+                      <div className="audit-event-meta audit-event-meta--summary">
+                        {summary.map((item) => (
+                          <span className="audit-chip" key={`${event.id}-${item}`}>
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    className="audit-copy-button"
+                    aria-label={`Copy ${notificationLabel} notification flow`}
+                    title="Copy full notification flow"
+                    onClick={() => {
+                      void handleCopyEmailEvent(event);
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                {isExpanded ? (
+                  <div className="audit-event-details">
+                    <div className="audit-event-meta">
+                      {event.actor ? (
+                        <span>{`Triggered by ${formatActorSummary(event.actor)}`}</span>
+                      ) : (
+                        <span>Triggered by system delivery</span>
+                      )}
+                      <span>{`Attempts ${event.attemptCount.toString()}`}</span>
+                      {event.subject ? <span>{event.subject}</span> : null}
+                      {event.entityType && event.entityId ? (
+                        <span>{`${formatAuditEntityTypeLabel(event.entityType)} ${event.entityId}`}</span>
+                      ) : null}
+                    </div>
+                    {event.steps.length > 0 ? (
+                      <ol className="audit-change-list">
+                        {event.steps.map((step) => (
+                          <li key={step.id}>
+                            <strong>{step.title}</strong>
+                            <span>{formatDateTime(step.createdAt)}</span>
+                            <span>{formatNotificationAuditStepDetail(step)}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : null}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {!reportQuery.isLoading &&
+      !reportQuery.isError &&
+      !isEmailReport &&
+      historyEvents.length > 0 ? (
+        <ul className="audit-list">
+          {historyEvents.map((event) => {
             const auditChanges = readAuditChanges(event.metadata);
             const eventSummary = summarizeAuditMetadata(
               event.metadata,
               userLookup,
               currentUser,
             );
-            const entityLabel = formatAuditEntityTitle(event);
 
             return (
               <li key={event.id} className="audit-event">
@@ -5494,7 +5744,7 @@ function AdminAuditReportPanel({
                   <span>{formatDateTime(event.createdAt)}</span>
                 </div>
                 <div className="audit-event-meta">
-                  <span>{entityLabel}</span>
+                  <span>{formatAuditEntityTitle(event)}</span>
                   <span>{formatActorSummary(event.actor)}</span>
                 </div>
                 {auditChanges.length > 0 ? (
@@ -6048,6 +6298,392 @@ function exportAuditReportCsv({
     "Changed Values",
     "Summary",
   ]);
+}
+
+function exportEmailAuditReportCsv({
+  events,
+}: {
+  events: EmailAuditEvent[];
+}) {
+  const rows = events.map((event) => ({
+    Action: formatNotificationAuditKindLabel(event),
+    Attempts: event.attemptCount.toString(),
+    "Date/Time": event.createdAt,
+    Error: event.error ?? "",
+    Recipient: formatEmailAuditRecipient(event),
+    Source: formatNotificationAuditSourceLabel(event.source),
+    Status: formatEmailAuditStatusLabel(event.status),
+    Summary: summarizeEmailAuditEvent(event).join(" | "),
+    TriggeredBy: event.actor ? formatActorSummary(event.actor) : "System delivery",
+  }));
+
+  downloadCsvFile("audit-notifications", rows, [
+    "Date/Time",
+    "Action",
+    "Status",
+    "Source",
+    "Recipient",
+    "TriggeredBy",
+    "Attempts",
+    "Error",
+    "Summary",
+  ]);
+}
+
+const EMAIL_AUDIT_STATUS_VALUES: EmailAuditEvent["status"][] = [
+  "queued",
+  "processing",
+  "sent",
+  "skipped",
+  "failed",
+];
+
+const EMAIL_AUDIT_SOURCE_VALUES: EmailAuditEvent["source"][] = [
+  "notification",
+  "password_reset",
+  "account_update",
+  "password_email",
+  "test_email",
+];
+
+function normalizeEmailAuditEvents(value: unknown): EmailAuditEvent[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry, index) => {
+    const record = toUnknownRecord(entry);
+
+    if (!record) {
+      return [];
+    }
+
+    const eventId = readUnknownString(record.id) ?? `email-audit-${index.toString()}`;
+    const createdAt =
+      readUnknownString(record.createdAt) ?? new Date(0).toISOString();
+    const status = isEmailAuditStatus(record.status) ? record.status : "queued";
+    const steps = Array.isArray(record.steps)
+      ? record.steps.flatMap((step, stepIndex) => {
+          const normalizedStep = normalizeEmailAuditStep(step, {
+            createdAt,
+            eventId,
+            fallbackStatus: status,
+            stepIndex,
+          });
+
+          return normalizedStep ? [normalizedStep] : [];
+        })
+      : [];
+
+    return [
+      {
+        id: eventId,
+        action: readUnknownString(record.action) ?? "email_notification",
+        actor: normalizeEmailAuditActor(record.actor),
+        attemptCount:
+          typeof record.attemptCount === "number" &&
+          Number.isInteger(record.attemptCount) &&
+          record.attemptCount >= 0
+            ? record.attemptCount
+            : Math.max(
+                steps.reduce(
+                  (highestAttempt, step) =>
+                    Math.max(highestAttempt, step.attemptNumber ?? 0),
+                  0,
+                ),
+                steps.length > 0 ? 1 : 0,
+              ),
+        createdAt,
+        entityId: readUnknownNullableString(record.entityId),
+        entityType: isAuditEntityTypeValue(record.entityType)
+          ? record.entityType
+          : null,
+        error: readUnknownNullableString(record.error),
+        failedAt: readUnknownNullableString(record.failedAt),
+        kind: readUnknownNullableString(record.kind),
+        metadata: toUnknownRecord(record.metadata),
+        nextAttemptAt: readUnknownNullableString(record.nextAttemptAt),
+        recipient: normalizeEmailAuditRecipientRecord(record.recipient),
+        response: readUnknownNullableString(record.response),
+        sentAt: readUnknownNullableString(record.sentAt),
+        skippedAt: readUnknownNullableString(record.skippedAt),
+        source: isEmailAuditSource(record.source) ? record.source : "notification",
+        status,
+        steps,
+        subject: readUnknownNullableString(record.subject),
+      },
+    ];
+  });
+}
+
+function normalizeEmailAuditActor(value: unknown): EmailAuditEvent["actor"] {
+  const record = toUnknownRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  const id = readUnknownString(record.id);
+  const email = readUnknownString(record.email);
+  const name = readUnknownString(record.name);
+
+  if (!id || !email || !name) {
+    return null;
+  }
+
+  return {
+    id,
+    email,
+    name,
+    role: isRoleValue(record.role) ? record.role : "viewer",
+  };
+}
+
+function normalizeEmailAuditRecipientRecord(
+  value: unknown,
+): EmailAuditEvent["recipient"] {
+  const record = toUnknownRecord(value);
+
+  return {
+    id: record ? readUnknownNullableString(record.id) : null,
+    email:
+      (record ? readUnknownString(record.email) : null) ?? "Unknown recipient",
+    name: record ? readUnknownNullableString(record.name) : null,
+  };
+}
+
+function normalizeEmailAuditStep(
+  value: unknown,
+  {
+    createdAt,
+    eventId,
+    fallbackStatus,
+    stepIndex,
+  }: {
+    createdAt: string;
+    eventId: string;
+    fallbackStatus: EmailAuditEvent["status"];
+    stepIndex: number;
+  },
+): EmailAuditEvent["steps"][number] | null {
+  const record = toUnknownRecord(value);
+
+  if (!record) {
+    return null;
+  }
+
+  return {
+    attemptNumber:
+      typeof record.attemptNumber === "number" &&
+      Number.isInteger(record.attemptNumber) &&
+      record.attemptNumber > 0
+        ? record.attemptNumber
+        : null,
+    createdAt: readUnknownString(record.createdAt) ?? createdAt,
+    detail: readUnknownNullableString(record.detail),
+    host: readUnknownNullableString(record.host),
+    id:
+      readUnknownString(record.id) ??
+      `${eventId}-step-${(stepIndex + 1).toString()}`,
+    nextAttemptAt: readUnknownNullableString(record.nextAttemptAt),
+    response: readUnknownNullableString(record.response),
+    status: isEmailAuditStatus(record.status) ? record.status : fallbackStatus,
+    title: readUnknownString(record.title) ?? "Delivery update",
+  };
+}
+
+function toUnknownRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function readUnknownString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function readUnknownNullableString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function isEmailAuditStatus(value: unknown): value is EmailAuditEvent["status"] {
+  return (
+    typeof value === "string" &&
+    EMAIL_AUDIT_STATUS_VALUES.includes(value as EmailAuditEvent["status"])
+  );
+}
+
+function isEmailAuditSource(value: unknown): value is EmailAuditEvent["source"] {
+  return (
+    typeof value === "string" &&
+    EMAIL_AUDIT_SOURCE_VALUES.includes(value as EmailAuditEvent["source"])
+  );
+}
+
+function isAuditEntityTypeValue(value: unknown): value is AuditEntityType {
+  return (
+    value === "auth" ||
+    value === "project" ||
+    value === "saved_view" ||
+    value === "task"
+  );
+}
+
+function isRoleValue(value: unknown): value is WorkspaceUser["role"] {
+  return value === "admin" || value === "editor" || value === "viewer";
+}
+
+function summarizeEmailAuditEvent(event: EmailAuditEvent) {
+  const summary: string[] = [];
+  const title =
+    readMetadataString(event.metadata?.title) ??
+    readMetadataString(event.metadata?.taskTitle) ??
+    readMetadataString(event.metadata?.projectTitle);
+  const expiresAt = readMetadataString(event.metadata?.expiresAt);
+  const reason = readMetadataString(event.metadata?.reason);
+
+  if (title) {
+    summary.push(title);
+  }
+
+  if (event.sentAt) {
+    summary.push(`Sent ${formatDateTime(event.sentAt)}`);
+  }
+
+  if (event.skippedAt) {
+    summary.push(`Skipped ${formatDateTime(event.skippedAt)}`);
+  }
+
+  if (event.failedAt) {
+    summary.push(`Failed ${formatDateTime(event.failedAt)}`);
+  }
+
+  if (reason) {
+    summary.push(`Reason ${reason}`);
+  }
+
+  if (expiresAt) {
+    summary.push(`Expires ${formatDateTime(expiresAt)}`);
+  }
+
+  if (event.error) {
+    summary.push(`Error ${event.error}`);
+  }
+
+  if (event.nextAttemptAt) {
+    summary.push(`Next ${formatDateTime(event.nextAttemptAt)}`);
+  }
+
+  return summary.slice(0, 6);
+}
+
+function formatEmailAuditFlowTimeline(event: EmailAuditEvent) {
+  const summary = summarizeEmailAuditEvent(event);
+  const lines = [
+    `Notification: ${formatNotificationAuditKindLabel(event)}`,
+    `Status: ${formatEmailAuditStatusLabel(event.status)}`,
+    `Created: ${formatDateTime(event.createdAt)}`,
+    `Recipient: ${formatEmailAuditRecipient(event)}`,
+    `Source: ${formatNotificationAuditSourceLabel(event.source)}`,
+    `Triggered by: ${event.actor ? formatActorSummary(event.actor) : "system delivery"}`,
+    `Attempts: ${event.attemptCount.toString()}`,
+  ];
+
+  if (event.subject) {
+    lines.push(`Subject: ${event.subject}`);
+  }
+
+  if (event.entityType && event.entityId) {
+    lines.push(`Entity: ${formatAuditEntityTypeLabel(event.entityType)} ${event.entityId}`);
+  }
+
+  if (summary.length > 0) {
+    lines.push(`Summary: ${summary.join(" | ")}`);
+  }
+
+  if (event.steps.length > 0) {
+    lines.push("Timeline:");
+    event.steps.forEach((step) => {
+      lines.push(
+        `- ${step.title} (${formatDateTime(step.createdAt)}): ${formatNotificationAuditStepDetail(step)}`,
+      );
+    });
+  } else {
+    lines.push("Timeline: none recorded");
+  }
+
+  return lines.join("\n");
+}
+
+function formatNotificationAuditKindLabel(event: EmailAuditEvent) {
+  if (event.source === "test_email") {
+    return "test email";
+  }
+
+  if (event.source === "password_email") {
+    return "password email";
+  }
+
+  if (event.source === "account_update") {
+    return "account update";
+  }
+
+  if (event.source === "password_reset") {
+    return "password reset";
+  }
+
+  return formatAuditActionLabel(event.kind ?? event.action);
+}
+
+function formatEmailAuditRecipient(event: EmailAuditEvent) {
+  return event.recipient.name
+    ? `${event.recipient.name} · ${event.recipient.email}`
+    : event.recipient.email;
+}
+
+function formatNotificationAuditSourceLabel(source: EmailAuditEvent["source"]) {
+  switch (source) {
+    case "account_update":
+      return "Account update";
+    case "password_email":
+      return "Password email";
+    case "password_reset":
+      return "Password reset";
+    case "test_email":
+      return "Test email";
+    default:
+      return "Notification worker";
+  }
+}
+
+function formatEmailAuditStatusLabel(status: EmailAuditEvent["status"]) {
+  return status.replace(/_/g, " ");
+}
+
+function formatNotificationAuditStepDetail(step: EmailAuditEvent["steps"][number]) {
+  const parts = [
+    step.detail,
+    step.host ? `Host ${step.host}` : null,
+    step.response ? `Response ${step.response}` : null,
+    step.nextAttemptAt ? `Next ${formatDateTime(step.nextAttemptAt)}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.join(" · ");
+}
+
+function formatAuditEntityTypeLabel(value: AuditEntityType) {
+  switch (value) {
+    case "project":
+      return "Project";
+    case "task":
+      return "Task";
+    case "saved_view":
+      return "Saved view";
+    default:
+      return "Auth";
+  }
 }
 
 function readMetadataString(value: unknown) {
@@ -6715,7 +7351,71 @@ function formatDate(value: string | null) {
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString();
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+
+function getLocalTimeZoneLabel() {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeZoneName = new Intl.DateTimeFormat(undefined, {
+    timeZoneName: "short",
+  })
+    .formatToParts(new Date())
+    .find((part) => part.type === "timeZoneName")?.value;
+
+  if (timeZone && timeZoneName && timeZone !== timeZoneName) {
+    return `${timeZone} · ${timeZoneName}`;
+  }
+
+  return timeZone ?? timeZoneName ?? "local time";
+}
+
+function utcTimeToLocalTime(value: string) {
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+  const date = new Date();
+
+  date.setUTCHours(hours ?? 0, minutes ?? 0, 0, 0);
+
+  return toTimeInputValue(date.getHours(), date.getMinutes());
+}
+
+function localTimeToUtcTime(value: string) {
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+  const date = new Date();
+
+  date.setHours(hours ?? 0, minutes ?? 0, 0, 0);
+
+  return toTimeInputValue(date.getUTCHours(), date.getUTCMinutes());
+}
+
+function toTimeInputValue(hours: number, minutes: number) {
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function toLocalDayBoundaryIso(value: string, boundary: "start" | "end") {
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return undefined;
+  }
+
+  const date =
+    boundary === "start"
+      ? new Date(year, month - 1, day, 0, 0, 0, 0)
+      : new Date(year, month - 1, day, 23, 59, 59, 999);
+
+  return date.toISOString();
 }
 
 function toDateInput(value: string | null) {

@@ -3,6 +3,7 @@ import type {
   ApplyBackupRestorePayload,
   ApplyBackupRestoreResult,
   AuditChangesQueryPayload,
+  AuditEmailsQueryPayload,
   AuditHistoryEvent,
   AuditLogRetentionPolicy,
   AuditLoginsQueryPayload,
@@ -23,6 +24,7 @@ import type {
   DeletePersonalTodoResponse,
   DeleteProjectResponse,
   DeleteTaskResponse,
+  EmailAuditEvent,
   ExportLocalAccountsResponse,
   ImportPersonalTodosPayload,
   ImportPersonalTodosResponse,
@@ -70,6 +72,11 @@ import { getApiBaseUrl } from "./runtime-config";
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
+};
+
+type LocalizedAuditDateRangeQuery = {
+  fromDateTime?: string;
+  toDateTime?: string;
 };
 
 const API_UNAVAILABLE_MESSAGE =
@@ -225,6 +232,11 @@ export const resetPasswordWithOtp = (payload: ResetPasswordWithOtpPayload) =>
 
 export const getLocalLoginHint = () =>
   request<LocalLoginHintResponse>("/auth/local-login-hint");
+
+export const sendTestEmail = () =>
+  request<SuccessResponse>("/auth/email/test", {
+    method: "POST",
+  });
 
 export const logout = () =>
   request("/auth/logout", {
@@ -426,11 +438,20 @@ export const getAuditHistory = (
     `/audit/${entityType}/${entityId}?limit=${limit.toString()}`,
   );
 
-export const listAuditChanges = (query: AuditChangesQueryPayload) =>
+export const listAuditChanges = (
+  query: AuditChangesQueryPayload & LocalizedAuditDateRangeQuery,
+) =>
   request<AuditHistoryEvent[]>(`/audit/changes${toQueryString(query)}`);
 
-export const listAuditLogins = (query: AuditLoginsQueryPayload) =>
+export const listAuditLogins = (
+  query: AuditLoginsQueryPayload & LocalizedAuditDateRangeQuery,
+) =>
   request<AuditHistoryEvent[]>(`/audit/logins${toQueryString(query)}`);
+
+export const listAuditEmails = (
+  query: AuditEmailsQueryPayload & LocalizedAuditDateRangeQuery,
+) =>
+  request<EmailAuditEvent[]>(`/audit/emails${toQueryString(query)}`);
 
 export const getAuditLogRetention = () =>
   request<AuditLogRetentionPolicy>("/audit/retention");

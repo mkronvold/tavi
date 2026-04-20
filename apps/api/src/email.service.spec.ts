@@ -13,7 +13,6 @@ describe('EmailService', () => {
 
   const createService = (enabled: boolean | null = true) => {
     let currentEnabled = enabled;
-    let currentDailyDigestTime = '09:00';
     let currentDragHandlesEnabled = true;
     const upsertMock = jest.fn(
       ({
@@ -21,36 +20,33 @@ describe('EmailService', () => {
         update,
       }: {
         create: {
-          dailyDigestTime: string;
           dragHandlesEnabled: boolean;
           enabled: boolean;
         };
         update: {
-          dailyDigestTime: string;
           dragHandlesEnabled: boolean;
           enabled: boolean;
         };
       }) => {
         currentEnabled = update.enabled ?? create.enabled;
-        currentDailyDigestTime =
-          update.dailyDigestTime ?? create.dailyDigestTime;
         currentDragHandlesEnabled =
           update.dragHandlesEnabled ?? create.dragHandlesEnabled;
         return Promise.resolve({
-          dailyDigestTime: currentDailyDigestTime,
           dragHandlesEnabled: currentDragHandlesEnabled,
           enabled: currentEnabled,
         });
       },
     );
     const prisma = {
+      auditEvent: {
+        create: jest.fn(() => Promise.resolve()),
+      },
       emailSettings: {
         findUnique: jest.fn(() =>
           Promise.resolve(
             currentEnabled === null
               ? null
               : {
-                  dailyDigestTime: currentDailyDigestTime,
                   dragHandlesEnabled: currentDragHandlesEnabled,
                   enabled: currentEnabled,
                 },
@@ -66,8 +62,11 @@ describe('EmailService', () => {
       warn: warnMock,
     } as unknown as AppLogger;
     const service = new EmailService(logger, prisma);
-    const sendMail = jest.fn<Promise<undefined>, [SendMailArgs]>(() =>
-      Promise.resolve(undefined),
+    const sendMail = jest.fn<Promise<{ response: string }>, [SendMailArgs]>(
+      () =>
+        Promise.resolve({
+          response: '250 2.0.0 Ok',
+        }),
     );
 
     Object.assign(service, {
@@ -97,7 +96,6 @@ describe('EmailService', () => {
 
     await expect(service.getSmtpStatus()).resolves.toEqual({
       configured: true,
-      dailyDigestTime: '09:00',
       dragHandlesEnabled: true,
       enabled: true,
       fromAddress: 'noreply@tavi.local',
@@ -112,7 +110,6 @@ describe('EmailService', () => {
 
     await expect(service.setEmailEnabled(false)).resolves.toEqual({
       configured: true,
-      dailyDigestTime: '09:00',
       dragHandlesEnabled: true,
       enabled: false,
       fromAddress: 'noreply@tavi.local',
@@ -123,12 +120,10 @@ describe('EmailService', () => {
     expect(upsertMock).toHaveBeenCalledWith({
       where: { id: 'global' },
       update: {
-        dailyDigestTime: '09:00',
         dragHandlesEnabled: true,
         enabled: false,
       },
       create: {
-        dailyDigestTime: '09:00',
         dragHandlesEnabled: true,
         id: 'global',
         enabled: false,
@@ -136,18 +131,16 @@ describe('EmailService', () => {
     });
   });
 
-  it('persists the global daily digest send time', async () => {
+  it('persists task drag handle and delivery settings without a digest override', async () => {
     const { service, upsertMock } = createService(true);
 
     await expect(
       service.updateEmailSettings({
-        dailyDigestTime: '14:30',
         dragHandlesEnabled: false,
         enabled: true,
       }),
     ).resolves.toEqual({
       configured: true,
-      dailyDigestTime: '14:30',
       dragHandlesEnabled: false,
       enabled: true,
       fromAddress: 'noreply@tavi.local',
@@ -159,12 +152,10 @@ describe('EmailService', () => {
     expect(upsertMock).toHaveBeenCalledWith({
       where: { id: 'global' },
       update: {
-        dailyDigestTime: '14:30',
         dragHandlesEnabled: false,
         enabled: true,
       },
       create: {
-        dailyDigestTime: '14:30',
         dragHandlesEnabled: false,
         id: 'global',
         enabled: true,
@@ -178,11 +169,29 @@ describe('EmailService', () => {
     await service.sendPasswordEmail(
       { email: 'viewer@tavi.local', name: 'Viewer' },
       'temp-password',
+      {
+        actor: {
+          email: 'admin@tavi.local',
+          id: 'admin-1',
+          name: 'Admin User',
+          role: 'admin',
+        },
+        entityId: 'user-2',
+      },
     );
     await expect(
       service.sendAccountUpdateEmail(
         { email: 'viewer@tavi.local', name: 'Viewer' },
         ['name'],
+        {
+          actor: {
+            email: 'admin@tavi.local',
+            id: 'admin-1',
+            name: 'Admin User',
+            role: 'admin',
+          },
+          entityId: 'user-2',
+        },
       ),
     ).resolves.toBe(false);
 
@@ -206,6 +215,15 @@ describe('EmailService', () => {
         { email: 'viewer@tavi.local', name: 'Viewer' },
         'ABCD-1234',
         expiresAt,
+        {
+          actor: {
+            email: 'viewer@tavi.local',
+            id: 'user-2',
+            name: 'Viewer',
+            role: 'viewer',
+          },
+          entityId: 'user-2',
+        },
       ),
     ).resolves.toBeUndefined();
 
@@ -231,6 +249,15 @@ describe('EmailService', () => {
         { email: 'viewer@tavi.local', name: 'Viewer' },
         'ABCD-1234',
         expiresAt,
+        {
+          actor: {
+            email: 'viewer@tavi.local',
+            id: 'user-2',
+            name: 'Viewer',
+            role: 'viewer',
+          },
+          entityId: 'user-2',
+        },
       ),
     ).resolves.toBeUndefined();
 
@@ -259,5 +286,54 @@ describe('EmailService', () => {
     await expect(
       service.assertPasswordResetEmailAvailable(),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('returns actionable test email configuration errors', async () => {
+    const { service } = createService(true);
+
+    Object.assign(service, {
+      configurationIssue: 'Invalid SMTP_URL: missing host',
+      smtpHost: null,
+      smtpPort: null,
+      transporter: null,
+    });
+
+    await expect(
+      service.sendTestEmail(
+        { email: 'admin@tavi.local', name: 'Admin User' },
+        {
+          email: 'admin@tavi.local',
+          id: 'admin-1',
+          name: 'Admin User',
+          role: 'admin',
+        },
+      ),
+    ).rejects.toThrow(
+      'Test email is unavailable right now. SMTP configuration error: Invalid SMTP_URL: missing host. From noreply@tavi.local. Check SMTP_URL and any required SMTP_USER/SMTP_PASS settings.',
+    );
+  });
+
+  it('returns actionable SMTP rejection details for test email sends', async () => {
+    const { sendMail, service } = createService(true);
+
+    sendMail.mockRejectedValueOnce(
+      Object.assign(new Error('Connection closed unexpectedly'), {
+        response: '554 5.7.1 blocked',
+      }),
+    );
+
+    await expect(
+      service.sendTestEmail(
+        { email: 'admin@tavi.local', name: 'Admin User' },
+        {
+          email: 'admin@tavi.local',
+          id: 'admin-1',
+          name: 'Admin User',
+          role: 'admin',
+        },
+      ),
+    ).rejects.toThrow(
+      'Unable to send test email. Recipient admin@tavi.local. From noreply@tavi.local. Host 10.120.64.99:25. SMTP response 554 5.7.1 blocked. Error Connection closed unexpectedly.',
+    );
   });
 });

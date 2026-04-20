@@ -13,6 +13,18 @@ import { PrismaService } from './prisma.service';
 
 describe('AuthService', () => {
   const originalAuthMode = process.env.AUTH_MODE;
+  type AuditEventCreateCall = [
+    {
+      data: {
+        action: string;
+        entityId: string;
+        metadata?: {
+          emailKind?: string;
+          recipientEmail?: string;
+        };
+      };
+    },
+  ];
 
   const createService = () => {
     type AuthServicePrismaMock = {
@@ -21,9 +33,6 @@ describe('AuthService', () => {
       ) => Promise<unknown>;
       auditEvent: {
         create: jest.Mock;
-      };
-      emailSettings: {
-        findUnique: jest.Mock;
       };
       user: {
         findMany: jest.Mock;
@@ -34,17 +43,14 @@ describe('AuthService', () => {
     const findManyUsersMock = jest.fn();
     const findUniqueUserMock = jest.fn();
     const updateUserMock = jest.fn();
-    const findUniqueEmailSettingsMock = jest.fn();
+    const auditEventCreateMock = jest.fn(() => Promise.resolve());
     const prisma: AuthServicePrismaMock = {
       $transaction: jest.fn(
         (callback: (tx: AuthServicePrismaMock) => unknown) =>
           Promise.resolve(callback(prisma)),
       ),
       auditEvent: {
-        create: jest.fn(() => Promise.resolve()),
-      },
-      emailSettings: {
-        findUnique: findUniqueEmailSettingsMock,
+        create: auditEventCreateMock,
       },
       user: {
         findMany: findManyUsersMock,
@@ -59,7 +65,7 @@ describe('AuthService', () => {
 
     return {
       assertPasswordResetEmailAvailableMock,
-      findUniqueEmailSettingsMock,
+      auditEventCreateMock,
       findManyUsersMock,
       findUniqueUserMock,
       sendPasswordResetOtpEmailMock,
@@ -238,6 +244,7 @@ describe('AuthService', () => {
     process.env.AUTH_MODE = 'local';
     const {
       assertPasswordResetEmailAvailableMock,
+      auditEventCreateMock,
       findUniqueUserMock,
       sendPasswordResetOtpEmailMock,
       updateUserMock,
@@ -279,7 +286,21 @@ describe('AuthService', () => {
       { email: 'admin@tavi.local', name: 'Admin User' },
       expect.stringMatching(/^[0-9A-F]{4}-[0-9A-F]{4}$/),
       expect.any(Date),
+      {
+        actor: {
+          email: 'admin@tavi.local',
+          id: 'user-1',
+          name: 'Admin User',
+          role: 'admin',
+        },
+        entityId: 'user-1',
+      },
     );
+    const [firstAuditCall] = auditEventCreateMock.mock
+      .calls as unknown as AuditEventCreateCall[];
+
+    expect(firstAuditCall?.[0].data.action).toBe('password_reset_requested');
+    expect(firstAuditCall?.[0].data.entityId).toBe('user-1');
   });
 
   it('does not reveal missing accounts during password reset requests', async () => {
@@ -301,6 +322,37 @@ describe('AuthService', () => {
     expect(assertPasswordResetEmailAvailableMock).toHaveBeenCalledTimes(1);
     expect(updateUserMock).not.toHaveBeenCalled();
     expect(sendPasswordResetOtpEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('records failed password reset email attempts and clears the otp', async () => {
+    process.env.AUTH_MODE = 'local';
+    const {
+      auditEventCreateMock,
+      findUniqueUserMock,
+      sendPasswordResetOtpEmailMock,
+      updateUserMock,
+      service,
+    } = createService();
+
+    findUniqueUserMock.mockResolvedValue({
+      id: 'user-1',
+      email: 'admin@tavi.local',
+      name: 'Admin User',
+      passwordHash: await bcrypt.hash('current-password-123', 10),
+      roleAssignment: {
+        role: 'admin',
+      },
+    });
+    sendPasswordResetOtpEmailMock.mockRejectedValue(
+      new Error('Unable to send password reset email'),
+    );
+
+    await expect(
+      service.requestPasswordReset('admin@tavi.local'),
+    ).rejects.toThrow('Unable to send password reset email');
+
+    expect(updateUserMock).toHaveBeenCalledTimes(2);
+    expect(auditEventCreateMock).not.toHaveBeenCalled();
   });
 
   it('resets a password with a valid one-time password', async () => {
@@ -409,15 +461,12 @@ describe('AuthService', () => {
   });
 
   it('returns the current digest preference with the configured digest time', async () => {
-    const { findUniqueEmailSettingsMock, findUniqueUserMock, service } =
-      createService();
+    const { findUniqueUserMock, service } = createService();
 
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: true,
-      personalTodoRemindersEnabled: false,
-    });
-    findUniqueEmailSettingsMock.mockResolvedValue({
       dailyDigestTime: '14:30',
+      personalTodoRemindersEnabled: false,
     });
 
     await expect(service.getNotificationPreferences('user-1')).resolves.toEqual(
@@ -430,12 +479,7 @@ describe('AuthService', () => {
   });
 
   it('updates the current user digest preference and records an audit event', async () => {
-    const {
-      findUniqueEmailSettingsMock,
-      findUniqueUserMock,
-      updateUserMock,
-      service,
-    } = createService();
+    const { findUniqueUserMock, updateUserMock, service } = createService();
     const actor = {
       id: 'user-1',
       email: 'editor@tavi.local',
@@ -448,10 +492,8 @@ describe('AuthService', () => {
     });
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: true,
+      dailyDigestTime: '11:00',
       personalTodoRemindersEnabled: false,
-    });
-    findUniqueEmailSettingsMock.mockResolvedValue({
-      dailyDigestTime: '09:00',
     });
 
     await expect(
@@ -460,7 +502,7 @@ describe('AuthService', () => {
       }),
     ).resolves.toEqual({
       dailyDigestEnabled: true,
-      dailyDigestTime: '09:00',
+      dailyDigestTime: '11:00',
       personalTodoRemindersEnabled: false,
     });
 
@@ -473,12 +515,7 @@ describe('AuthService', () => {
   });
 
   it('updates personal to do reminders without changing digest settings', async () => {
-    const {
-      findUniqueEmailSettingsMock,
-      findUniqueUserMock,
-      updateUserMock,
-      service,
-    } = createService();
+    const { findUniqueUserMock, updateUserMock, service } = createService();
     const actor = {
       id: 'user-1',
       email: 'editor@tavi.local',
@@ -491,10 +528,8 @@ describe('AuthService', () => {
     });
     findUniqueUserMock.mockResolvedValue({
       dailyDigestEnabled: false,
+      dailyDigestTime: '11:00',
       personalTodoRemindersEnabled: false,
-    });
-    findUniqueEmailSettingsMock.mockResolvedValue({
-      dailyDigestTime: '09:00',
     });
 
     await expect(
@@ -503,7 +538,7 @@ describe('AuthService', () => {
       }),
     ).resolves.toEqual({
       dailyDigestEnabled: false,
-      dailyDigestTime: '09:00',
+      dailyDigestTime: '11:00',
       personalTodoRemindersEnabled: false,
     });
 
@@ -511,6 +546,42 @@ describe('AuthService', () => {
       where: { id: actor.id },
       data: {
         personalTodoRemindersEnabled: false,
+      },
+    });
+  });
+
+  it('updates the current user digest time without changing other preferences', async () => {
+    const { findUniqueUserMock, updateUserMock, service } = createService();
+    const actor = {
+      id: 'user-1',
+      email: 'editor@tavi.local',
+      name: 'Tavi Editor',
+      role: 'editor' as const,
+    };
+
+    updateUserMock.mockResolvedValue({
+      id: actor.id,
+    });
+    findUniqueUserMock.mockResolvedValue({
+      dailyDigestEnabled: false,
+      dailyDigestTime: '14:30',
+      personalTodoRemindersEnabled: true,
+    });
+
+    await expect(
+      service.updateNotificationPreferences(actor, {
+        dailyDigestTime: '14:30',
+      }),
+    ).resolves.toEqual({
+      dailyDigestEnabled: false,
+      dailyDigestTime: '14:30',
+      personalTodoRemindersEnabled: true,
+    });
+
+    expect(updateUserMock).toHaveBeenCalledWith({
+      where: { id: actor.id },
+      data: {
+        dailyDigestTime: '14:30',
       },
     });
   });

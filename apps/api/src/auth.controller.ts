@@ -111,6 +111,22 @@ export class AuthController {
     return this.emailService.getSmtpStatus();
   }
 
+  @Post('email/test')
+  @UseGuards(SessionGuard)
+  async sendTestEmail(@Req() request: AuthenticatedRequest) {
+    this.authService.requireAdminAccess(request.user!);
+
+    await this.emailService.sendTestEmail(
+      {
+        email: request.user!.email,
+        name: request.user!.name,
+      },
+      request.user!,
+    );
+
+    return { success: true as const };
+  }
+
   @Get('notification/preferences')
   @UseGuards(SessionGuard)
   async getNotificationPreferences(@Req() request: AuthenticatedRequest) {
