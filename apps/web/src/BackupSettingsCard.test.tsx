@@ -8,6 +8,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BackupSettingsCard } from "./BackupSettingsCard";
+import {
+  formatDateTime,
+  getLocalTimeZoneLabel,
+  localTimeToUtcTime,
+  utcTimeToLocalTime,
+} from "./time";
 import type { BackupRestorePreview, BackupStatus } from "./types";
 
 function createResponse(payload: unknown, status = 200) {
@@ -223,5 +229,90 @@ describe("BackupSettingsCard", () => {
     expect(
       screen.getByRole("button", { name: "Clear all existing projects/tasks" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows backup timestamps in local time with timezone and saves schedule time in UTC", async () => {
+    const lastSuccessAt = "2026-04-18T11:30:00.000Z";
+    const backupModifiedAt = "2026-04-18T10:00:00.000Z";
+    let updateRequestBody: string | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/backups") && !init?.method) {
+        return createResponse(
+          createBackupStatus({
+            backups: [
+              {
+                createdAt: backupModifiedAt,
+                fileName: "backup-1.json",
+                modifiedAt: backupModifiedAt,
+                sizeBytes: 1024,
+              },
+            ],
+            lastSuccessAt,
+            scheduleTime: "02:00",
+          }),
+        );
+      }
+
+      if (url.endsWith("/backups") && init?.method === "PUT") {
+        updateRequestBody = typeof init.body === "string" ? init.body : null;
+        const payload = JSON.parse(updateRequestBody ?? "{}") as {
+          enabled: boolean;
+          scheduleTime: string;
+        };
+
+        return createResponse(
+          createBackupStatus({
+            backups: [
+              {
+                createdAt: backupModifiedAt,
+                fileName: "backup-1.json",
+                modifiedAt: backupModifiedAt,
+                sizeBytes: 1024,
+              },
+            ],
+            enabled: payload.enabled,
+            lastSuccessAt,
+            scheduleTime: payload.scheduleTime,
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const { onNotice } = renderCard();
+
+    await screen.findByText("backup-1.json");
+
+    expect(
+      screen.getByText(
+        `Dates and times use your local timezone (${getLocalTimeZoneLabel()}). Backup time is saved in UTC.`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(formatDateTime(lastSuccessAt))).toBeInTheDocument();
+    expect(
+      screen.getByText(`${formatDateTime(backupModifiedAt)} · 1.0 KB`),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Backup time")).toHaveValue(
+      utcTimeToLocalTime("02:00"),
+    );
+
+    fireEvent.change(screen.getByLabelText("Backup time"), {
+      target: { value: "09:15" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(JSON.parse(updateRequestBody ?? "{}")).toEqual({
+        enabled: true,
+        scheduleTime: localTimeToUtcTime("09:15"),
+      });
+      expect(onNotice).toHaveBeenCalledWith(
+        `Automatic backups enabled for 09:15 (${getLocalTimeZoneLabel()}).`,
+      );
+    });
   });
 });

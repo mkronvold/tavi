@@ -71,7 +71,7 @@ function buildScheduledRunAt(now: Date, scheduleTime: string) {
   const [hoursText, minutesText] = scheduleTime.split(":");
   const scheduledRunAt = new Date(now);
 
-  scheduledRunAt.setHours(Number(hoursText), Number(minutesText), 0, 0);
+  scheduledRunAt.setUTCHours(Number(hoursText), Number(minutesText), 0, 0);
   return scheduledRunAt;
 }
 

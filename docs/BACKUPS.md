@@ -13,7 +13,7 @@ The `Backups` panel is the admin-facing control surface for scheduled backups, m
 | Area | What it does |
 | --- | --- |
 | Automatic Backups | Enables or disables the worker-driven backup schedule |
-| Backup time | Sets the daily backup time; use `Save` to persist it |
+| Backup time | Shows the daily backup time in your browser's local timezone and saves it in UTC when you use `Save` |
 | Upload Backup | Validates a Tavi backup JSON file and saves it into backup storage |
 | Backup Now | Creates a fresh backup immediately and saves it into backup storage |
 | Status grid | Shows the active backup directory, last success, last failure, and stored-backup count |
@@ -28,6 +28,8 @@ All backups now go through storage first.
 2. `Backup Now` writes a new stored snapshot into the same directory.
 3. `Upload Backup` stores the uploaded JSON file before it can be restored.
 4. Restore preview and restore apply always run from a stored backup file.
+
+Visible backup timestamps such as `Last success`, `Last failure`, stored-backup modified times, and restore preview times use the browser's local timezone and include the timezone label.
 
 ## Restore workflow
 
@@ -82,3 +84,4 @@ This means:
 2. A restore preview does not change data; it only computes counts, conflict matches, and selectable restore items.
 3. Full restore can require reauthentication if the current signed-in account is replaced or loses admin access.
 4. Backup upload accepts only valid Tavi backup JSON, not arbitrary exported JSON from other systems.
+5. Backup schedule times are stored in UTC even though the UI shows them in browser-local time.

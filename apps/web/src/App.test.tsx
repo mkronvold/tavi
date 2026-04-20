@@ -3278,6 +3278,9 @@ describe("App", () => {
       expect(
         screen.getByRole("heading", { name: "User History" }),
       ).toBeInTheDocument();
+      expect(
+        screen.getByText(/Dates and times use your local timezone \(.+\)\./),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(authHistoryCard as HTMLElement);

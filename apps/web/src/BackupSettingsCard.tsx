@@ -12,6 +12,12 @@ import {
   updateBackupSettings,
   uploadBackupFile,
 } from "./api";
+import {
+  formatDateTime,
+  getLocalTimeZoneLabel,
+  localTimeToUtcTime,
+  utcTimeToLocalTime,
+} from "./time";
 import type { BackupRestorePreview, BackupStatus } from "./types";
 
 type BackupSettingsCardProps = {
@@ -26,7 +32,7 @@ function formatTimestamp(value: string | null) {
     return "Never";
   }
 
-  return new Date(value).toLocaleString();
+  return formatDateTime(value);
 }
 
 function formatBytes(sizeBytes: number) {
@@ -77,6 +83,7 @@ export function BackupSettingsCard({
     queryKey: ["backup-status"],
     staleTime: 30_000,
   });
+  const localTimeZoneLabel = useMemo(() => getLocalTimeZoneLabel(), []);
 
   useEffect(() => {
     if (!backupStatusQuery.data) {
@@ -84,7 +91,9 @@ export function BackupSettingsCard({
     }
 
     const availableBackups = backupStatusQuery.data.backups ?? [];
-    setScheduleDraft(backupStatusQuery.data.scheduleTime ?? "02:00");
+    setScheduleDraft(
+      utcTimeToLocalTime(backupStatusQuery.data.scheduleTime ?? "02:00"),
+    );
     setSelectedStoredFileName((current) => {
       if (
         current.length > 0 &&
@@ -118,7 +127,7 @@ export function BackupSettingsCard({
       setBackupError(null);
       applyBackupStatus(status);
       onNotice(
-        `Automatic backups ${status.enabled ? "enabled" : "disabled"} for ${status.scheduleTime}.`,
+        `Automatic backups ${status.enabled ? "enabled" : "disabled"} for ${utcTimeToLocalTime(status.scheduleTime)} (${localTimeZoneLabel}).`,
       );
     },
     onError: (error) => {
@@ -351,7 +360,7 @@ export function BackupSettingsCard({
 
     backupSettingsMutation.mutate({
       enabled: backupStatus.enabled,
-      scheduleTime: scheduleDraft,
+      scheduleTime: localTimeToUtcTime(scheduleDraft),
     });
   };
 
@@ -488,6 +497,9 @@ export function BackupSettingsCard({
         Store complete Tavi database snapshots in the configured backup
         directory and use them later for full or selective restore.
       </p>
+      <p className="toolbar-hint">
+        {`Dates and times use your local timezone (${localTimeZoneLabel}). Backup time is saved in UTC.`}
+      </p>
       {backupError ? <p className="error-banner">{backupError}</p> : null}
       <label className="settings-switch">
         <span className="settings-switch-label">Automatic Backups</span>
@@ -504,7 +516,7 @@ export function BackupSettingsCard({
       <div className="backup-toolbar">
         <div className="settings-time-controls">
           <label className="settings-time-field">
-            <span className="settings-label">Backup time</span>
+            <span className="settings-label">{`Backup time (${localTimeZoneLabel})`}</span>
             <input
               aria-label="Backup time"
               onChange={(event) => setScheduleDraft(event.target.value)}
@@ -516,12 +528,12 @@ export function BackupSettingsCard({
             <button
               type="button"
               className="ghost-button compact-button"
-              disabled={
-                backupSettingsMutation.isPending ||
-                !backupStatus ||
-                scheduleDraft === backupStatus.scheduleTime
-              }
-              onClick={saveSchedule}
+                disabled={
+                  backupSettingsMutation.isPending ||
+                  !backupStatus ||
+                  scheduleDraft === utcTimeToLocalTime(backupStatus.scheduleTime)
+                }
+                onClick={saveSchedule}
             >
               Save
             </button>
