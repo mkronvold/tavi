@@ -12,6 +12,7 @@ Tavi currently ships as a TypeScript monorepo with:
 
 ## Documentation
 
+- `CHANGELOG.md` - release history by version
 - `docs/README.md` - user, admin, and operator guide index
 - `docs/QUICKSTART.md` - choose between source build, Docker runtime, and Kubernetes deployment guides
 - `docs/BUILD.md` - source-based Docker Compose development guide

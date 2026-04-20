@@ -1,0 +1,91 @@
+# Changelog
+
+This file records the versions released in repository history. Dates reflect the release commit date currently present in git history.
+
+## 0.9.4 - 2026-04-20
+
+- Buffered non-admin project and task notifications so users receive one hourly summary email, or one daily digest if they prefer daily delivery.
+- Replaced the profile `Daily Digest` toggle with a `Notification Rate` selector and restricted daily send times to hourly values.
+- Normalized legacy digest times in auth and backup flows, and filtered internal batched notification records out of the admin audit-notifications view.
+- Release commit: `fc1cf2d`
+
+## 0.9.3 - 2026-04-20
+
+- Added `Demo` and `Review` workflow statuses, renamed `ToDo` to `Not Started`, and updated derived project-status rollups to match the new status model.
+- Updated workspace filters, imports, saved views, and rollup behavior to support the new project and task statuses.
+- Added `docs/DEVGUIDE.md` and refreshed the workspace, design, and architecture documentation around the updated status model.
+- Release commit: `e9d79ab`
+
+## 0.9.2 - 2026-04-20
+
+- Refreshed product and operator documentation across architecture, design, settings, notifications, import/export, branding, and workspace guides.
+- Consolidated the written guidance shipped alongside the current 0.9.x feature set.
+- Release commit: `3f51ef2`
+
+## 0.9.1 - 2026-04-20
+
+- Polished the settings experience by tightening the audit-notification expander, removing duplicate email controls from audit changes, and refining CSV import panel copy and spacing.
+- Made new-task notes multiline and expandable in the inline workspace add-task flow.
+- Added corresponding web and audit test coverage for the settings and import/export refinements.
+- Release commit: `df8b27f`
+
+## 0.9.0 - 2026-04-20
+
+- Added the retention settings panel for backup, login-log, change-log, and notification retention, including estimated sizes and prune-now actions.
+- Added server-backed user configuration with browser sync, reset support, backup/restore coverage, and personal to-do retention preferences.
+- Added forgot-password email reset, workspace search clear, project search-link copy, and additional workspace reset and rollup polish.
+- Release commit: `e268952`
+
+## 0.3.8 - 2026-04-18
+
+- Expanded the prebuilt Docker runtime documentation and added `infra/docker/compose-prod.env.example` for published-image local runs.
+- Refined the `compose-prod` workflow and supporting documentation for image-based deployments.
+- Release commit: `0f69465`
+
+## 0.3.7 - 2026-04-18
+
+- Split the source-mounted development stack and published-image runtime into `compose-dev.yaml` and `compose-prod.yaml`.
+- Tightened local-account administration behavior and updated scripts and deployment docs to match the new compose layout.
+- Release commit: `e747d23`
+
+## 0.3.6 - 2026-04-18
+
+- Replaced the external local-auth seed script with an API-managed bootstrap service for default local users.
+- Added bootstrap-focused API tests and simplified the deployment and local-account documentation around startup seeding.
+- Release commit: `ac85100`
+
+## 0.3.5 - 2026-04-18
+
+- Added one-shot local admin seeding helpers for Docker and Kubernetes startup flows.
+- Documented seeded local account setup and bootstrap behavior for source and deployed environments.
+- Release commit: `5d491a3`
+
+## 0.3.4 - 2026-04-17
+
+- Switched the web image to a static production-serving path with `serve-dist.mjs`.
+- Updated Docker, Kubernetes, and README guidance for the production web runtime.
+- Release commit: `200d9e7`
+
+## 0.3.3 - 2026-04-17
+
+- Aligned package and container version metadata across the monorepo after the 0.3.2 deployment changes.
+- Refreshed the Docker build files to ship the matching release version consistently.
+- Release commit: `98f1aa5`
+
+## 0.3.2 - 2026-04-17
+
+- Hardened Docker and Kubernetes manifests for the API, web, and worker services.
+- Improved rendered markdown handling for notes and tightened notification, backup, and personal to-do behavior around the deployment updates.
+- Release commit: `a5daed8`
+
+## 0.3.1 - 2026-04-16
+
+- Added the Personal ToDo experience across the API and web app, including reminders, settings, and workspace integration.
+- Expanded local account administration, notification behavior, and workspace polish, and refreshed the related documentation.
+- Release commit: `5c2f2ad`
+
+## 0.3.0 - 2026-04-13
+
+- Initial shipped Tavi release with project and task management, CSV imports, audit history, local account administration, saved views, and broader UX polish.
+- Established the first documented release baseline for the repository.
+- Release commit: `da1290f`
