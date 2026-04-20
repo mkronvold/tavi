@@ -16,7 +16,7 @@ Tavi supports immediate project and task update emails, an optional daily digest
 Open `Settings` to manage:
 
 1. `Email Notifications` for the global outbound email on/off switch.
-2. `Audit Notifications` to inspect notification delivery history and test-email flows.
+2. `Audit Notifications` to inspect notification delivery history, expand or copy full timelines, and run the admin test-email flow.
 
 ### Any user
 
@@ -24,6 +24,18 @@ Open `User Profile` from the signed-in user name to manage:
 
 1. `Daily Digest` to choose digest delivery instead of immediate non-admin update emails.
 2. The digest send time beside that toggle, shown in local browser time and saved in UTC when you click `Save`.
+
+## Audit notifications and test email
+
+`Audit Notifications` is the admin troubleshooting surface for outbound delivery.
+
+Each row:
+
+1. Starts collapsed so the list stays compact.
+2. Expands when you click the summary bar or the subtle `Expand` button.
+3. Offers a subtle `Copy` action that copies the full notification flow and timeline to the clipboard.
+
+The `Test email` action sends to the signed-in admin and reports actionable SMTP diagnostics, including configuration problems, recipient/from details, SMTP host details, and the returned transport error or host response when delivery fails.
 
 ## Immediate update recipients
 
@@ -92,3 +104,4 @@ Use the `Enable reminders` switch at the top of the `Personal ToDo` panel to tur
 2. The stored default digest time is `11:00` UTC, which is `5:00 AM` CST, and digest starts off by default for each user.
 3. If global email is disabled, neither immediate update emails nor daily digests are sent.
 4. Personal ToDo reminder emails also depend on the global email switch, but they are not batched into the daily digest.
+5. `Audit changes` intentionally excludes outbound email-delivery events so project/task changes and email timelines do not duplicate each other.

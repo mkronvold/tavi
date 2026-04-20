@@ -34,10 +34,11 @@ Saving profile edits closes the panel after the update is accepted.
 | Admin-only | Task Drag Handles   | Shows or hides manual task-reorder handles for every user in the workspace |
 | Admin-only | Backups             | Opens the dedicated backup and restore panel                               |
 | Admin-only | Import/Export       | Opens the dedicated import and export panel                                |
+| Admin-only | Retention           | Opens retention controls for backups, login history, change history, and notification history |
 | Admin-only | Local Accounts      | Opens the local-auth management panel                                      |
 | Admin-only | Audit Logins        | Opens system-wide sign-in audit history                                    |
 | Admin-only | Audit Notifications | Opens system-wide outbound notification and email delivery history         |
-| Admin-only | Audit Changes       | Opens system-wide change audit history                                     |
+| Admin-only | Audit Changes       | Opens system-wide project and task change history without email delivery rows |
 | Meta       | Version             | Shows the current app version and repository link                          |
 
 ## Recommended use
@@ -48,6 +49,7 @@ Saving profile edits closes the panel after the update is accepted.
 4. Turn on `Daily Digest` if you want one scheduled summary email instead of immediate task and project update, assignment, and due-date emails, then save the time shown in your browser's local timezone.
 5. Leave `Task Drag Handles` on when editors should be able to manually reorder visible task lists, or turn it off for cleaner review-only sessions.
 6. Use the `Import/Export` and `Backups` launcher cards when you need data-management tools without keeping those panels open all the time.
+7. Use `Retention` when you want to prune stored backups or older login, change, and notification history based on the current policy estimates.
 
 ## Local Accounts entry point
 
@@ -90,3 +92,4 @@ It does not delete projects, tasks, imports, backups, accounts, or saved views.
 4. Admin-only email controls do not force users into digest mode or pick a send time for them. Each user chooses whether non-admin notifications arrive immediately or in the daily digest and saves their own digest time.
 5. New users default to digest off and a stored UTC digest time of `11:00`, which corresponds to `5:00 AM` CST.
 6. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its `hide done` preference is still reset by `Reset all user settings`.
+7. `Audit Changes` intentionally excludes outbound email-delivery steps. Use `Audit Notifications` when you need the notification timeline or test-email diagnostics.

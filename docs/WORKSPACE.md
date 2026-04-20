@@ -50,7 +50,7 @@ Task rows stay directly under their parent project. Inline task editing lets edi
 
 Changing the `Project` field moves the task to a different project and recalculates both project rollups when you save. The last `Project` option, `Convert to Project`, turns the edited task into a new standalone project instead. The new project keeps the task title, notes, assignee as owner, due date, priority, and the closest matching project status.
 
-When you add several tasks to the same project in a row, Tavi keeps the last assignee selection, including `None`, and the last priority selected in the add-task row so repeated entry is faster.
+When you add several tasks to the same project in a row, Tavi keeps the last assignee selection, including `None`, and the last priority selected in the add-task row so repeated entry is faster. The add-task notes field is multiline and resizable, so quick follow-up context does not need to be compressed into a single line.
 
 Use the compact `::` drag handle on the left side of each visible task row to save a manual task order for that project. Reordering is only enabled when the full task list for that project is visible, and admins can hide all drag handles globally from [`SETTINGS.md`](./SETTINGS.md).
 

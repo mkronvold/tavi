@@ -21,7 +21,7 @@ This architecture assumes the approved full TypeScript stack decision.
 1. Use a monorepo so shared types, schemas, lint rules, and build tooling stay consistent.
 2. Separate `web`, `api`, and `worker` runtimes for clearer scaling and operations.
 3. Use PostgreSQL as the source of truth for product data, import staging, and audit history.
-4. Use REST with OpenAPI for a stable and inspectable API surface.
+4. Use REST JSON endpoints backed by shared Zod schemas so the web app, API, and worker stay in sync.
 5. Use shared TypeScript schemas to reduce contract drift between frontend and backend.
 6. Use enterprise SSO in production and a local-dev auth mode outside production.
 7. Persist derived project rollups so the primary workspace stays fast.
@@ -34,15 +34,15 @@ This architecture assumes the approved full TypeScript stack decision.
 | Build orchestration | `turbo`                                                                      | Optional but useful for caching and task coordination            |
 | Web app             | React + TypeScript + Vite                                                    | Good fit for a dense internal SPA                                |
 | Data fetching       | TanStack Query                                                               | Caching, invalidation, and optimistic updates                    |
-| Table/view layer    | TanStack Table + row virtualization                                          | Supports grouped, dense, expandable views                        |
-| UI primitives       | Radix UI + Tailwind CSS                                                      | Good accessibility with compact custom styling                   |
-| Local UI state      | Zustand                                                                      | Lightweight state for expansion, density, and transient UI state |
+| Table/view layer    | Native React table markup plus focused inline editors                        | Keeps the dense grouped workspace compact without extra abstraction |
+| Styling             | Hand-authored CSS with theme variables                                       | Compact control over density, themes, and row highlighting       |
+| Local UI state      | React state/hooks plus storage helpers                                       | Keeps expansion, filters, editors, and browser cache explicit    |
 | API                 | NestJS with Fastify adapter                                                  | Structured backend with strong TypeScript ergonomics             |
 | Validation          | Zod shared schemas                                                           | Reusable request/response and domain validation                  |
 | ORM                 | Prisma                                                                       | Type-safe data access and migration workflow                     |
-| Background jobs     | `pg-boss`                                                                    | Postgres-backed job queue, avoids another runtime dependency     |
+| Background jobs     | Dedicated Node worker polling PostgreSQL                                     | Handles imports, notifications, digests, reminders, and backups  |
 | Database            | PostgreSQL 16+                                                               | Reliable relational model for projects/tasks/imports             |
-| Testing             | Vitest, React Testing Library, Playwright                                    | Unit, integration, and end-to-end coverage                       |
+| Testing             | Vitest, React Testing Library, Jest                                          | Web and API coverage for dense UI and service logic              |
 | Observability       | Structured logs + Prometheus metrics, with OpenTelemetry tracing added later | Good operational baseline without overbuilding the first release |
 
 ## 4. Repository Layout
@@ -58,8 +58,6 @@ packages/
   ui/
   schemas/
   config/
-  eslint-config/
-  tsconfig/
 infra/
   docker/
   k8s/
@@ -84,7 +82,7 @@ infra/
 
 - CSV parsing jobs
 - Import staging and commit jobs
-- Future async processing such as notifications or report generation
+- Notification delivery, digest batching, Personal ToDo reminders, and backup scheduling
 
 ### packages/schemas
 
@@ -134,13 +132,15 @@ Recommended primary tables:
 - `projects`
 - `tasks`
 - `personal_todos`
-- `labels`
-- `project_labels`
-- `task_labels`
 - `saved_views`
 - `imports`
 - `import_rows`
 - `audit_events`
+- `email_settings`
+- `backup_settings`
+- `retention_settings`
+- `notification_events`
+- `notification_delivery_attempts`
 
 ### projects
 
@@ -231,7 +231,10 @@ Important columns:
 - `password_reset_otp_hash`
 - `password_reset_otp_expires_at`
 - `daily_digest_enabled`
+- `daily_digest_time`
+- `personal_todo_retention`
 - `personal_todo_reminders_enabled`
+- `user_config_json`
 - `created_at`
 - `updated_at`
 
@@ -239,7 +242,7 @@ Password-reset notes:
 
 - Forgot-password recovery stores only a hashed one-time password, never the plaintext code.
 - Reset codes expire after 10 minutes and are cleared after success, expiry, or any later password change.
-- Future display settings in `filters_json` as the product grows
+- Per-user synced workspace state now lives in `user_config_json` and is mirrored into browser-local Tavi storage for faster startup
 
 ### imports / import_rows
 
@@ -310,7 +313,7 @@ Query behavior should support:
 - Pagination or cursoring for large result sets
 - Inclusion of project rollup data with task children
 
-OpenAPI generation is recommended so the API contract remains explicit.
+Shared schemas and typed client helpers keep the API contract explicit without requiring a separate generated OpenAPI layer in the current build.
 
 ## 9. Frontend Architecture
 
@@ -339,7 +342,6 @@ Recommended modules:
 
 ### Rendering Strategy
 
-- Use row virtualization for large lists.
 - Keep primary interactions inline to minimize context switching.
 - Use optimistic updates where safe, but reconcile against server responses.
 - Preserve expansion state while filters or grouping change when practical.
@@ -503,8 +505,8 @@ Initial targets for v1:
 Key performance strategies:
 
 - Persisted rollup counters
-- Proper indexing on owner, assignee, status, due date, and label joins
-- Virtualized list rendering
+- Proper indexing on owner, assignee, status, due date, and notification query paths
+- Efficient grouped-list rendering and targeted row updates
 - Background processing for imports
 
 ## 17. Testing Strategy

@@ -44,10 +44,10 @@ Recommended fields:
 - Owner
 - Due date
 - Priority
-- Labels/tags
 - Derived status
 - Optional manual status override
 - Notes
+- References
 - Source metadata for imports
 - Created at / updated at / archived at
 
@@ -63,7 +63,6 @@ Recommended fields:
 - Due date
 - Priority
 - Status
-- Labels/tags
 - Sort order within the project
 - Created at / updated at / completed at
 - Source metadata for imports
@@ -180,7 +179,7 @@ Rollup details shown in the UI should include:
 ### 7.5 Daily Review / Standup
 
 1. User opens a saved view or applies filters.
-2. User groups projects by owner, status, due date bucket, or label.
+2. User groups projects by owner, status, priority, or leaves the list ungrouped.
 3. User collapses unrelated groups and expands the project under discussion.
 4. User updates task status and notes inline during the review.
 5. Project rollup updates immediately.
@@ -223,14 +222,14 @@ Rollup details shown in the UI should include:
 ### FR-02 Project Management
 
 - Users can create, edit, archive, restore, and view projects.
-- Projects must support due dates, owners, labels, notes, and priority.
+- Projects must support due dates, owners, notes, priority, and newline-delimited references.
 - Project notes are a general field and are not required to set manual status overrides.
 - Soft deletion or archiving is preferred over hard deletion in v1.
 
 ### FR-03 Task Management
 
 - Users can create, edit, reorder, and archive tasks within a project.
-- Tasks must support assignee, due date, priority, status, labels, and notes.
+- Tasks must support assignee, due date, priority, status, and notes.
 - Shared workspace tasks exist only under a project in v1.
 - Users also need a private `Personal ToDo` list that is scoped to the signed-in user and kept out of the shared project hierarchy.
 
@@ -253,12 +252,13 @@ Rollup details shown in the UI should include:
 - Inline edits should preserve context and avoid full-page reloads.
 - New-task and inline-task editing controls should align to the visible task-table columns.
 - Edit and History row actions should stay compact and right-justified.
+- New-task notes must support multiline entry from the inline add-task row.
 - Projects must support optional References metadata that accepts one newline-delimited reference per line, with each line allowing either a URL or plain reference text.
 
 ### FR-06 Sorting, Filtering, and Regrouping
 
-- Users can sort, filter, and regroup by owner, assignee, status, due date, priority, and label.
-- Filters and grouping state should persist locally in the browser and be savable as named views.
+- Users can sort, filter, and regroup by owner, assignee, status, due date, priority, age, and last updated.
+- Filters and grouping state should persist in per-user synced config with a browser-local cache and also be savable as named views.
 
 ### FR-07 Rollup and Summary Indicators
 
@@ -278,7 +278,7 @@ Rollup details shown in the UI should include:
 
 ### FR-09 Search
 
-- Users can search across project titles, project notes, task titles, task notes, owners, assignees, and labels.
+- Users can search across project titles, project notes, task titles, task notes, owners, assignees, and references.
 
 ### FR-10 Import and Export
 
@@ -299,7 +299,7 @@ Rollup details shown in the UI should include:
 
 ### FR-12 Bulk Actions
 
-- Editors and admins should be able to bulk-update common fields such as assignee, due date, label, and status for selected tasks.
+- Editors and admins should be able to bulk-update common fields such as assignee, due date, priority, and status for selected tasks.
 
 ### FR-13 Accessibility
 
@@ -390,14 +390,14 @@ Rollup details shown in the UI should include:
 
 To reduce ambiguity before implementation, the following supporting docs are recommended after [`DESIGN.md`](./DESIGN.md) and [`ARCHITECTURE.md`](./ARCHITECTURE.md) are accepted:
 
-1. `docs/UX-FLOWS.md` for annotated workflows and wireframes of the dense workspace, import flow, and inline editing states.
-2. `docs/API-CONTRACT.md` for concrete request/response shapes and error models.
-3. `docs/DATA-DICTIONARY.md` for field definitions, enums, and validation rules.
-4. [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md) for the Loop export format, column mapping, and migration rules.
-5. `docs/EXPORT-FORMATS.md` for CSV, XLSX, JSON, and Loop export shapes.
-6. `docs/LOCAL-AUTH-ADMIN.md` for local account lifecycle rules and role-based settings behavior.
-7. `docs/OPS-RUNBOOK.md` for deployment, rollback, and operational procedures.
-8. `adr/` entries for major architectural decisions that may evolve during implementation.
+1. [`WORKSPACE.md`](./WORKSPACE.md) for the dense workspace workflow, inline editing, task reorder, and add-task behavior.
+2. [`SETTINGS.md`](./SETTINGS.md) for per-user synced preferences, retention, and admin panel entry points.
+3. [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) for CSV import staging, preview, overlap choices, and export behavior.
+4. [`BACKUPS.md`](./BACKUPS.md) for backup scheduling, storage, restore preview, and restore scope behavior.
+5. [`NOTIFICATIONS.md`](./NOTIFICATIONS.md) for immediate emails, daily digest, Personal ToDo reminders, and audit-notification diagnostics.
+6. [`LOCAL_ACCOUNTS.md`](./LOCAL_ACCOUNTS.md) for local account lifecycle rules and local-auth recovery.
+7. [`AUDIT_HISTORY.md`](./AUDIT_HISTORY.md) for project/task/auth/audit reporting behavior.
+8. [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md) for CSV import column mapping and checklist-splitting rules.
 9. [`BRANDING.md`](./BRANDING.md) for canonical naming, stylized display usage, and first-use product copy.
 
 ## 13. Reference Alignment

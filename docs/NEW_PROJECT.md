@@ -26,7 +26,7 @@ Use the `New Project` panel when you need to add work without leaving the worksp
 ## After the project is created
 
 1. The project appears immediately in the current workspace grouping.
-2. You can open `Add Task` on the new row to start adding tasks.
+2. You can open `Add Task` on the new row to start adding tasks, including multiline notes directly from the inline create row.
 3. You can use `Edit` later to add project notes or a manual status override.
 
 ## Example

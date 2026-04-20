@@ -2,6 +2,8 @@
 
 The `Import/Export` panel combines filtered workspace exports for all signed-in users with admin-only CSV import plus clear/reset controls for workspace projects and tasks.
 
+The import card follows the same flow described in the UI: import from CSV, apply mapping, review the preview, and then commit to the database.
+
 ## Open the panel
 
 1. Open `Settings`.
@@ -117,3 +119,4 @@ Blank checklist cells keep the project row in preview and import it without crea
 3. `Commit valid rows` stays disabled when there are blocking missing users or zero valid rows.
 4. Removing an import clears its history entry; it does not undo any completed import changes.
 5. The export and import cards share the same workspace panel toggle, so closing either header closes the full `Import/Export` workspace area.
+6. `Preview` and `Commit results` are separate subsections inside the selected import detail view, not separate panels.
