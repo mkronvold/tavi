@@ -39,6 +39,7 @@ Use this folder as the main entry point for product usage, local setup, and Kube
 | ------------------------------------------ | ------------------------------------------------------------------------ |
 | [`DESIGN.md`](./DESIGN.md)                 | Product goals, scope, UX expectations, and data model                    |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md)     | Stack, runtime topology, API and worker boundaries, and deployment model |
+| [`DEVGUIDE.md`](./DEVGUIDE.md) | AI-oriented lessons learned, validation commands, and common debugging traps |
 | [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md) | CSV import field mapping, checklist splitting, and overlap behavior      |
 | [`BRANDING.md`](./BRANDING.md)             | Canonical naming and branding rules                                      |
 

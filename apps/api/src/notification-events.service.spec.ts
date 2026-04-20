@@ -239,7 +239,7 @@ describe('NotificationEventsService', () => {
           priority: 'medium',
           projectId: 'project-1',
           projectTitle: 'Roadmap refresh',
-          status: 'todo',
+          status: 'not_started',
           title: 'Kickoff',
         },
         nextTask: {

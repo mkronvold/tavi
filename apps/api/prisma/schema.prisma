@@ -20,11 +20,13 @@ enum Priority {
 }
 
 enum TaskStatus {
-  todo
+  not_started
   in_progress
+  demo
+  review
+  done
   blocked
   on_hold
-  done
   canceled
 }
 
@@ -36,9 +38,12 @@ enum PersonalTodoStatus {
 enum ProjectStatus {
   not_started
   in_progress
+  demo
+  review
+  done
   blocked
   on_hold
-  done
+  canceled
 }
 
 enum NotificationKind {
@@ -208,7 +213,7 @@ model Task {
   assignee         User?      @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
   dueDate          DateTime?
   priority         Priority   @default(medium)
-  status           TaskStatus @default(todo)
+  status           TaskStatus @default(not_started)
   sortOrder        Int        @default(0)
   sourceSystem     String?
   sourceExternalId String?

@@ -538,7 +538,7 @@ describe("ImportPanel", () => {
             taskExternalId: null,
             taskIdentityStrategy: "natural_key",
             taskOverlap: null,
-            taskStatus: "todo",
+            taskStatus: "not_started",
             taskTitle: "Confirm mapping",
             warnings: [
               'Task assignee "Jane Doe <jane@example.com>" did not match a known user. Create the account or update the import before committing.',

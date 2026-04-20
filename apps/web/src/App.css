@@ -1760,6 +1760,16 @@ button:disabled {
   color: var(--status-in-progress-text);
 }
 
+.status-demo {
+  background: var(--ghost-bg);
+  color: var(--ghost-text);
+}
+
+.status-review {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
 .status-blocked {
   background: var(--danger-bg);
   color: var(--error-text);

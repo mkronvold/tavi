@@ -14,7 +14,15 @@ type TaskFixture = {
   priority: 'low' | 'medium' | 'high';
   projectId: string;
   sortOrder?: number;
-  status: 'todo' | 'in_progress' | 'blocked' | 'done' | 'canceled';
+  status:
+    | 'not_started'
+    | 'in_progress'
+    | 'demo'
+    | 'review'
+    | 'blocked'
+    | 'on_hold'
+    | 'done'
+    | 'canceled';
   title: string;
 };
 
@@ -134,7 +142,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       },
       {
@@ -156,7 +164,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-3',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       },
     ];
@@ -249,7 +257,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       },
       {
@@ -373,7 +381,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-2',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
         project: {
           title: 'Roadmap refresh',
@@ -392,7 +400,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-2',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       })
       .mockResolvedValueOnce({
@@ -429,7 +437,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-2',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         sortOrder: 5,
         completedAt: null,
       },
@@ -495,7 +503,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         sortOrder: 0,
         completedAt: null,
       },
@@ -519,7 +527,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-1',
         dueDate: null,
         priority: 'low',
-        status: 'todo',
+        status: 'not_started',
         sortOrder: 2,
         completedAt: null,
       },
@@ -629,7 +637,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-2',
         dueDate: null,
         priority: 'high',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       },
     ];
@@ -736,7 +744,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       },
     ];
@@ -842,7 +850,7 @@ describe('TasksService', () => {
       priority: 'medium',
       projectId: 'project-1',
       sortOrder: 1,
-      status: 'todo',
+      status: 'not_started',
       title: 'Kickoff',
     };
 
@@ -1022,7 +1030,7 @@ describe('TasksService', () => {
       notes: 'Confirm milestone scope',
       priority: 'medium',
       projectId: 'project-1',
-      status: 'todo',
+      status: 'not_started',
       title: 'Kickoff',
     };
 
@@ -1075,7 +1083,7 @@ describe('TasksService', () => {
         assigneeUserId: 'user-1',
         dueDate: null,
         priority: 'medium',
-        status: 'todo',
+        status: 'not_started',
         completedAt: null,
       } satisfies TaskFixture,
     ]);
@@ -1126,7 +1134,7 @@ describe('TasksService', () => {
       notes: null,
       priority: 'medium',
       projectId: 'project-1',
-      status: 'todo',
+      status: 'not_started',
       title: 'Follow-up task',
     };
 

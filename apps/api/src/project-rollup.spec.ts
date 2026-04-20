@@ -71,7 +71,7 @@ describe('deriveProjectRollup', () => {
         {
           archivedAt: null,
           dueDate: null,
-          status: 'todo',
+          status: 'not_started',
         },
         {
           archivedAt: null,
@@ -96,7 +96,7 @@ describe('deriveProjectRollup', () => {
         {
           archivedAt: null,
           dueDate: null,
-          status: 'todo',
+          status: 'not_started',
         },
       ],
       null,
@@ -105,13 +105,13 @@ describe('deriveProjectRollup', () => {
     expect(rollup.derivedStatus).toBe('in_progress');
   });
 
-  it('marks a project not started only when all non-canceled tasks are todo', () => {
+  it('marks a project not started only when all non-canceled tasks are not started', () => {
     const rollup = deriveProjectRollup(
       [
         {
           archivedAt: null,
           dueDate: null,
-          status: 'todo',
+          status: 'not_started',
         },
         {
           archivedAt: null,
@@ -123,5 +123,45 @@ describe('deriveProjectRollup', () => {
     );
 
     expect(rollup.derivedStatus).toBe('not_started');
+  });
+
+  it('marks a project review when any actionable task is review', () => {
+    const rollup = deriveProjectRollup(
+      [
+        {
+          archivedAt: null,
+          dueDate: null,
+          status: 'review',
+        },
+        {
+          archivedAt: null,
+          dueDate: null,
+          status: 'in_progress',
+        },
+      ],
+      null,
+    );
+
+    expect(rollup.derivedStatus).toBe('review');
+  });
+
+  it('marks a project demo when no task is review and any actionable task is demo', () => {
+    const rollup = deriveProjectRollup(
+      [
+        {
+          archivedAt: null,
+          dueDate: null,
+          status: 'demo',
+        },
+        {
+          archivedAt: null,
+          dueDate: null,
+          status: 'in_progress',
+        },
+      ],
+      null,
+    );
+
+    expect(rollup.derivedStatus).toBe('demo');
   });
 });

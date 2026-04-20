@@ -16,6 +16,8 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 | New Project   | Opens the inline project-creation panel                                                                                                                  |
 | Settings      | Opens per-user synced preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
 
+When `Group by` is set to `Status`, Tavi keeps groups in this fixed order: `Not Started`, `In Progress`, `Demo`, `Review`, `Done`, `Blocked`, `On Hold`, `Cancelled`.
+
 ## Working with project rows
 
 The top search, grouping, filter, and bulk-action controls stay pinned while you scroll so review controls remain visible during long discussions. After you scroll down, a floating `To top` button appears in the lower-right corner of the browser frame so you can jump back to the top quickly.
@@ -48,7 +50,18 @@ Task rows stay directly under their parent project. Inline task editing lets edi
 6. Notes
 7. Project
 
-Changing the `Project` field moves the task to a different project and recalculates both project rollups when you save. The last `Project` option, `Convert to Project`, turns the edited task into a new standalone project instead. The new project keeps the task title, notes, assignee as owner, due date, priority, and the closest matching project status.
+Changing the `Project` field moves the task to a different project and recalculates both project rollups when you save. The last `Project` option, `Convert to Project`, turns the edited task into a new standalone project instead. The new project keeps the task title, notes, assignee as owner, due date, priority, and the closest matching project status. If you collapse a project while one of its tasks is being edited, Tavi cancels that task edit instead of keeping a hidden draft open.
+
+Task and project status controls use the same visible order:
+
+1. `Not Started`
+2. `In Progress`
+3. `Demo`
+4. `Review`
+5. `Done`
+6. `Blocked`
+7. `On Hold`
+8. `Cancelled`
 
 When you add several tasks to the same project in a row, Tavi keeps the last assignee selection, including `None`, and the last priority selected in the add-task row so repeated entry is faster. The add-task notes field is multiline and resizable, so quick follow-up context does not need to be compressed into a single line.
 
@@ -117,9 +130,11 @@ When a project does not have a manual status override, Tavi derives its status f
 
 1. No active tasks: `not_started`
 2. All non-canceled tasks are `done`: `done`
-3. All remaining actionable tasks are `blocked`: `blocked`
-4. All remaining actionable tasks are `on_hold`: `on_hold`
-5. All non-canceled tasks are `todo`: `not_started`
-6. Any mix that includes progress, completed work plus remaining todo work, or other mixed active states: `in_progress`
+3. Any actionable task is `review`: `review`
+4. Any actionable task is `demo`: `demo`
+5. All remaining actionable tasks are `blocked`: `blocked`
+6. All remaining actionable tasks are `on_hold`: `on_hold`
+7. All non-canceled tasks are `not_started`: `not_started`
+8. Any other actionable mix: `in_progress`
 
 For rollup purposes, actionable tasks are tasks that are not `done` and not `canceled`.

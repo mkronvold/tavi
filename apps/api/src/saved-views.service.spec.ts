@@ -116,7 +116,7 @@ describe('SavedViewsService', () => {
     expect(result).toEqual([
       expect.objectContaining({
         id: 'view-legacy',
-        statusFilters: ['not_started', 'in_progress'],
+        statusFilters: ['not_started', 'in_progress', 'canceled'],
       }),
     ]);
   });

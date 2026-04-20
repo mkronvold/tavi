@@ -174,7 +174,7 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
           assigneeName: "Tavi Editor",
           dueDate: null,
           priority: "medium",
-          status: "todo",
+          status: "not_started",
           sortOrder: 0,
           completedAt: null,
           createdAt: "2026-04-01T11:00:00.000Z",
@@ -299,7 +299,7 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           assigneeName: "Tavi Editor",
           dueDate: null,
           priority: "medium",
-          status: "todo",
+          status: "not_started",
           sortOrder: 0,
           completedAt: null,
           createdAt: "2026-01-16T09:00:00.000Z",
@@ -368,7 +368,7 @@ const createSortedWorkspacePayload = (): WorkspaceResponse => {
           assigneeName: "Tavi Editor",
           dueDate: "2026-04-08T00:00:00.000Z",
           priority: "medium",
-          status: "todo",
+          status: "not_started",
           sortOrder: 1,
           completedAt: null,
           createdAt: "2026-02-03T09:00:00.000Z",
@@ -994,7 +994,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("Derived: in progress")).toBeInTheDocument();
+    expect(screen.getByText("Derived: In Progress")).toBeInTheDocument();
     expect(screen.getByText("Awaiting dependency")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View" }));
 
@@ -2566,11 +2566,11 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "done" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
       expect(screen.getByText("Alpha planning")).toBeInTheDocument();
     });
 
-    toggleGroupByTitle("done");
+    toggleGroupByTitle("Done");
 
     await waitFor(() => {
       expect(screen.queryByText("Alpha planning")).not.toBeInTheDocument();
@@ -2586,7 +2586,7 @@ describe("App", () => {
           "Tavi Viewer": true,
         },
         status: {
-          done: true,
+          Done: true,
         },
       }),
     );
@@ -2607,7 +2607,7 @@ describe("App", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "done" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
       expect(screen.queryByText("Alpha planning")).not.toBeInTheDocument();
     });
 
@@ -2615,7 +2615,7 @@ describe("App", () => {
     renderApp();
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "done" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Done" })).toBeInTheDocument();
       expect(screen.queryByText("Alpha planning")).not.toBeInTheDocument();
     });
 
@@ -3868,7 +3868,7 @@ describe("App", () => {
                 : "Tavi Editor",
             dueDate: null,
             priority: payload.priority ?? "medium",
-            status: payload.status === "done" ? "done" : "todo",
+            status: payload.status === "done" ? "done" : "not_started",
             sortOrder: 2,
             completedAt: null,
             createdAt: "2026-04-03T09:00:00.000Z",
@@ -3948,8 +3948,8 @@ describe("App", () => {
       within(refreshedTaskCreateRow).getByDisplayValue("High"),
     ).toHaveValue("high");
     expect(
-      within(refreshedTaskCreateRow).getByDisplayValue("Todo"),
-    ).toHaveValue("todo");
+      within(refreshedTaskCreateRow).getByDisplayValue("Not Started"),
+    ).toHaveValue("not_started");
   });
 
   it("allows creating tasks with no assignee and keeps None as the next default", async () => {
@@ -3992,7 +3992,7 @@ describe("App", () => {
                   : null,
             dueDate: null,
             priority: payload.priority ?? "medium",
-            status: payload.status === "done" ? "done" : "todo",
+            status: payload.status === "done" ? "done" : "not_started",
             sortOrder: 2,
             completedAt: null,
             createdAt: "2026-04-03T09:00:00.000Z",
@@ -4078,7 +4078,7 @@ describe("App", () => {
       assigneeName: "Tavi Editor",
       dueDate: null,
       priority: "low",
-      status: "todo",
+      status: "not_started",
       sortOrder: 2,
       completedAt: null,
       createdAt: "2026-04-03T09:00:00.000Z",
@@ -4476,7 +4476,7 @@ describe("App", () => {
         assigneeUserId: "user-1",
         dueDate: "",
         priority: "medium",
-        status: "todo",
+        status: "not_started",
       }),
     );
   });
@@ -4635,7 +4635,7 @@ describe("App", () => {
         assigneeUserId: "user-1",
         dueDate: "",
         priority: "medium",
-        status: "todo",
+        status: "not_started",
       }),
     );
   });
@@ -4750,7 +4750,7 @@ describe("App", () => {
           assigneeUserId: null,
           dueDate: "",
           priority: "medium",
-          status: "todo",
+          status: "not_started",
         }),
       );
     });
@@ -4914,7 +4914,7 @@ describe("App", () => {
       assigneeUserId: "user-1",
       dueDate: "",
       priority: "medium",
-      status: "todo",
+      status: "not_started",
     });
     expect(
       screen.getByText('Converted task "Kickoff project" into a project.'),
@@ -5242,7 +5242,9 @@ describe("App", () => {
     });
 
     expect(within(panel).getByText("Tavi Editor -> None")).toBeInTheDocument();
-    expect(within(panel).getByText("todo -> in progress")).toBeInTheDocument();
+    expect(
+      within(panel).getByText("Not Started -> In Progress"),
+    ).toBeInTheDocument();
     expect(
       within(panel).getByRole("button", { name: "Export CSV" }),
     ).toBeInTheDocument();
@@ -5933,7 +5935,7 @@ describe("App", () => {
           assigneeName: "Tavi Viewer",
           dueDate: null,
           priority: "high",
-          status: "todo",
+          status: "not_started",
           sortOrder: 0,
           completedAt: null,
         },
@@ -6009,7 +6011,7 @@ describe("App", () => {
           assigneeName: "Tavi Viewer",
           dueDate: null,
           priority: "high",
-          status: "todo",
+          status: "not_started",
           sortOrder: 0,
           completedAt: null,
         },
@@ -6223,7 +6225,7 @@ describe("App", () => {
           assigneeName: "Tavi Viewer",
           dueDate: null,
           priority: "high",
-          status: "todo",
+          status: "not_started",
           sortOrder: 0,
           completedAt: null,
         },
@@ -6512,7 +6514,7 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Task history · Kickoff")).toBeInTheDocument();
-      expect(screen.getByText("Status in progress")).toBeInTheDocument();
+      expect(screen.getByText("Status In Progress")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByLabelText("Select task Kickoff"));
@@ -6529,7 +6531,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
       expect(screen.getByText("2 tasks selected")).toBeInTheDocument();
-      expect(screen.getByText("Status done")).toBeInTheDocument();
+      expect(screen.getByText("Status Done")).toBeInTheDocument();
     });
   });
 

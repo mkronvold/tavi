@@ -27,8 +27,10 @@ export const deriveProjectRollup = (
   const now = new Date();
 
   const counts = {
-    todo: 0,
+    not_started: 0,
     in_progress: 0,
+    demo: 0,
+    review: 0,
     blocked: 0,
     on_hold: 0,
     done: 0,
@@ -62,6 +64,10 @@ export const deriveProjectRollup = (
     openTasks.every((task) => task.status === 'done')
   ) {
     derivedStatus = 'done';
+  } else if (actionableTasks.some((task) => task.status === 'review')) {
+    derivedStatus = 'review';
+  } else if (actionableTasks.some((task) => task.status === 'demo')) {
+    derivedStatus = 'demo';
   } else if (
     actionableTasks.length > 0 &&
     actionableTasks.every((task) => task.status === 'blocked')
@@ -74,7 +80,7 @@ export const deriveProjectRollup = (
     derivedStatus = 'on_hold';
   } else if (
     openTasks.length > 0 &&
-    openTasks.every((task) => task.status === 'todo')
+    openTasks.every((task) => task.status === 'not_started')
   ) {
     derivedStatus = 'not_started';
   } else if (actionableTasks.length > 0) {
@@ -85,7 +91,7 @@ export const deriveProjectRollup = (
     derivedStatus,
     displayStatus: manualStatus ?? derivedStatus,
     taskTotalCount: activeTasks.length,
-    taskTodoCount: counts.todo,
+    taskTodoCount: counts.not_started,
     taskInProgressCount: counts.in_progress,
     taskBlockedCount: counts.blocked,
     taskOnHoldCount: counts.on_hold,

@@ -773,10 +773,15 @@ function toProjectManualStatus(
       return 'on_hold';
     case 'done':
       return 'done';
+    case 'review':
+      return 'review';
+    case 'demo':
+      return 'demo';
+    case 'canceled':
+      return 'canceled';
     case 'in_progress':
       return 'in_progress';
-    case 'canceled':
-    case 'todo':
+    case 'not_started':
       return null;
   }
 }

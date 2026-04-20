@@ -56,6 +56,10 @@ const DEFAULT_BACKUP_RETENTION = 'six_months';
 const DEFAULT_LOGIN_RETENTION = 'twelve_months';
 const DEFAULT_CHANGE_RETENTION = 'twelve_months';
 const DEFAULT_NOTIFICATION_RETENTION = 'one_month';
+const backupTaskStatusSchema = z.preprocess(
+  (value) => (value === 'todo' ? 'not_started' : value),
+  taskStatusSchema,
+);
 
 function buildBackupFileName(now: Date) {
   const compact = now
@@ -136,7 +140,7 @@ const backupTaskRecordSchema = z.object({
   sortOrder: z.number().int(),
   sourceExternalId: z.string().nullable(),
   sourceSystem: z.string().nullable(),
-  status: taskStatusSchema,
+  status: backupTaskStatusSchema,
   title: z.string().min(1),
   updatedAt: z.string().min(1),
 });

@@ -58,7 +58,7 @@ const createMockPreviewRow = (overrides: Record<string, unknown> = {}) => ({
     externalId: null,
     notes: null,
     priority: 'medium',
-    status: 'todo',
+    status: 'not_started',
     title: 'Confirm mapping',
   },
   taskOverlap: null,

@@ -102,11 +102,13 @@ An audit event records meaningful changes such as status changes, task reorderin
 
 Recommended task statuses:
 
-- `todo`
+- `not_started`
 - `in_progress`
+- `demo`
+- `review`
+- `done`
 - `blocked`
 - `on_hold`
-- `done`
 - `canceled`
 
 ### Project Statuses
@@ -115,9 +117,12 @@ Recommended project statuses:
 
 - `not_started`
 - `in_progress`
+- `demo`
+- `review`
+- `done`
 - `blocked`
 - `on_hold`
-- `done`
+- `canceled`
 
 ### Project Rollup Rules
 
@@ -126,10 +131,12 @@ Default project status is auto-calculated from task state.
 1. If a manual override is active, show the override status and keep the derived status visible for context.
 2. If the project has no active tasks, set status to `not_started`.
 3. If all non-canceled tasks are `done`, set status to `done`.
-4. If all actionable tasks are `blocked`, set status to `blocked`.
-5. If all actionable tasks are `on_hold`, set status to `on_hold`.
-6. If all non-canceled tasks are `todo`, set status to `not_started`.
-7. Otherwise set status to `in_progress`.
+4. If any actionable task is `review`, set status to `review`.
+5. If any actionable task is `demo`, set status to `demo`.
+6. If all actionable tasks are `blocked`, set status to `blocked`.
+7. If all actionable tasks are `on_hold`, set status to `on_hold`.
+8. If all non-canceled tasks are `not_started`, set status to `not_started`.
+9. Otherwise set status to `in_progress`.
 
 Override requirements:
 

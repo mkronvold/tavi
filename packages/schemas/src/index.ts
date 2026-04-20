@@ -79,11 +79,13 @@ export type AuditLogRetentionWindow = z.infer<
 >;
 
 export const taskStatusSchema = z.enum([
-  "todo",
+  "not_started",
   "in_progress",
+  "demo",
+  "review",
+  "done",
   "blocked",
   "on_hold",
-  "done",
   "canceled",
 ]);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
@@ -106,9 +108,12 @@ export type PersonalTodoRetentionPolicy = z.infer<
 export const projectStatusSchema = z.enum([
   "not_started",
   "in_progress",
+  "demo",
+  "review",
+  "done",
   "blocked",
   "on_hold",
-  "done",
+  "canceled",
 ]);
 export type ProjectStatus = z.infer<typeof projectStatusSchema>;
 
@@ -457,7 +462,7 @@ export const createTaskSchema = z.object({
   assigneeUserId: z.string().min(1).nullable(),
   dueDate: z.string().optional(),
   priority: prioritySchema.default("medium"),
-  status: taskStatusSchema.default("todo"),
+  status: taskStatusSchema.default("not_started"),
 });
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 
@@ -1688,7 +1693,7 @@ function normalizeImportPriority(
 
 function normalizeImportTaskStatus(value: string | null, errors: string[]) {
   if (!value) {
-    return "todo";
+    return "not_started";
   }
 
   const normalizedValue = normalizeLoopImportHeader(value).replace(/ /g, "_");
@@ -1699,12 +1704,21 @@ function normalizeImportTaskStatus(value: string | null, errors: string[]) {
     case "not_started":
     case "open":
     case "pending":
-      return "todo";
+      return "not_started";
     case "in_progress":
     case "inprogress":
     case "doing":
     case "active":
       return "in_progress";
+    case "demo":
+    case "demonstration":
+    case "walkthrough":
+      return "demo";
+    case "review":
+    case "in_review":
+    case "qa":
+    case "testing":
+      return "review";
     case "blocked":
     case "stuck":
       return "blocked";
@@ -1723,7 +1737,7 @@ function normalizeImportTaskStatus(value: string | null, errors: string[]) {
       return "canceled";
     default:
       errors.push(`Task status "${value}" is not supported`);
-      return "todo";
+      return "not_started";
   }
 }
 
@@ -2160,7 +2174,8 @@ export function buildImmediateTaskNotifications(input: {
     queueForAssignee("task_on_hold", nextTask.assigneeUserId);
   } else if (
     previousTask.status === "on_hold" &&
-    (nextTask.status === "todo" || nextTask.status === "in_progress")
+    nextTask.status !== "on_hold" &&
+    nextTask.status !== "blocked"
   ) {
     queueForAssignee("task_resumed", nextTask.assigneeUserId);
   }

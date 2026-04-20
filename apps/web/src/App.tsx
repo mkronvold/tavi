@@ -126,16 +126,44 @@ const PROJECT_SORT_OPTIONS: Array<{
   { label: "Last Updated", value: "lastUpdated" },
 ];
 
+const WORK_ITEM_STATUS_OPTIONS = [
+  { label: "Not Started", value: "not_started" },
+  { label: "In Progress", value: "in_progress" },
+  { label: "Demo", value: "demo" },
+  { label: "Review", value: "review" },
+  { label: "Done", value: "done" },
+  { label: "Blocked", value: "blocked" },
+  { label: "On Hold", value: "on_hold" },
+  { label: "Cancelled", value: "canceled" },
+] as const;
+
 const PROJECT_STATUS_FILTER_OPTIONS: Array<{
   label: string;
   value: ProjectStatus;
-}> = [
-  { label: "Not started", value: "not_started" },
-  { label: "In progress", value: "in_progress" },
-  { label: "Blocked", value: "blocked" },
-  { label: "On hold", value: "on_hold" },
-  { label: "Done", value: "done" },
-];
+}> = WORK_ITEM_STATUS_OPTIONS.map(({ label, value }) => ({
+  label,
+  value: value as ProjectStatus,
+}));
+
+const TASK_STATUS_OPTIONS: Array<{
+  label: string;
+  value: TaskStatus;
+}> = WORK_ITEM_STATUS_OPTIONS.map(({ label, value }) => ({
+  label,
+  value: value as TaskStatus,
+}));
+
+const STATUS_LABELS: Record<ProjectStatus | TaskStatus | "todo", string> = {
+  todo: "Not Started",
+  not_started: "Not Started",
+  in_progress: "In Progress",
+  demo: "Demo",
+  review: "Review",
+  done: "Done",
+  blocked: "Blocked",
+  on_hold: "On Hold",
+  canceled: "Cancelled",
+};
 
 const EMPTY_PROJECT_FORM: CreateProjectPayload = {
   title: "",
@@ -1000,7 +1028,7 @@ function WorkspaceScreen({
     assigneeUserId: data.currentUser.id,
     dueDate: "",
     priority: "medium",
-    status: "todo",
+    status: "not_started",
   });
   const [newTaskByProject, setNewTaskByProject] = useState<
     Record<string, CreateTaskPayload>
@@ -1495,10 +1523,22 @@ function WorkspaceScreen({
 
     clearAddTaskPanelsForProjects(collapsedProjectIds);
 
+    const editingTaskProjectId = editingTaskId
+      ? findProjectIdForTask(data.projects, editingTaskId)
+      : null;
+
     if (!nextValue) {
       clearSelectedTasksForProjects(collapsedProjectIds);
     } else if (autoCollapse) {
       clearSelectedTasksForProjects(collapsedProjectIds);
+    }
+
+    if (
+      editingTaskProjectId &&
+      collapsedProjectIds.includes(editingTaskProjectId)
+    ) {
+      setTaskEditError(null);
+      setEditingTaskId(null);
     }
 
     setExpandedProjects((current) => {
@@ -2967,12 +3007,11 @@ function WorkspaceScreen({
                 }}
               >
                 <option value="">No change</option>
-                <option value="todo">Todo</option>
-                <option value="in_progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="on_hold">On hold</option>
-                <option value="done">Done</option>
-                <option value="canceled">Canceled</option>
+                {TASK_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -3494,11 +3533,11 @@ function WorkspaceScreen({
                             }
                           >
                             <option value="">Derived from tasks</option>
-                            <option value="not_started">Not started</option>
-                            <option value="in_progress">In progress</option>
-                            <option value="blocked">Blocked</option>
-                            <option value="on_hold">On hold</option>
-                            <option value="done">Done</option>
+                            {PROJECT_STATUS_FILTER_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
                           </select>
                         </div>
                         <div className="project-meta project-meta--edit">
@@ -3790,14 +3829,14 @@ function WorkspaceScreen({
                                       }))
                                     }
                                   >
-                                    <option value="todo">Todo</option>
-                                    <option value="in_progress">
-                                      In progress
-                                    </option>
-                                    <option value="blocked">Blocked</option>
-                                    <option value="on_hold">On hold</option>
-                                    <option value="done">Done</option>
-                                    <option value="canceled">Canceled</option>
+                                    {TASK_STATUS_OPTIONS.map((option) => (
+                                      <option
+                                        key={option.value}
+                                        value={option.value}
+                                      >
+                                        {option.label}
+                                      </option>
+                                    ))}
                                   </select>
                                 </td>
                                 <td>
@@ -4242,7 +4281,7 @@ function TaskRow({
         <td>
           <select
             form={taskEditFormId}
-            value={taskDraft.status ?? "todo"}
+            value={taskDraft.status ?? "not_started"}
             onChange={(event) =>
               setTaskDraft((current) => ({
                 ...current,
@@ -4250,12 +4289,11 @@ function TaskRow({
               }))
             }
           >
-            <option value="todo">Todo</option>
-            <option value="in_progress">In progress</option>
-            <option value="blocked">Blocked</option>
-            <option value="on_hold">On hold</option>
-            <option value="done">Done</option>
-            <option value="canceled">Canceled</option>
+            {TASK_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </td>
         <td>
@@ -4423,7 +4461,7 @@ function TaskRow({
       <td>{task.assigneeName ?? NO_TASK_ASSIGNEE_LABEL}</td>
       <td>
         <span className={`status-pill status-${task.status}`}>
-          {task.status}
+          {formatStatusLabel(task.status)}
         </span>
       </td>
       <td>{task.priority}</td>
@@ -7103,6 +7141,13 @@ function groupProjects(
     }),
   );
 
+  if (groupBy === "status") {
+    return groupedEntries.sort(
+      (left, right) =>
+        statusLabelSortRank(left.key) - statusLabelSortRank(right.key),
+    );
+  }
+
   if (groupBy !== "progress") {
     return groupedEntries;
   }
@@ -7232,7 +7277,7 @@ function defaultTaskPayload(currentUserId: string): CreateTaskPayload {
     assigneeUserId: currentUserId,
     dueDate: "",
     priority: "medium",
-    status: "todo",
+    status: "not_started",
   };
 }
 
@@ -7519,8 +7564,37 @@ function toSelectionMap(values: string[]) {
   return Object.fromEntries(values.map((value) => [value, true]));
 }
 
-function formatStatusLabel(value: ProjectStatus | TaskStatus) {
-  return value.replace(/_/g, " ");
+function formatStatusLabel(value: ProjectStatus | TaskStatus | "todo") {
+  return STATUS_LABELS[value];
+}
+
+function statusLabelSortRank(value: string) {
+  const optionIndex = WORK_ITEM_STATUS_OPTIONS.findIndex(
+    (option) => option.label === value,
+  );
+
+  if (optionIndex >= 0) {
+    return optionIndex;
+  }
+
+  if (value === STATUS_LABELS.todo) {
+    return 0;
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function findProjectIdForTask(
+  projects: WorkspaceProject[],
+  taskId: string,
+): string | null {
+  for (const project of projects) {
+    if (project.tasks.some((task) => task.id === taskId)) {
+      return project.id;
+    }
+  }
+
+  return null;
 }
 
 function formatPriorityLabel(value: Priority) {

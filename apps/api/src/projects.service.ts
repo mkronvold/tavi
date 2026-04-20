@@ -559,18 +559,7 @@ function isUnassignedProjectTitle(value: string) {
 }
 
 function toTaskStatus(status: ProjectStatus): CreateTaskInput['status'] {
-  switch (status) {
-    case 'blocked':
-      return 'blocked';
-    case 'on_hold':
-      return 'on_hold';
-    case 'done':
-      return 'done';
-    case 'in_progress':
-      return 'in_progress';
-    case 'not_started':
-      return 'todo';
-  }
+  return status;
 }
 
 function getCreatedProjectFields(project: {

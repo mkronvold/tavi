@@ -1414,7 +1414,27 @@ function formatDigestTimestamp(value: string | null) {
 }
 
 function formatStatus(value: string | null) {
-  return value ? value.replace(/_/g, " ") : "unknown";
+  switch (value) {
+    case "todo":
+    case "not_started":
+      return "Not Started";
+    case "in_progress":
+      return "In Progress";
+    case "on_hold":
+      return "On Hold";
+    case "canceled":
+      return "Cancelled";
+    case "demo":
+      return "Demo";
+    case "review":
+      return "Review";
+    case "done":
+      return "Done";
+    case "blocked":
+      return "Blocked";
+    default:
+      return value ? value.replace(/_/g, " ") : "unknown";
+  }
 }
 
 function readNumber(value: unknown) {

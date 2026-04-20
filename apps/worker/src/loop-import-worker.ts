@@ -76,7 +76,15 @@ type TaskMutationResult = {
   previousProjectId: string | null;
   projectId: string;
   sourceExternalId: string | null;
-  status: "blocked" | "canceled" | "done" | "in_progress" | "on_hold" | "todo";
+  status:
+    | "blocked"
+    | "canceled"
+    | "demo"
+    | "done"
+    | "in_progress"
+    | "not_started"
+    | "on_hold"
+    | "review";
   title: string | null;
 };
 
@@ -871,6 +879,8 @@ export class LoopImportWorker {
 
       let taskTodoCount = 0;
       let taskInProgressCount = 0;
+      let taskDemoCount = 0;
+      let taskReviewCount = 0;
       let taskBlockedCount = 0;
       let taskOnHoldCount = 0;
       let taskDoneCount = 0;
@@ -879,11 +889,17 @@ export class LoopImportWorker {
 
       for (const task of project.tasks) {
         switch (task.status) {
-          case "todo":
+          case "not_started":
             taskTodoCount += 1;
             break;
           case "in_progress":
             taskInProgressCount += 1;
+            break;
+          case "demo":
+            taskDemoCount += 1;
+            break;
+          case "review":
+            taskReviewCount += 1;
             break;
           case "blocked":
             taskBlockedCount += 1;
@@ -913,6 +929,8 @@ export class LoopImportWorker {
       const taskTotalCount =
         taskTodoCount +
         taskInProgressCount +
+        taskDemoCount +
+        taskReviewCount +
         taskBlockedCount +
         taskOnHoldCount +
         taskDoneCount +
@@ -920,12 +938,16 @@ export class LoopImportWorker {
       const nonCanceledTaskCount =
         taskTodoCount +
         taskInProgressCount +
+        taskDemoCount +
+        taskReviewCount +
         taskBlockedCount +
         taskOnHoldCount +
         taskDoneCount;
       const actionableTaskCount =
         taskTodoCount +
         taskInProgressCount +
+        taskDemoCount +
+        taskReviewCount +
         taskBlockedCount +
         taskOnHoldCount;
       const derivedStatus =
@@ -934,6 +956,10 @@ export class LoopImportWorker {
           : nonCanceledTaskCount > 0 &&
               taskDoneCount === nonCanceledTaskCount
             ? "done"
+            : taskReviewCount > 0
+              ? "review"
+              : taskDemoCount > 0
+                ? "demo"
             : actionableTaskCount > 0 &&
                 taskBlockedCount === actionableTaskCount
               ? "blocked"

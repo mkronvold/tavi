@@ -156,9 +156,10 @@ Important columns:
 - `derived_status`
 - `display_status`
 - `task_total_count`
-- `task_todo_count`
+- `task_todo_count` (still named this way in storage and API payloads, but now counts `not_started` tasks)
 - `task_in_progress_count`
 - `task_blocked_count`
+- `task_on_hold_count`
 - `task_done_count`
 - `task_canceled_count`
 - `task_overdue_count`
@@ -181,6 +182,25 @@ Important columns:
 - `priority`
 - `due_date`
 - `sort_order`
+
+Status enums currently use the same ordered set for shared task and project workflows:
+
+1. `not_started`
+2. `in_progress`
+3. `demo`
+4. `review`
+5. `done`
+6. `blocked`
+7. `on_hold`
+8. `canceled`
+
+Legacy compatibility still matters in a few read paths:
+
+- old saved views can contain `todo`
+- old backup snapshots can contain `todo`
+- Personal ToDo items still use their own `todo` / `done` status model and are not part of the shared project-task status enum
+
+Project rollup still persists the existing aggregate counters only. `demo` and `review` affect derived project status, but they do not currently have dedicated stored counter columns.
 
 ### personal_todos
 

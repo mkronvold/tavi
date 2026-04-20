@@ -32,6 +32,9 @@ const isProjectSortField = (value: string): value is ProjectSortField =>
 const isProjectStatus = (value: string): value is ProjectStatus =>
   value === 'not_started' ||
   value === 'in_progress' ||
+  value === 'demo' ||
+  value === 'review' ||
+  value === 'canceled' ||
   value === 'blocked' ||
   value === 'on_hold' ||
   value === 'done';
@@ -42,12 +45,18 @@ const toProjectStatus = (value: string): ProjectStatus | null => {
       return 'not_started';
     case 'in_progress':
       return 'in_progress';
+    case 'demo':
+      return 'demo';
+    case 'review':
+      return 'review';
     case 'blocked':
       return 'blocked';
     case 'on_hold':
       return 'on_hold';
     case 'done':
       return 'done';
+    case 'canceled':
+      return 'canceled';
     default:
       return null;
   }
