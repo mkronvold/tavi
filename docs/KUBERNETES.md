@@ -14,7 +14,7 @@ Tavi now ships four complete raw-manifest deployment paths under `infra/k8s/`. P
 ## Shared requirements
 
 1. A Kubernetes cluster with a compatible ingress controller using `ingressClassName: contour` by default.
-2. `kubectl` access with permission to create resources in the `tavi` namespace.
+2. `kubectl` access with permission to create resources in the `tavi` namespace. The HA internal-database path also needs permission to create cluster-scoped CloudNativePG resources and resources in `cnpg-system`.
 3. Access to:
    - `ghcr.io/mkronvold/tavi-api`
    - `ghcr.io/mkronvold/tavi-web`
@@ -25,7 +25,7 @@ Additional variant-specific requirements:
 
 1. External DB variants need a reachable PostgreSQL server for `DATABASE_URL`.
 2. Internal DB variants need cluster storage for database volumes.
-3. The `k8s-with-replicas-and-internal-ha-db` path requires the CloudNativePG operator and CRDs installed before rollout.
+3. The `k8s-with-replicas-and-internal-ha-db` path includes a pinned `cloudnative-pg-install/` kustomization for the CloudNativePG operator and CRDs, plus a root `kustomization.yaml` for the rest of the Tavi stack.
 
 ## Recommended selection guide
 
@@ -43,6 +43,19 @@ Each variant README follows the same pattern:
 3. Review that folder's `backup-pvc.yaml`. The API and worker share the backup volume, so the storage class must support `ReadWriteMany`.
 4. Apply the manifests from that folder only.
 5. Verify the rollout for the app deployments and, if present, the database workload.
+
+## Installing CloudNativePG for the HA variant
+
+Before applying `infra/k8s/k8s-with-replicas-and-internal-ha-db/postgres-cluster.yaml`, install the pinned CloudNativePG operator bundle that ships in that variant:
+
+```bash
+kubectl apply --server-side -k infra/k8s/k8s-with-replicas-and-internal-ha-db/cloudnative-pg-install
+kubectl rollout status deployment/cnpg-controller-manager -n cnpg-system
+kubectl get crd | rg 'postgresql.cnpg.io'
+kubectl apply -k infra/k8s/k8s-with-replicas-and-internal-ha-db
+```
+
+The operator kustomization currently pins CloudNativePG `1.29.0` and includes the upstream operator manifest, `cnpg-system` namespace, CRDs, RBAC, webhook configuration, and controller deployment. The root HA-variant `kustomization.yaml` then applies the namespace, config map, backup PVC, CNPG cluster, app services, app deployments, and ingress in one step.
 
 `prisma migrate deploy` creates the required Prisma-managed tables automatically on an empty database, so the production admin bootstrap does not need any manual SQL table creation. In local-auth mode, the API now also auto-creates `admin@tavi.local` on first startup when the `User` table is empty, generates a random 10-character alphanumeric password, and writes that initial password to the API logs.
 
@@ -118,6 +131,8 @@ kubectl get statefulset,pvc -n tavi
 kubectl logs -n tavi statefulset/tavi-postgres --tail=200
 
 # CloudNativePG HA variant
+kubectl get deployment -n cnpg-system cnpg-controller-manager
+kubectl get crd | rg 'postgresql.cnpg.io'
 kubectl get cluster.postgresql.cnpg.io -n tavi
 kubectl get pods -n tavi
 kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi
@@ -132,5 +147,5 @@ kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi
 | Imports or notifications never finish         | Worker unavailable or cannot reach the database                                            | `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                                                                     |
 | Backups never appear in the UI                | Backup PVC not mounted, not `ReadWriteMany`, or worker cannot write to `/var/tavi/backups` | `kubectl describe pvc -n tavi tavi-backups`, `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                        |
 | Single-instance Postgres never becomes ready  | Bad DB secret values, PVC binding issue, or storage-class problem                          | `kubectl get pvc -n tavi`, `kubectl describe pod -n tavi tavi-postgres-0`, `kubectl logs -n tavi statefulset/tavi-postgres --tail=200` |
-| CloudNativePG cluster does not become healthy | Missing operator/CRDs, bad bootstrap secrets, or storage issue                             | `kubectl get cluster.postgresql.cnpg.io -n tavi`, `kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi`, operator logs   |
+| CloudNativePG cluster does not become healthy | Missing operator/CRDs, bad bootstrap secrets, or storage issue                             | `kubectl get deployment -n cnpg-system cnpg-controller-manager`, `kubectl get crd | rg 'postgresql.cnpg.io'`, `kubectl get cluster.postgresql.cnpg.io -n tavi`, `kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi`, operator logs |
 | Ingress host does not respond                 | DNS or ingress-controller issue                                                            | `kubectl get ingress -n tavi`, ingress-controller logs                                                                                 |

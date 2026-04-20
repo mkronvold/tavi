@@ -7,6 +7,8 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 | Component                     | Manifest                                                                           |
 | ----------------------------- | ---------------------------------------------------------------------------------- |
 | Namespace                     | `namespace.yaml`                                                                   |
+| CloudNativePG operator + CRDs | `cloudnative-pg-install/`                                                          |
+| Tavi stack kustomization      | `kustomization.yaml`                                                               |
 | ConfigMap                     | `configmap.yaml`                                                                   |
 | Secret template               | `secret.example.yaml`                                                              |
 | Backup storage                | `backup-pvc.yaml`                                                                  |
@@ -19,7 +21,7 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 
 ## Requirements
 
-1. The CloudNativePG operator and CRDs already installed in the cluster.
+1. Permissions to install the pinned CloudNativePG operator bundle from `cloudnative-pg-install/`, including cluster-scoped CRDs, ClusterRoles, admission webhooks, and resources in `cnpg-system`.
 2. A Kubernetes storage class suitable for CloudNativePG volumes.
 3. A compatible ingress controller. The checked-in ingress manifest defaults to `ingressClassName: contour`.
 4. Capacity for three API pods, three web pods, three worker pods, and a three-instance PostgreSQL cluster.
@@ -27,7 +29,7 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 ## Configure
 
 1. Edit `configmap.yaml` and `ingress.yaml` for your public hostname.
-2. Create the three real secrets from `secret.example.yaml`:
+2. Create the three real secrets from `secret.example.yaml` so you can apply them before the stack kustomization:
    - `tavi-secrets`
    - `tavi-postgres-app`
    - `tavi-postgres-superuser`
@@ -35,21 +37,17 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 4. Adjust the storage size in `postgres-cluster.yaml` if `10Gi` is not appropriate.
 5. Update `backup-pvc.yaml` if your cluster needs a different storage class or size. The API and worker share this PVC across replica sets, so the storage class must support `ReadWriteMany`.
 6. If you need downstream archival or off-cluster replication, customize `backup-post-process-pvc.example.yaml` and `backup-post-process-cronjob.example.yaml`.
+7. The root `kustomization.yaml` intentionally excludes example secrets and optional backup post-process templates.
 
 ## Install
 
 ```bash
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/namespace.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/configmap.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/backup-pvc.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/postgres-cluster.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/api-service.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/web-service.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/api-deployment.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/worker-deployment.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/web-deployment.yaml
-kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/ingress.yaml
+kubectl apply --server-side -k infra/k8s/k8s-with-replicas-and-internal-ha-db/cloudnative-pg-install
+kubectl rollout status deployment/cnpg-controller-manager -n cnpg-system
+kubectl apply -k infra/k8s/k8s-with-replicas-and-internal-ha-db
 ```
+
+The pinned CloudNativePG install bundle creates the `cnpg-system` namespace, installs the `postgresql.cnpg.io` CRDs, and rolls out the operator before the root stack `kustomization.yaml` applies `postgres-cluster.yaml` and the rest of the Tavi manifests.
 
 Apply the post-process templates only after customizing them:
 
@@ -61,6 +59,8 @@ kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/backup-post-proc
 ## Verify
 
 ```bash
+kubectl get deployment -n cnpg-system cnpg-controller-manager
+kubectl get crd | rg 'postgresql.cnpg.io'
 kubectl rollout status deployment/tavi-api -n tavi
 kubectl rollout status deployment/tavi-web -n tavi
 kubectl rollout status deployment/tavi-worker -n tavi

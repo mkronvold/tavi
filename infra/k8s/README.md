@@ -21,5 +21,6 @@ This directory now contains only the supported raw-manifest deployment variants 
 ## Notes
 
 1. Each variant directory includes its own `namespace.yaml`, `configmap.yaml`, `secret.example.yaml`, workload manifests, and backup storage templates.
-2. The old top-level manifests were removed because they were a legacy pre-variant set and no longer matched the backup-aware deployment layouts in the supported folders.
-3. When you need `TAVI_HOME_URL`, `VITE_API_BASE_URL`, ingress hostnames, or backup PVC settings, edit the files in the chosen variant directory rather than expecting shared manifests at this level.
+2. The `k8s-with-replicas-and-internal-ha-db/` variant also includes `cloudnative-pg-install/`, a pinned CloudNativePG operator + CRD kustomization used before the HA database cluster is applied.
+3. The old top-level manifests were removed because they were a legacy pre-variant set and no longer matched the backup-aware deployment layouts in the supported folders.
+4. When you need `TAVI_HOME_URL`, `VITE_API_BASE_URL`, ingress hostnames, or backup PVC settings, edit the files in the chosen variant directory rather than expecting shared manifests at this level.
