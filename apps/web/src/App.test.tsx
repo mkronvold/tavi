@@ -15,6 +15,8 @@ import App from "./App";
 import type {
   AuditHistoryEvent,
   EmailAuditEvent,
+  RetentionStatus,
+  UpdateRetentionSettingsPayload,
   WorkspaceResponse,
 } from "./types";
 
@@ -47,6 +49,32 @@ const createSmtpStatusPayload = (
   host: "10.120.64.99",
   port: 25,
   secure: false,
+  ...overrides,
+});
+
+const createRetentionStatusPayload = (
+  overrides: Partial<RetentionStatus> = {},
+): RetentionStatus => ({
+  backups: {
+    estimatedSizeBytes: 5_242_880,
+    policy: "six_months",
+    retainedItemCount: 8,
+  },
+  changes: {
+    estimatedSizeBytes: 131_072,
+    policy: "twelve_months",
+    retainedItemCount: 64,
+  },
+  logins: {
+    estimatedSizeBytes: 65_536,
+    policy: "twelve_months",
+    retainedItemCount: 31,
+  },
+  notifications: {
+    estimatedSizeBytes: 16_384,
+    policy: "one_month",
+    retainedItemCount: 12,
+  },
   ...overrides,
 });
 
@@ -3071,15 +3099,16 @@ describe("App", () => {
     );
 
     expect(settingsItems).not.toHaveLength(0);
-    expect(settingsItems).toHaveLength(8);
+    expect(settingsItems).toHaveLength(9);
     expect(settingsItems[0]?.textContent).toContain("Email Notifications");
     expect(settingsItems[1]?.textContent).toContain("Task Drag Handles");
     expect(settingsItems[2]?.textContent).toContain("Backups");
-    expect(settingsItems[3]?.textContent).toContain("Import/Export");
-    expect(settingsItems[4]?.textContent).toContain("Local Accounts");
-    expect(settingsItems[5]?.textContent).toContain("Audit logins");
-    expect(settingsItems[6]?.textContent).toContain("Audit notifications");
-    expect(settingsItems[7]?.textContent).toContain("Audit changes");
+    expect(settingsItems[3]?.textContent).toContain("Retention");
+    expect(settingsItems[4]?.textContent).toContain("Import/Export");
+    expect(settingsItems[5]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[6]?.textContent).toContain("Audit logins");
+    expect(settingsItems[7]?.textContent).toContain("Audit notifications");
+    expect(settingsItems[8]?.textContent).toContain("Audit changes");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
       appRepositoryUrl,
@@ -3087,6 +3116,168 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("smtp://10.120.64.99:25")).toBeInTheDocument();
       expect(screen.getByText("noreply@tavi.local")).toBeInTheDocument();
+    });
+  });
+
+  it("opens the retention panel, saves retention changes, and prunes the selected target", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    const updateRequests: UpdateRetentionSettingsPayload[] = [];
+    const pruneRequests: string[] = [];
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method =
+          init?.method ??
+          (input instanceof Request ? input.method : undefined) ??
+          "GET";
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse(createSmtpStatusPayload());
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "11:00",
+          });
+        }
+
+        if (url.endsWith("/retention") && method === "GET") {
+          return createResponse(createRetentionStatusPayload());
+        }
+
+        if (url.endsWith("/retention") && method === "PUT") {
+          const payload = JSON.parse(
+            String(init?.body ?? "{}"),
+          ) as UpdateRetentionSettingsPayload;
+          updateRequests.push(payload);
+          return createResponse(
+            createRetentionStatusPayload({
+              backups: {
+                estimatedSizeBytes: 5_242_880,
+                policy: payload.backups,
+                retainedItemCount: 8,
+              },
+              changes: {
+                estimatedSizeBytes: 131_072,
+                policy: payload.changes,
+                retainedItemCount: 64,
+              },
+              logins: {
+                estimatedSizeBytes: 65_536,
+                policy: payload.logins,
+                retainedItemCount: 31,
+              },
+              notifications: {
+                estimatedSizeBytes: 16_384,
+                policy: payload.notifications,
+                retainedItemCount: 12,
+              },
+            }),
+          );
+        }
+
+        if (url.endsWith("/retention/prune") && method === "POST") {
+          const payload = JSON.parse(String(init?.body ?? "{}")) as {
+            target: string;
+          };
+          pruneRequests.push(payload.target);
+          return createResponse({
+            deletedCount: 4,
+            deletedSizeBytes: 2048,
+            settings: createRetentionStatusPayload({
+              notifications: {
+                estimatedSizeBytes: 8192,
+                policy: "two_weeks",
+                retainedItemCount: 6,
+              },
+            }),
+            target: payload.target,
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByText("Retention").closest(".settings-item")!);
+
+    const panel = await waitFor(() => {
+      const element = screen
+        .getByText(
+          "Control how long backups and admin-visible logs stay in storage.",
+        )
+        .closest("section");
+
+      expect(element).not.toBeNull();
+      return element!;
+    });
+
+    expect(
+      within(panel).getByText(
+        "Sizes reflect what would remain if each retention rule were applied now.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        within(panel).getByText(/5\.0 MB across 8 backups\./),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(panel).getByLabelText("Notifications retention"), {
+      target: { value: "two_weeks" },
+    });
+
+    await waitFor(() => {
+      expect(updateRequests).toEqual([
+        {
+          backups: "six_months",
+          changes: "twelve_months",
+          logins: "twelve_months",
+          notifications: "two_weeks",
+        },
+      ]);
+      expect(
+        within(panel).getByText("Retention settings saved."),
+      ).toBeInTheDocument();
+    });
+
+    const notificationsRow = within(panel)
+      .getByLabelText("Notifications retention")
+      .closest(".retention-row") as HTMLElement | null;
+
+    expect(notificationsRow).not.toBeNull();
+    fireEvent.click(
+      within(notificationsRow!).getByRole("button", { name: "Prune now" }),
+    );
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Prune notifications older than 2 weeks?",
+    );
+    await waitFor(() => {
+      expect(pruneRequests).toEqual(["notifications"]);
+      expect(
+        within(panel).getByText(
+          "Pruned notifications: removed 2.0 KB across 4 items.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(panel).getByText("8.0 KB across 6 records."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -4753,8 +4944,6 @@ describe("App", () => {
   it("shows admin audit changes with filters and changed values", async () => {
     const workspacePayload = createAdminWorkspacePayload();
     const auditRequests: string[] = [];
-    const retentionRequests: string[] = [];
-    const purgeRequests: string[] = [];
     const auditEvents: AuditHistoryEvent[] = [
       {
         id: "event-1",
@@ -4786,44 +4975,20 @@ describe("App", () => {
         },
       },
     ];
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    const fetchMock = vi.fn(
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = typeof input === "string" ? input : input.toString();
-        const method = init?.method ?? "GET";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
 
-        if (url.endsWith("/workspace")) {
-          return createResponse(workspacePayload);
-        }
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
 
-        if (url.endsWith("/audit/retention")) {
-          if (method === "PUT") {
-            const payload = JSON.parse(String(init?.body ?? "{}")) as {
-              olderThan: string;
-            };
-            retentionRequests.push(payload.olderThan);
-            return createResponse({ olderThan: payload.olderThan });
-          }
+      if (url.includes("/audit/changes")) {
+        auditRequests.push(url);
+        return createResponse(auditEvents);
+      }
 
-          return createResponse({ olderThan: "six_months" });
-        }
-
-        if (url.endsWith("/audit/purge")) {
-          const payload = JSON.parse(String(init?.body ?? "{}")) as {
-            olderThan: string;
-          };
-          purgeRequests.push(payload.olderThan);
-          return createResponse({ deletedCount: 3 });
-        }
-
-        if (url.includes("/audit/changes")) {
-          auditRequests.push(url);
-          return createResponse(auditEvents);
-        }
-
-        throw new Error(`Unexpected request: ${url}`);
-      },
-    );
+      throw new Error(`Unexpected request: ${url}`);
+    });
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -4853,43 +5018,12 @@ describe("App", () => {
     await waitFor(() => {
       expect(within(panel).getByText("Task: Kickoff")).toBeInTheDocument();
     });
-    await waitFor(() => {
-      expect(
-        within(panel).getByText("Automatic log aging: 6 months."),
-      ).toBeInTheDocument();
-    });
 
     expect(within(panel).getByText("Tavi Editor -> None")).toBeInTheDocument();
     expect(within(panel).getByText("todo -> in progress")).toBeInTheDocument();
     expect(
       within(panel).getByRole("button", { name: "Export CSV" }),
     ).toBeInTheDocument();
-
-    fireEvent.change(within(panel).getByLabelText("Log aging"), {
-      target: { value: "one_month" },
-    });
-    fireEvent.click(
-      within(panel).getByRole("button", { name: "Set automatic aging" }),
-    );
-
-    await waitFor(() => {
-      expect(
-        within(panel).getByText("Automatic log aging is now set to 1 month."),
-      ).toBeInTheDocument();
-    });
-    expect(retentionRequests).toEqual(["one_month"]);
-
-    fireEvent.click(within(panel).getByRole("button", { name: "Purge logs" }));
-
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Purge audit logs older than 1 month?",
-    );
-    await waitFor(() => {
-      expect(
-        within(panel).getByText("Purged 3 audit events older than 1 month."),
-      ).toBeInTheDocument();
-    });
-    expect(purgeRequests).toEqual(["one_month"]);
 
     fireEvent.change(within(panel).getByLabelText("Action"), {
       target: { value: "update" },
@@ -4952,10 +5086,6 @@ describe("App", () => {
         return createResponse(workspacePayload);
       }
 
-      if (url.endsWith("/audit/retention")) {
-        return createResponse({ olderThan: null });
-      }
-
       if (url.includes("/audit/logins")) {
         auditRequests.push(url);
         return createResponse(auditEvents);
@@ -4995,7 +5125,9 @@ describe("App", () => {
       ).toBeInTheDocument();
     });
     expect(
-      within(panel).getByText(/Dates and times use your local timezone \(.+\)\./),
+      within(panel).getByText(
+        /Dates and times use your local timezone \(.+\)\./,
+      ),
     ).toBeInTheDocument();
     expect(
       within(panel).getByText(
@@ -5010,17 +5142,6 @@ describe("App", () => {
         }).format(new Date("2026-02-01T08:30:00.000Z")),
       ),
     ).toBeInTheDocument();
-    expect(
-      within(panel).getByRole("button", { name: "Purge logs" }),
-    ).toBeInTheDocument();
-    expect(
-      within(panel).getByRole("button", { name: "Set automatic aging" }),
-    ).toBeInTheDocument();
-    await waitFor(() => {
-      expect(
-        within(panel).getByText("Automatic log aging is not set."),
-      ).toBeInTheDocument();
-    });
 
     expect(within(panel).queryByLabelText("Action")).not.toBeInTheDocument();
 
@@ -5110,27 +5231,31 @@ describe("App", () => {
       },
     ];
     const testEmailRequests: string[] = [];
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const method =
-        init?.method ?? (input instanceof Request ? input.method : undefined) ?? "GET";
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method =
+          init?.method ??
+          (input instanceof Request ? input.method : undefined) ??
+          "GET";
 
-      if (url.endsWith("/workspace")) {
-        return createResponse(workspacePayload);
-      }
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
 
-      if (url.endsWith("/auth/email/test") && method === "POST") {
-        testEmailRequests.push(url);
-        return createResponse({ success: true });
-      }
+        if (url.endsWith("/auth/email/test") && method === "POST") {
+          testEmailRequests.push(url);
+          return createResponse({ success: true });
+        }
 
-      if (url.includes("/audit/emails")) {
-        auditRequests.push(url);
-        return createResponse(auditEvents);
-      }
+        if (url.includes("/audit/emails")) {
+          auditRequests.push(url);
+          return createResponse(auditEvents);
+        }
 
-      throw new Error(`Unexpected request: ${url}`);
-    });
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -5332,7 +5457,9 @@ describe("App", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.toString();
         const method =
-          init?.method ?? (input instanceof Request ? input.method : undefined) ?? "GET";
+          init?.method ??
+          (input instanceof Request ? input.method : undefined) ??
+          "GET";
 
         if (url.endsWith("/workspace")) {
           return createResponse(workspacePayload);

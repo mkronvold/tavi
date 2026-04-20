@@ -804,6 +804,101 @@ export type PurgeAuditLogsResponse = z.infer<
   typeof purgeAuditLogsResponseSchema
 >;
 
+export const backupRetentionWindowSchema = z.enum([
+  "one_week",
+  "two_weeks",
+  "one_month",
+  "three_months",
+  "six_months",
+  "forever",
+]);
+export type BackupRetentionWindow = z.infer<typeof backupRetentionWindowSchema>;
+
+export const logRetentionWindowSchema = z.enum([
+  "three_months",
+  "six_months",
+  "twelve_months",
+  "twenty_four_months",
+  "thirty_six_months",
+]);
+export type LogRetentionWindow = z.infer<typeof logRetentionWindowSchema>;
+
+export const notificationRetentionWindowSchema = z.enum([
+  "one_week",
+  "two_weeks",
+  "one_month",
+]);
+export type NotificationRetentionWindow = z.infer<
+  typeof notificationRetentionWindowSchema
+>;
+
+export const retentionTargetSchema = z.enum([
+  "backups",
+  "logins",
+  "changes",
+  "notifications",
+]);
+export type RetentionTarget = z.infer<typeof retentionTargetSchema>;
+
+const retentionMetricsSchema = z.object({
+  estimatedSizeBytes: z.number().int().nonnegative(),
+  retainedItemCount: z.number().int().nonnegative(),
+});
+
+export const backupRetentionSummarySchema = retentionMetricsSchema.extend({
+  policy: backupRetentionWindowSchema,
+});
+export type BackupRetentionSummary = z.infer<
+  typeof backupRetentionSummarySchema
+>;
+
+export const logRetentionSummarySchema = retentionMetricsSchema.extend({
+  policy: logRetentionWindowSchema,
+});
+export type LogRetentionSummary = z.infer<typeof logRetentionSummarySchema>;
+
+export const notificationRetentionSummarySchema = retentionMetricsSchema.extend(
+  {
+    policy: notificationRetentionWindowSchema,
+  },
+);
+export type NotificationRetentionSummary = z.infer<
+  typeof notificationRetentionSummarySchema
+>;
+
+export const retentionStatusSchema = z.object({
+  backups: backupRetentionSummarySchema,
+  changes: logRetentionSummarySchema,
+  logins: logRetentionSummarySchema,
+  notifications: notificationRetentionSummarySchema,
+});
+export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
+
+export const updateRetentionSettingsSchema = z.object({
+  backups: backupRetentionWindowSchema,
+  changes: logRetentionWindowSchema,
+  logins: logRetentionWindowSchema,
+  notifications: notificationRetentionWindowSchema,
+});
+export type UpdateRetentionSettingsInput = z.infer<
+  typeof updateRetentionSettingsSchema
+>;
+
+export const pruneRetentionDataSchema = z.object({
+  target: retentionTargetSchema,
+});
+export type PruneRetentionDataInput = z.infer<typeof pruneRetentionDataSchema>;
+
+export const pruneRetentionDataResponseSchema = z.object({
+  deletedCount: z.number().int().nonnegative(),
+  deletedSizeBytes: z.number().int().nonnegative(),
+  settings: retentionStatusSchema,
+  target: retentionTargetSchema,
+});
+export type PruneRetentionDataResponse = z.infer<
+  typeof pruneRetentionDataResponseSchema
+>;
+
 export const loopImportJobStatusSchema = z.enum([
   "queued_parse",
   "parsing",

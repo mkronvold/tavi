@@ -343,6 +343,16 @@ model BackupSettings {
   updatedAt          DateTime @updatedAt
 }
 
+model RetentionSettings {
+  id                  String   @id @default("global")
+  backupRetention     String   @default("six_months")
+  loginRetention      String   @default("twelve_months")
+  changeRetention     String   @default("twelve_months")
+  notificationRetention String @default("one_month")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
 model NotificationEvent {
   id               String                      @id @default(cuid())
   recipientUserId  String?

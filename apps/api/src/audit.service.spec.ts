@@ -1,5 +1,4 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { AppLogger } from './app-logger';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
 import { AuditService } from './audit.service';
@@ -18,8 +17,6 @@ describe('AuditService', () => {
     const auditEventFindManyMock = jest.fn();
     const auditLogRetentionFindUniqueMock = jest.fn();
     const auditLogRetentionUpsertMock = jest.fn();
-    const loggerErrorMock = jest.fn();
-    const loggerLogMock = jest.fn();
     const notificationEventFindManyMock = jest.fn();
     const projectFindFirstMock = jest.fn();
     const savedViewFindFirstMock = jest.fn();
@@ -50,20 +47,14 @@ describe('AuditService', () => {
     const authService = {
       requireAdminAccess: requireAdminAccessMock,
     } as unknown as AuthService;
-    const logger = {
-      error: loggerErrorMock,
-      log: loggerLogMock,
-    } as unknown as AppLogger;
 
     return {
-      service: new AuditService(prisma, authService, logger),
+      service: new AuditService(prisma, authService),
       mocks: {
         auditEventDeleteManyMock,
         auditEventFindManyMock,
         auditLogRetentionFindUniqueMock,
         auditLogRetentionUpsertMock,
-        loggerErrorMock,
-        loggerLogMock,
         notificationEventFindManyMock,
         projectFindFirstMock,
         requireAdminAccessMock,

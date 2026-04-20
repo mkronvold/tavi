@@ -32,7 +32,6 @@ import {
   deleteSavedView,
   deleteTask,
   getAuditHistory,
-  getAuditLogRetention,
   getLocalLoginHint,
   getNotificationPreferences,
   getSmtpStatus,
@@ -43,13 +42,11 @@ import {
   listAuditLogins,
   login,
   logout,
-  purgeAuditLogs,
   requestPasswordReset,
   renameSavedView,
   reorderProjectTasks,
   resetPasswordWithOtp,
   sendTestEmail,
-  setAuditLogRetention,
   updateEmailSettings,
   updateMyProfile,
   updateNotificationPreferences,
@@ -68,6 +65,7 @@ import {
   truncateDisplayLinkLabel,
 } from "./notes-markdown-helpers";
 import { PersonalTodoPanel } from "./PersonalTodoPanel";
+import { RetentionSettingsPanel } from "./RetentionSettingsPanel";
 import { getAppHomeUrl } from "./runtime-config";
 import {
   clearTaviStorage,
@@ -84,7 +82,6 @@ import {
 import type {
   EmailAuditEvent,
   AuditHistoryEvent,
-  AuditLogRetentionWindow,
   CreateProjectPayload,
   CreateTaskPayload,
   GroupBy,
@@ -268,20 +265,6 @@ const AUDIT_CHANGE_ACTION_OPTIONS = [
   { label: "Import create", value: "import_create" },
   { label: "Import update", value: "import_update" },
 ] as const;
-
-const AUDIT_LOG_RETENTION_OPTIONS: Array<{
-  label: string;
-  value: AuditLogRetentionWindow;
-}> = [
-  { label: "1 day", value: "one_day" },
-  { label: "1 week", value: "one_week" },
-  { label: "1 month", value: "one_month" },
-  { label: "3 months", value: "three_months" },
-  { label: "6 months", value: "six_months" },
-  { label: "1 year", value: "one_year" },
-];
-
-const DEFAULT_AUDIT_LOG_RETENTION_WINDOW: AuditLogRetentionWindow = "one_month";
 const BULK_CLEAR_ASSIGNEE_VALUE = "__none__";
 
 const createEmptyBulkTaskDraft = (): BulkTaskDraft => ({
@@ -4792,13 +4775,13 @@ function ProfilePanel({
                 }
                 onClick={saveDailyDigestTime}
               >
-                {notificationPreferencesMutation.isPending ? "Saving..." : "Save"}
+                {notificationPreferencesMutation.isPending
+                  ? "Saving..."
+                  : "Save"}
               </button>
             </div>
           </div>
-          <label
-            className="settings-switch"
-          >
+          <label className="settings-switch">
             <span className="settings-switch-label">Daily Digest</span>
             <input
               aria-label="Daily Digest"
@@ -4889,6 +4872,7 @@ function SettingsPanel({
   const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
   const [adminAuditPanel, setAdminAuditPanel] =
     useState<AdminAuditReportType | null>(null);
+  const [retentionOpen, setRetentionOpen] = useState(false);
   const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
@@ -4982,6 +4966,9 @@ function SettingsPanel({
   };
   const toggleAdminAuditPanel = (panel: AdminAuditReportType) => {
     setAdminAuditPanel((current) => (current === panel ? null : panel));
+  };
+  const toggleRetentionPanel = () => {
+    setRetentionOpen((current) => !current);
   };
 
   if (!isAdmin) {
@@ -5095,6 +5082,20 @@ function SettingsPanel({
           </p>
         </div>
         <div
+          aria-expanded={retentionOpen}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(toggleRetentionPanel)}
+        >
+          <div className="settings-item-header">
+            <strong>Retention</strong>
+            <span>{retentionOpen ? "Open" : "Closed"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Set backup and audit retention windows, review current retained
+            size, and prune immediately.
+          </p>
+        </div>
+        <div
           aria-expanded={isImportExportOpen}
           className="settings-item settings-item-toggle"
           {...settingsCardButtonProps(onToggleImportExportPanel)}
@@ -5145,8 +5146,8 @@ function SettingsPanel({
             <span>Email timelines</span>
           </div>
           <p className="toolbar-hint">
-            Review email-backed notification timelines, delivery attempts,
-            host responses, retries, and outcomes.
+            Review email-backed notification timelines, delivery attempts, host
+            responses, retries, and outcomes.
           </p>
         </div>
         <div
@@ -5174,6 +5175,10 @@ function SettingsPanel({
           emailEnabled={smtpStatusQuery.data?.enabled ?? true}
           smtpConfigured={smtpStatusQuery.data?.configured ?? false}
         />
+      ) : null}
+
+      {retentionOpen ? (
+        <RetentionSettingsPanel onClose={() => setRetentionOpen(false)} />
       ) : null}
 
       {isAdmin && adminAuditPanel ? (
@@ -5208,8 +5213,6 @@ function AdminAuditReportPanel({
   const [status, setStatus] = useState<EmailAuditEvent["status"] | "">("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [retentionWindowOverride, setRetentionWindowOverride] =
-    useState<AuditLogRetentionWindow | null>(null);
   const [retentionMessage, setRetentionMessage] = useState<string | null>(null);
   const [retentionError, setRetentionError] = useState<string | null>(null);
   const [expandedEmailEvents, setExpandedEmailEvents] = useState<
@@ -5217,7 +5220,6 @@ function AdminAuditReportPanel({
   >({});
   const isChangeReport = type === "changes";
   const isEmailReport = type === "emails";
-  const usesRetentionControls = !isEmailReport;
 
   const userLookup = useMemo(
     () =>
@@ -5228,15 +5230,6 @@ function AdminAuditReportPanel({
     [users],
   );
 
-  const retentionQuery = useQuery({
-    queryKey: ["audit-retention"],
-    queryFn: getAuditLogRetention,
-    enabled: usesRetentionControls,
-  });
-  const retentionWindow =
-    retentionWindowOverride ??
-    retentionQuery.data?.olderThan ??
-    DEFAULT_AUDIT_LOG_RETENTION_WINDOW;
   const localizedFromDateTime = fromDate
     ? toLocalDayBoundaryIso(fromDate, "start")
     : undefined;
@@ -5291,46 +5284,6 @@ function AdminAuditReportPanel({
     },
   });
 
-  const purgeAuditLogsMutation = useMutation({
-    mutationFn: (olderThan: AuditLogRetentionWindow) =>
-      purgeAuditLogs({ olderThan }),
-    onSuccess: async (result, olderThan) => {
-      setRetentionError(null);
-      setRetentionMessage(
-        `Purged ${result.deletedCount.toString()} audit event${result.deletedCount === 1 ? "" : "s"} older than ${formatAuditLogRetentionWindowLabel(olderThan)}.`,
-      );
-      await queryClient.invalidateQueries({ queryKey: ["audit-report"] });
-    },
-    onError: (error) => {
-      setRetentionMessage(null);
-      setRetentionError(
-        error instanceof ApiError
-          ? error.message
-          : "Unable to purge audit logs",
-      );
-    },
-  });
-
-  const setAuditLogRetentionMutation = useMutation({
-    mutationFn: (olderThan: AuditLogRetentionWindow) =>
-      setAuditLogRetention({ olderThan }),
-    onSuccess: (_policy, olderThan) => {
-      setRetentionWindowOverride(olderThan);
-      setRetentionError(null);
-      setRetentionMessage(
-        `Automatic log aging is now set to ${formatAuditLogRetentionWindowLabel(olderThan)}.`,
-      );
-      queryClient.setQueryData(["audit-retention"], { olderThan });
-    },
-    onError: (error) => {
-      setRetentionMessage(null);
-      setRetentionError(
-        error instanceof ApiError
-          ? error.message
-          : "Unable to update automatic log aging",
-      );
-    },
-  });
   const testEmailMutation = useMutation({
     mutationFn: sendTestEmail,
     onSuccess: async () => {
@@ -5350,7 +5303,9 @@ function AdminAuditReportPanel({
   const historyEvents = isEmailReport
     ? []
     : ((reportQuery.data ?? []) as AuditHistoryEvent[]);
-  const emailEvents = isEmailReport ? normalizeEmailAuditEvents(reportQuery.data) : [];
+  const emailEvents = isEmailReport
+    ? normalizeEmailAuditEvents(reportQuery.data)
+    : [];
   const title =
     type === "changes"
       ? "Audit changes"
@@ -5366,23 +5321,6 @@ function AdminAuditReportPanel({
   const emptyMessage = isEmailReport
     ? "No matching notification audit events."
     : "No matching audit events.";
-  const automaticRetentionStatus = retentionQuery.data?.olderThan
-    ? `Automatic log aging: ${formatAuditLogRetentionWindowLabel(retentionQuery.data.olderThan)}.`
-    : retentionQuery.isSuccess
-      ? "Automatic log aging is not set."
-      : null;
-
-  const handlePurgeAuditLogs = () => {
-    const retentionLabel = formatAuditLogRetentionWindowLabel(retentionWindow);
-
-    if (!window.confirm(`Purge audit logs older than ${retentionLabel}?`)) {
-      return;
-    }
-
-    setRetentionError(null);
-    setRetentionMessage(null);
-    purgeAuditLogsMutation.mutate(retentionWindow);
-  };
   const toggleEmailEvent = (eventId: string) => {
     setExpandedEmailEvents((current) => ({
       ...current,
@@ -5439,8 +5377,8 @@ function AdminAuditReportPanel({
             type="button"
             className="ghost-button compact-button"
             disabled={
-              (isEmailReport ? emailEvents.length : historyEvents.length) === 0 ||
-              reportQuery.isLoading
+              (isEmailReport ? emailEvents.length : historyEvents.length) ===
+                0 || reportQuery.isLoading
             }
             onClick={() =>
               isEmailReport
@@ -5467,76 +5405,10 @@ function AdminAuditReportPanel({
         </div>
       </div>
 
-      {usesRetentionControls ? (
-        <>
-          <div className="audit-retention-row">
-            <label className="workspace-filter">
-              Log aging
-              <select
-                aria-label="Log aging"
-                value={retentionWindow}
-                onChange={(event) => {
-                  if (isAuditLogRetentionWindow(event.target.value)) {
-                    setRetentionWindowOverride(event.target.value);
-                  }
-                  setRetentionError(null);
-                  setRetentionMessage(null);
-                }}
-              >
-                {AUDIT_LOG_RETENTION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="settings-actions">
-              <button
-                type="button"
-                className="ghost-button compact-button"
-                disabled={purgeAuditLogsMutation.isPending}
-                onClick={handlePurgeAuditLogs}
-              >
-                {purgeAuditLogsMutation.isPending ? "Purging..." : "Purge logs"}
-              </button>
-              <button
-                type="button"
-                className="ghost-button compact-button"
-                disabled={setAuditLogRetentionMutation.isPending}
-                onClick={() => {
-                  setRetentionError(null);
-                  setRetentionMessage(null);
-                  setAuditLogRetentionMutation.mutate(retentionWindow);
-                }}
-              >
-                {setAuditLogRetentionMutation.isPending
-                  ? "Saving..."
-                  : "Set automatic aging"}
-              </button>
-            </div>
-          </div>
-          {retentionQuery.isLoading ? (
-            <p className="toolbar-hint audit-retention-status">
-              Loading automatic log aging...
-            </p>
-          ) : null}
-          {retentionQuery.isError ? (
-            <p className="error-banner">
-              {retentionQuery.error instanceof Error
-                ? retentionQuery.error.message
-                : "Unable to load automatic log aging."}
-            </p>
-          ) : null}
-          {automaticRetentionStatus ? (
-            <p className="toolbar-hint audit-retention-status">
-              {automaticRetentionStatus}
-            </p>
-          ) : null}
-        </>
-      ) : null}
-
       {retentionMessage ? (
-        <p className="toolbar-hint audit-retention-status">{retentionMessage}</p>
+        <p className="toolbar-hint audit-retention-status">
+          {retentionMessage}
+        </p>
       ) : null}
       {retentionError ? <p className="error-banner">{retentionError}</p> : null}
       <p className="toolbar-hint audit-retention-status">
@@ -5574,7 +5446,10 @@ function AdminAuditReportPanel({
         {isChangeReport ? (
           <label className="workspace-filter">
             Action
-            <select value={action} onChange={(event) => setAction(event.target.value)}>
+            <select
+              value={action}
+              onChange={(event) => setAction(event.target.value)}
+            >
               {AUDIT_CHANGE_ACTION_OPTIONS.map((option) => (
                 <option key={option.value || "all"} value={option.value}>
                   {option.label}
@@ -5648,7 +5523,9 @@ function AdminAuditReportPanel({
             const isExpanded = expandedEmailEvents[event.id] === true;
             const notificationLabel = formatNotificationAuditKindLabel(event);
             const recipientLabel = formatEmailAuditRecipient(event);
-            const sourceLabel = formatNotificationAuditSourceLabel(event.source);
+            const sourceLabel = formatNotificationAuditSourceLabel(
+              event.source,
+            );
 
             return (
               <li
@@ -5678,7 +5555,10 @@ function AdminAuditReportPanel({
                     {summary.length > 0 ? (
                       <div className="audit-event-meta audit-event-meta--summary">
                         {summary.map((item) => (
-                          <span className="audit-chip" key={`${event.id}-${item}`}>
+                          <span
+                            className="audit-chip"
+                            key={`${event.id}-${item}`}
+                          >
                             {item}
                           </span>
                         ))}
@@ -5717,7 +5597,9 @@ function AdminAuditReportPanel({
                           <li key={step.id}>
                             <strong>{step.title}</strong>
                             <span>{formatDateTime(step.createdAt)}</span>
-                            <span>{formatNotificationAuditStepDetail(step)}</span>
+                            <span>
+                              {formatNotificationAuditStepDetail(step)}
+                            </span>
                           </li>
                         ))}
                       </ol>
@@ -6311,11 +6193,7 @@ function exportAuditReportCsv({
   ]);
 }
 
-function exportEmailAuditReportCsv({
-  events,
-}: {
-  events: EmailAuditEvent[];
-}) {
+function exportEmailAuditReportCsv({ events }: { events: EmailAuditEvent[] }) {
   const rows = events.map((event) => ({
     Action: formatNotificationAuditKindLabel(event),
     Attempts: event.attemptCount.toString(),
@@ -6325,7 +6203,9 @@ function exportEmailAuditReportCsv({
     Source: formatNotificationAuditSourceLabel(event.source),
     Status: formatEmailAuditStatusLabel(event.status),
     Summary: summarizeEmailAuditEvent(event).join(" | "),
-    TriggeredBy: event.actor ? formatActorSummary(event.actor) : "System delivery",
+    TriggeredBy: event.actor
+      ? formatActorSummary(event.actor)
+      : "System delivery",
   }));
 
   downloadCsvFile("audit-notifications", rows, [
@@ -6369,7 +6249,8 @@ function normalizeEmailAuditEvents(value: unknown): EmailAuditEvent[] {
       return [];
     }
 
-    const eventId = readUnknownString(record.id) ?? `email-audit-${index.toString()}`;
+    const eventId =
+      readUnknownString(record.id) ?? `email-audit-${index.toString()}`;
     const createdAt =
       readUnknownString(record.createdAt) ?? new Date(0).toISOString();
     const status = isEmailAuditStatus(record.status) ? record.status : "queued";
@@ -6418,7 +6299,9 @@ function normalizeEmailAuditEvents(value: unknown): EmailAuditEvent[] {
         response: readUnknownNullableString(record.response),
         sentAt: readUnknownNullableString(record.sentAt),
         skippedAt: readUnknownNullableString(record.skippedAt),
-        source: isEmailAuditSource(record.source) ? record.source : "notification",
+        source: isEmailAuditSource(record.source)
+          ? record.source
+          : "notification",
         status,
         steps,
         subject: readUnknownNullableString(record.subject),
@@ -6519,14 +6402,18 @@ function readUnknownNullableString(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-function isEmailAuditStatus(value: unknown): value is EmailAuditEvent["status"] {
+function isEmailAuditStatus(
+  value: unknown,
+): value is EmailAuditEvent["status"] {
   return (
     typeof value === "string" &&
     EMAIL_AUDIT_STATUS_VALUES.includes(value as EmailAuditEvent["status"])
   );
 }
 
-function isEmailAuditSource(value: unknown): value is EmailAuditEvent["source"] {
+function isEmailAuditSource(
+  value: unknown,
+): value is EmailAuditEvent["source"] {
   return (
     typeof value === "string" &&
     EMAIL_AUDIT_SOURCE_VALUES.includes(value as EmailAuditEvent["source"])
@@ -6607,7 +6494,9 @@ function formatEmailAuditFlowTimeline(event: EmailAuditEvent) {
   }
 
   if (event.entityType && event.entityId) {
-    lines.push(`Entity: ${formatAuditEntityTypeLabel(event.entityType)} ${event.entityId}`);
+    lines.push(
+      `Entity: ${formatAuditEntityTypeLabel(event.entityType)} ${event.entityId}`,
+    );
   }
 
   if (summary.length > 0) {
@@ -6673,7 +6562,9 @@ function formatEmailAuditStatusLabel(status: EmailAuditEvent["status"]) {
   return status.replace(/_/g, " ");
 }
 
-function formatNotificationAuditStepDetail(step: EmailAuditEvent["steps"][number]) {
+function formatNotificationAuditStepDetail(
+  step: EmailAuditEvent["steps"][number],
+) {
   const parts = [
     step.detail,
     step.host ? `Host ${step.host}` : null,
@@ -6738,23 +6629,6 @@ function formatAuditActionLabel(action: string) {
   }
 }
 
-function formatAuditLogRetentionWindowLabel(value: AuditLogRetentionWindow) {
-  switch (value) {
-    case "one_day":
-      return "1 day";
-    case "one_week":
-      return "1 week";
-    case "one_month":
-      return "1 month";
-    case "three_months":
-      return "3 months";
-    case "six_months":
-      return "6 months";
-    case "one_year":
-      return "1 year";
-  }
-}
-
 function formatAuditField(value: string) {
   switch (value) {
     case "assigneeUserId":
@@ -6788,12 +6662,6 @@ function formatAuditField(value: string) {
     default:
       return value.replace(/_/g, " ");
   }
-}
-
-function isAuditLogRetentionWindow(
-  value: string,
-): value is AuditLogRetentionWindow {
-  return AUDIT_LOG_RETENTION_OPTIONS.some((option) => option.value === value);
 }
 
 function formatUserReference(

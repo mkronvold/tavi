@@ -959,6 +959,62 @@
   margin: 0;
 }
 
+.retention-panel {
+  margin-top: 4px;
+}
+
+.retention-note {
+  margin: 0 0 6px;
+}
+
+.retention-list {
+  display: grid;
+  gap: 10px;
+}
+
+.retention-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card-bg) 92%, var(--surface-muted) 8%);
+}
+
+.retention-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.retention-row-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.retention-filter {
+  min-width: 150px;
+}
+
+.retention-filter select {
+  min-width: 150px;
+}
+
+@media (max-width: 720px) {
+  .retention-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .retention-row-controls {
+    justify-content: flex-start;
+  }
+}
+
 .settings-switch-input:checked {
   background: var(--primary-bg);
   border-color: var(--primary-bg);

@@ -27,8 +27,11 @@ import type {
   UploadBackupFileInput,
 } from '@tavi/schemas';
 import {
+  backupRetentionWindowSchema,
   emailAddressSchema,
   localAccountNameSchema,
+  logRetentionWindowSchema,
+  notificationRetentionWindowSchema,
   prioritySchema,
   projectStatusSchema,
   roleSchema,
@@ -41,8 +44,13 @@ import { PrismaService } from './prisma.service';
 
 const BACKUP_FORMAT = 'tavi-backup-v1';
 const BACKUP_SETTINGS_ID = 'global';
+const RETENTION_SETTINGS_ID = 'global';
 const DEFAULT_BACKUP_SCHEDULE_TIME = '02:00';
 const DEFAULT_DAILY_DIGEST_TIME = '11:00';
+const DEFAULT_BACKUP_RETENTION = 'six_months';
+const DEFAULT_LOGIN_RETENTION = 'twelve_months';
+const DEFAULT_CHANGE_RETENTION = 'twelve_months';
+const DEFAULT_NOTIFICATION_RETENTION = 'one_month';
 
 function buildBackupFileName(now: Date) {
   const compact = now
@@ -219,6 +227,16 @@ const backupSettingsRecordSchema = z.object({
   updatedAt: z.string().min(1),
 });
 
+const backupRetentionSettingsRecordSchema = z.object({
+  backupRetention: backupRetentionWindowSchema,
+  changeRetention: logRetentionWindowSchema,
+  createdAt: z.string().min(1),
+  id: z.string().min(1),
+  loginRetention: logRetentionWindowSchema,
+  notificationRetention: notificationRetentionWindowSchema,
+  updatedAt: z.string().min(1),
+});
+
 const backupNotificationEventRecordSchema = z.object({
   attemptCount: z.number().int(),
   createdAt: z.string().min(1),
@@ -259,6 +277,7 @@ const backupSnapshotSchema = z.object({
     ),
     notificationEvents: z.array(backupNotificationEventRecordSchema),
     projects: z.array(backupProjectRecordSchema),
+    retentionSettings: backupRetentionSettingsRecordSchema.nullable(),
     roleAssignments: z.array(backupRoleAssignmentRecordSchema),
     savedViews: z.array(backupSavedViewRecordSchema),
     tasks: z.array(backupTaskRecordSchema),
@@ -269,7 +288,13 @@ const backupSnapshotSchema = z.object({
 });
 
 type BackupSnapshot = z.infer<typeof backupSnapshotSchema>;
+type BackupAuditLogRetentionRecord = z.infer<
+  typeof backupAuditLogRetentionRecordSchema
+>;
 type BackupProjectRecord = z.infer<typeof backupProjectRecordSchema>;
+type BackupRetentionSettingsRecord = z.infer<
+  typeof backupRetentionSettingsRecordSchema
+>;
 type BackupRoleAssignmentRecord = z.infer<
   typeof backupRoleAssignmentRecordSchema
 >;
@@ -283,6 +308,15 @@ type CurrentUserLookup = {
   email: string;
   id: string;
   name: string;
+};
+type StoredRetentionSettingsRow = {
+  backupRetention: string;
+  changeRetention: string;
+  createdAt: Date;
+  id: string;
+  loginRetention: string;
+  notificationRetention: string;
+  updatedAt: Date;
 };
 
 function getDefaultBackupDirectory() {
@@ -360,6 +394,90 @@ function toJsonValue(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
+function mapLegacyAuditRetentionWindow(
+  value: BackupAuditLogRetentionRecord['olderThan'],
+): BackupRetentionSettingsRecord['loginRetention'] {
+  if (value === 'six_months') {
+    return 'six_months';
+  }
+
+  if (value === 'one_year') {
+    return 'twelve_months';
+  }
+
+  return 'three_months';
+}
+
+function readBackupRetentionSettings(snapshot: BackupSnapshot) {
+  if (snapshot.data.retentionSettings) {
+    return snapshot.data.retentionSettings;
+  }
+
+  const legacyWindow = snapshot.data.auditLogRetention?.olderThan;
+  const legacyLogRetention = legacyWindow
+    ? mapLegacyAuditRetentionWindow(legacyWindow)
+    : null;
+
+  return {
+    backupRetention: DEFAULT_BACKUP_RETENTION,
+    changeRetention: legacyLogRetention ?? DEFAULT_CHANGE_RETENTION,
+    createdAt: snapshot.createdAt,
+    id: 'global',
+    loginRetention: legacyLogRetention ?? DEFAULT_LOGIN_RETENTION,
+    notificationRetention: DEFAULT_NOTIFICATION_RETENTION,
+    updatedAt: snapshot.createdAt,
+  } satisfies BackupRetentionSettingsRecord;
+}
+
+function isBackupRetentionWindow(value: string) {
+  return (
+    value === 'one_week' ||
+    value === 'two_weeks' ||
+    value === 'one_month' ||
+    value === 'three_months' ||
+    value === 'six_months' ||
+    value === 'forever'
+  );
+}
+
+function isLogRetentionWindow(value: string) {
+  return (
+    value === 'three_months' ||
+    value === 'six_months' ||
+    value === 'twelve_months' ||
+    value === 'twenty_four_months' ||
+    value === 'thirty_six_months'
+  );
+}
+
+function isNotificationRetentionWindow(value: string) {
+  return value === 'one_week' || value === 'two_weeks' || value === 'one_month';
+}
+
+function toBackupRetentionSettingsRecord(
+  row: StoredRetentionSettingsRow | null,
+): BackupRetentionSettingsRecord | null {
+  if (
+    !row ||
+    !isBackupRetentionWindow(row.backupRetention) ||
+    !isLogRetentionWindow(row.changeRetention) ||
+    !isLogRetentionWindow(row.loginRetention) ||
+    !isNotificationRetentionWindow(row.notificationRetention)
+  ) {
+    return null;
+  }
+
+  return {
+    backupRetention: row.backupRetention,
+    changeRetention: row.changeRetention,
+    createdAt: row.createdAt.toISOString(),
+    id: row.id,
+    loginRetention: row.loginRetention,
+    notificationRetention: row.notificationRetention,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function buildSnapshotCounts(snapshot: BackupSnapshot) {
   return {
     auditEvents: snapshot.data.auditEvents.length,
@@ -371,6 +489,7 @@ function buildSnapshotCounts(snapshot: BackupSnapshot) {
       snapshot.data.notificationDeliveryAttempts.length,
     notificationEvents: snapshot.data.notificationEvents.length,
     projects: snapshot.data.projects.length,
+    retentionSettings: snapshot.data.retentionSettings ? 1 : 0,
     roleAssignments: snapshot.data.roleAssignments.length,
     savedViews: snapshot.data.savedViews.length,
     tasks: snapshot.data.tasks.length,
@@ -401,6 +520,55 @@ export class BackupsService {
       lastScheduledRunAt: settings?.lastScheduledRunAt?.toISOString() ?? null,
       lastSuccessAt: settings?.lastSuccessAt?.toISOString() ?? null,
       scheduleTime: settings?.scheduleTime ?? DEFAULT_BACKUP_SCHEDULE_TIME,
+    };
+  }
+
+  async listStoredBackups() {
+    const directoryState = await this.readBackupDirectoryState();
+    return directoryState.backups;
+  }
+
+  async pruneStoredBackups(cutoff: Date | null) {
+    if (cutoff === null) {
+      return {
+        deletedCount: 0,
+        deletedSizeBytes: 0,
+      };
+    }
+
+    const directoryState = await this.readBackupDirectoryState();
+
+    if (!directoryState.accessible) {
+      return {
+        deletedCount: 0,
+        deletedSizeBytes: 0,
+      };
+    }
+
+    let deletedCount = 0;
+    let deletedSizeBytes = 0;
+
+    for (const backup of directoryState.backups) {
+      if (new Date(backup.modifiedAt) >= cutoff) {
+        continue;
+      }
+
+      await fs
+        .unlink(path.join(directoryState.directory, backup.fileName))
+        .catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return;
+          }
+
+          throw error;
+        });
+      deletedCount += 1;
+      deletedSizeBytes += backup.sizeBytes;
+    }
+
+    return {
+      deletedCount,
+      deletedSizeBytes,
     };
   }
 
@@ -763,6 +931,7 @@ export class BackupsService {
       await tx.roleAssignment.deleteMany({});
       await tx.user.deleteMany({});
       await tx.auditLogRetention.deleteMany({});
+      await tx.$executeRaw(Prisma.sql`DELETE FROM "RetentionSettings"`);
       await tx.emailSettings.deleteMany({});
       await tx.backupSettings.deleteMany({});
 
@@ -955,6 +1124,28 @@ export class BackupsService {
           },
         });
       }
+
+      const retentionSettings = readBackupRetentionSettings(snapshot);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "RetentionSettings" (
+          "id",
+          "backupRetention",
+          "loginRetention",
+          "changeRetention",
+          "notificationRetention",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES (
+          ${retentionSettings.id},
+          ${retentionSettings.backupRetention},
+          ${retentionSettings.loginRetention},
+          ${retentionSettings.changeRetention},
+          ${retentionSettings.notificationRetention},
+          ${new Date(retentionSettings.createdAt)},
+          ${new Date(retentionSettings.updatedAt)}
+        )
+      `);
 
       if (snapshot.data.emailSettings) {
         await tx.emailSettings.create({
@@ -1409,6 +1600,26 @@ export class BackupsService {
     });
   }
 
+  private async readRetentionSettings() {
+    const rows = await this.prisma.$queryRaw<StoredRetentionSettingsRow[]>(
+      Prisma.sql`
+        SELECT
+          "id",
+          "backupRetention",
+          "loginRetention",
+          "changeRetention",
+          "notificationRetention",
+          "createdAt",
+          "updatedAt"
+        FROM "RetentionSettings"
+        WHERE "id" = ${RETENTION_SETTINGS_ID}
+        LIMIT 1
+      `,
+    );
+
+    return toBackupRetentionSettingsRecord(rows[0] ?? null);
+  }
+
   private async readBackupDirectoryState() {
     const candidates = getConfiguredBackupDirectories();
 
@@ -1492,6 +1703,7 @@ export class BackupsService {
       importRows,
       auditEvents,
       auditLogRetention,
+      retentionSettings,
       emailSettings,
       backupSettings,
       notificationEvents,
@@ -1508,6 +1720,7 @@ export class BackupsService {
       this.prisma.auditLogRetention.findUnique({
         where: { id: 'global' },
       }),
+      this.readRetentionSettings(),
       this.prisma.emailSettings.findUnique({ where: { id: 'global' } }),
       this.prisma.backupSettings.findUnique({
         where: { id: BACKUP_SETTINGS_ID },
@@ -1658,6 +1871,7 @@ export class BackupsService {
           title: project.title,
           updatedAt: project.updatedAt.toISOString(),
         })),
+        retentionSettings,
         roleAssignments: roleAssignments.map((assignment) => ({
           createdAt: assignment.createdAt.toISOString(),
           id: assignment.id,

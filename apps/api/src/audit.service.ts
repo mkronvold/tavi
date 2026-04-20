@@ -2,8 +2,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
 } from '@nestjs/common';
 import type {
   AuditChangesQuery,
@@ -17,7 +15,6 @@ import type {
   PurgeAuditLogsInput,
   SetAuditLogRetentionInput,
 } from '@tavi/schemas';
-import { AppLogger } from './app-logger';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
 import { PrismaService } from './prisma.service';
@@ -25,7 +22,6 @@ import { PrismaService } from './prisma.service';
 const LOGIN_AUDIT_ACTIONS = ['login', 'logout'] as const;
 const EMAIL_AUDIT_ACTION_PREFIX = 'email_';
 const AUDIT_LOG_RETENTION_ID = 'global';
-const AUTOMATIC_AUDIT_PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
 type LocalizedAuditDateRangeQuery = {
   fromDateTime?: string;
@@ -33,29 +29,11 @@ type LocalizedAuditDateRangeQuery = {
 };
 
 @Injectable()
-export class AuditService implements OnModuleInit, OnModuleDestroy {
-  private automaticPurgeTimer: NodeJS.Timeout | null = null;
-
+export class AuditService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
-    private readonly logger: AppLogger,
   ) {}
-
-  onModuleInit() {
-    void this.runAutomaticAuditPurge();
-    this.automaticPurgeTimer = setInterval(() => {
-      void this.runAutomaticAuditPurge();
-    }, AUTOMATIC_AUDIT_PURGE_INTERVAL_MS);
-    this.automaticPurgeTimer.unref?.();
-  }
-
-  onModuleDestroy() {
-    if (this.automaticPurgeTimer) {
-      clearInterval(this.automaticPurgeTimer);
-      this.automaticPurgeTimer = null;
-    }
-  }
 
   async listAuditHistory(
     entityType: AuditEntityType,
@@ -287,34 +265,6 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
 
     if (!task) {
       throw new NotFoundException('Task not found');
-    }
-  }
-
-  private async runAutomaticAuditPurge() {
-    let olderThan: AuditLogRetentionWindow | null = null;
-
-    try {
-      const policy = await this.readAuditLogRetentionPolicy();
-
-      if (!policy) {
-        return;
-      }
-
-      olderThan = policy.olderThan;
-      const result = await this.purgeAuditLogsOlderThan(policy.olderThan);
-
-      if (result.deletedCount > 0) {
-        this.logger.log('Purged expired audit events', {
-          deletedCount: result.deletedCount,
-          olderThan: policy.olderThan,
-        });
-      }
-    } catch (error) {
-      this.logger.error(
-        'Unable to automatically purge audit events',
-        error,
-        olderThan ? { olderThan } : undefined,
-      );
     }
   }
 

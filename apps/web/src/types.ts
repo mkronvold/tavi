@@ -18,11 +18,13 @@ import type {
   ResetPasswordWithOtpInput,
   PersonalTodo,
   ReorderPersonalTodosInput,
+  PruneRetentionDataInput,
   ProjectStatus,
   ResetWorkspaceExamplesInput,
   Role,
   SetLocalAccountPasswordInput,
   SetOwnPasswordInput,
+  UpdateRetentionSettingsInput,
   TaskStatus,
   UpdateLocalAccountInput,
   UpdateOwnProfileInput,
@@ -41,6 +43,8 @@ export type {
   AuditLogRetentionPolicy,
   AuditLogRetentionWindow,
   AuditLoginsQuery as AuditLoginsQueryPayload,
+  BackupRetentionSummary,
+  BackupRetentionWindow,
   BackupRestorePreview,
   BackupStatus,
   ConvertProjectToTaskResponse,
@@ -57,6 +61,8 @@ export type {
   GroupBy,
   ImportLocalAccountsResponse,
   ImportRowOutcome,
+  LogRetentionSummary,
+  LogRetentionWindow,
   LocalAccount,
   LocalLoginHintResponse,
   LocalAccountResponse,
@@ -67,14 +73,19 @@ export type {
   LoopImportOverlapAction,
   LoopImportJobStatus,
   NotificationPreferences,
+  NotificationRetentionSummary,
+  NotificationRetentionWindow,
   PersonalTodo,
   PersonalTodoStatus,
+  PruneRetentionDataResponse,
   ProjectSortField,
   Priority,
   ProjectStatus,
   PurgeAuditLogsInput as PurgeAuditLogsPayload,
   PurgeAuditLogsResponse,
   ResetWorkspaceExamplesResponse,
+  RetentionStatus,
+  RetentionTarget,
   Role,
   ResetDefaultLocalAccountsResponse,
   SetAuditLogRetentionInput as SetAuditLogRetentionPayload,
@@ -199,6 +210,10 @@ export type UpdateOwnProfilePayload = UpdateOwnProfileInput;
 export type ImportLocalAccountsPayload = ImportLocalAccountsInput;
 
 export type ResetWorkspaceExamplesPayload = ResetWorkspaceExamplesInput;
+
+export type UpdateRetentionSettingsPayload = UpdateRetentionSettingsInput;
+
+export type PruneRetentionDataPayload = PruneRetentionDataInput;
 
 export type CreateProjectPayload = {
   title: string;

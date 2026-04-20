@@ -21,6 +21,8 @@ import { PersonalTodosService } from './personal-todos.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
+import { RetentionController } from './retention.controller';
+import { RetentionService } from './retention.service';
 import { SessionGuard } from './session.guard';
 import { SavedViewsService } from './saved-views.service';
 import { TasksController } from './tasks.controller';
@@ -41,6 +43,7 @@ import { WorkspaceService } from './workspace.service';
     MetricsController,
     PersonalTodosController,
     ProjectsController,
+    RetentionController,
     TasksController,
     ViewsController,
     WorkspaceController,
@@ -59,6 +62,7 @@ import { WorkspaceService } from './workspace.service';
     NotificationEventsService,
     PersonalTodosService,
     ProjectsService,
+    RetentionService,
     SavedViewsService,
     SessionGuard,
     TasksService,

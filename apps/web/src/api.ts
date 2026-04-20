@@ -5,7 +5,6 @@ import type {
   AuditChangesQueryPayload,
   AuditEmailsQueryPayload,
   AuditHistoryEvent,
-  AuditLogRetentionPolicy,
   AuditLoginsQueryPayload,
   BackupRestorePreview,
   BackupStatus,
@@ -37,16 +36,16 @@ import type {
   LoopImportJob,
   LoopImportJobSummary,
   NotificationPreferences,
+  PruneRetentionDataPayload,
+  PruneRetentionDataResponse,
   ReorderPersonalTodosPayload,
-  PurgeAuditLogsPayload,
   RequestPasswordResetPayload,
-  PurgeAuditLogsResponse,
   ResetDefaultLocalAccountsResponse,
   ResetPasswordWithOtpPayload,
   SetLocalAccountPasswordPayload,
-  SetAuditLogRetentionPayload,
   SetOwnPasswordPayload,
   SmtpStatus,
+  RetentionStatus,
   UpdateEmailSettingsPayload,
   UpdateNotificationPreferencesPayload,
   UpdateOwnProfilePayload,
@@ -64,6 +63,7 @@ import type {
   SavedViewPayload,
   SuccessResponse,
   UpdateBackupSettingsPayload,
+  UpdateRetentionSettingsPayload,
   UploadBackupFileInput,
   WorkspaceResponse,
   PreviewBackupRestorePayload,
@@ -440,30 +440,28 @@ export const getAuditHistory = (
 
 export const listAuditChanges = (
   query: AuditChangesQueryPayload & LocalizedAuditDateRangeQuery,
-) =>
-  request<AuditHistoryEvent[]>(`/audit/changes${toQueryString(query)}`);
+) => request<AuditHistoryEvent[]>(`/audit/changes${toQueryString(query)}`);
 
 export const listAuditLogins = (
   query: AuditLoginsQueryPayload & LocalizedAuditDateRangeQuery,
-) =>
-  request<AuditHistoryEvent[]>(`/audit/logins${toQueryString(query)}`);
+) => request<AuditHistoryEvent[]>(`/audit/logins${toQueryString(query)}`);
 
 export const listAuditEmails = (
   query: AuditEmailsQueryPayload & LocalizedAuditDateRangeQuery,
+) => request<EmailAuditEvent[]>(`/audit/emails${toQueryString(query)}`);
+
+export const getRetentionStatus = () => request<RetentionStatus>("/retention");
+
+export const updateRetentionSettings = (
+  payload: UpdateRetentionSettingsPayload,
 ) =>
-  request<EmailAuditEvent[]>(`/audit/emails${toQueryString(query)}`);
-
-export const getAuditLogRetention = () =>
-  request<AuditLogRetentionPolicy>("/audit/retention");
-
-export const setAuditLogRetention = (payload: SetAuditLogRetentionPayload) =>
-  request<AuditLogRetentionPolicy>("/audit/retention", {
+  request<RetentionStatus>("/retention", {
     method: "PUT",
     body: payload,
   });
 
-export const purgeAuditLogs = (payload: PurgeAuditLogsPayload) =>
-  request<PurgeAuditLogsResponse>("/audit/purge", {
+export const pruneRetentionData = (payload: PruneRetentionDataPayload) =>
+  request<PruneRetentionDataResponse>("/retention/prune", {
     method: "POST",
     body: payload,
   });
