@@ -4,6 +4,11 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.7 - 2026-04-21
+
+- Redacted embedded SMTP passwords anywhere `SMTP_URL` reaches the web UI so admin diagnostics never display the raw secret.
+- Masked SMTP credentials in test-email error banners, audit-notification rows, and copied notification-flow text while leaving the rest of the connection string visible for troubleshooting.
+
 ## 0.9.6 - 2026-04-21
 
 - Consolidated outbound SMTP configuration around a single `SMTP_URL` connection string that now carries protocol, host, port, and optional credentials.

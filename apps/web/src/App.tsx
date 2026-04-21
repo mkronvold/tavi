@@ -57,6 +57,7 @@ import {
   updateUserConfig,
   resetUserSettings,
 } from "./api";
+import { maskSmtpPassword } from "./redact-secrets";
 import { BackupSettingsCard } from "./BackupSettingsCard";
 import { ExportPanel } from "./ExportPanel";
 import { downloadCsvFile } from "./export-utils";
@@ -6796,11 +6797,15 @@ function toUnknownRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function readUnknownString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? maskSmtpPassword(value)
+    : null;
 }
 
 function readUnknownNullableString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
+  return typeof value === "string" && value.trim().length > 0
+    ? maskSmtpPassword(value)
+    : null;
 }
 
 function isEmailAuditStatus(
@@ -6990,11 +6995,17 @@ function formatAuditEntityTypeLabel(value: AuditEntityType) {
 }
 
 function readMetadataString(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  return typeof value === "string" && value.trim()
+    ? maskSmtpPassword(value.trim())
+    : null;
 }
 
 function readMetadataNullableString(value: unknown) {
-  return typeof value === "string" ? value : value === null ? null : null;
+  return typeof value === "string"
+    ? maskSmtpPassword(value)
+    : value === null
+      ? null
+      : null;
 }
 
 function readMetadataNumber(value: unknown) {

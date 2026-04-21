@@ -12,6 +12,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { maskSmtpPassword } from "./redact-secrets";
 import type {
   AuditHistoryEvent,
   EmailAuditEvent,
@@ -5682,7 +5683,7 @@ describe("App", () => {
     const auditRequests: string[] = [];
     const auditEvents: EmailAuditEvent[] = [];
     const detailedError =
-      "Test email is unavailable right now. SMTP configuration error: Invalid SMTP_URL: missing host. From noreply@tavi.local. Check SMTP_URL (including protocol, host, port, and any required credentials).";
+      "Test email is unavailable right now. SMTP configuration error: Invalid SMTP_URL smtp://mailer:super-secret@smtp.example.com:587. From noreply@tavi.local. Check SMTP_URL (including protocol, host, port, and any required credentials).";
 
     vi.stubGlobal(
       "fetch",
@@ -5736,8 +5737,11 @@ describe("App", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Test email" }));
 
     await waitFor(() => {
-      expect(within(panel).getByText(detailedError)).toBeInTheDocument();
+      expect(
+        within(panel).getByText(maskSmtpPassword(detailedError)),
+      ).toBeInTheDocument();
     });
+    expect(within(panel).queryByText(/super-secret/)).not.toBeInTheDocument();
     await waitFor(() => {
       expect(auditRequests.length).toBeGreaterThan(1);
     });
@@ -5759,7 +5763,8 @@ describe("App", () => {
         createdAt: "2026-02-05T08:30:00.000Z",
         entityId: "user-2",
         entityType: "auth",
-        error: "SMTP timeout",
+        error:
+          "SMTP timeout for smtp://mailer:super-secret@10.120.64.99:25",
         failedAt: "2026-02-05T08:30:00.000Z",
         id: "email-audit-copy",
         kind: "password_reset",
@@ -5782,7 +5787,8 @@ describe("App", () => {
           {
             attemptNumber: 1,
             createdAt: "2026-02-05T08:30:00.000Z",
-            detail: "SMTP timeout",
+            detail:
+              "SMTP timeout for smtp://mailer:super-secret@10.120.64.99:25",
             host: "10.120.64.99:25",
             id: "copy-step-1",
             nextAttemptAt: null,
@@ -5877,6 +5883,12 @@ describe("App", () => {
     expect(writeTextMock).toHaveBeenCalledWith(
       expect.stringContaining("Host rejected password reset"),
     );
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining("smtp://mailer:***@10.120.64.99:25"),
+    );
+    expect(writeTextMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("super-secret"),
+    );
     expect(
       within(panel).getByText(
         "Copied password reset notification flow for Tavi Viewer · viewer@tavi.local.",
@@ -5894,6 +5906,11 @@ describe("App", () => {
         within(panel).getByText(/Host rejected password reset/i),
       ).toBeInTheDocument();
     });
+    expect(
+      within(panel).getAllByText(/smtp:\/\/mailer:\*\*\*@10\.120\.64\.99:25/i)
+        .length,
+    ).toBeGreaterThan(0);
+    expect(within(panel).queryByText(/super-secret/)).not.toBeInTheDocument();
 
     fireEvent.click(
       within(panel).getByRole("button", {

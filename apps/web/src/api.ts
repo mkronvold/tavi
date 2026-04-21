@@ -71,6 +71,7 @@ import type {
   PreviewBackupRestorePayload,
 } from "./types";
 import { getApiBaseUrl } from "./runtime-config";
+import { maskSmtpPassword } from "./redact-secrets";
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -111,11 +112,11 @@ type ApiErrorPayload = {
 
 function toApiErrorMessage(payload: ApiErrorPayload, fallback: string): string {
   if (typeof payload.message === "string") {
-    return payload.message;
+    return maskSmtpPassword(payload.message);
   }
 
   if (Array.isArray(payload.message) && payload.message.length > 0) {
-    return payload.message.join(", ");
+    return maskSmtpPassword(payload.message.join(", "));
   }
 
   const messages = [
@@ -129,10 +130,10 @@ function toApiErrorMessage(payload: ApiErrorPayload, fallback: string): string {
   ];
 
   if (messages.length > 0) {
-    return messages.join(", ");
+    return maskSmtpPassword(messages.join(", "));
   }
 
-  return payload.error ?? fallback;
+  return maskSmtpPassword(payload.error ?? fallback);
 }
 
 async function request<T>(path: string, options: RequestOptions = {}) {
