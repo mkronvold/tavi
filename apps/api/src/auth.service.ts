@@ -22,6 +22,8 @@ import { normalizeDigestTimeToHour } from './digest-time';
 import {
   DEFAULT_LOCAL_USER_EMAILS,
   DEFAULT_LOCAL_USERS,
+  GUEST_LOCAL_USER_EMAIL,
+  GUEST_LOCAL_USER_NAME,
 } from './default-local-users';
 import { EmailService } from './email.service';
 import { PrismaService } from './prisma.service';
@@ -95,6 +97,82 @@ export class AuthService {
       name: user.name,
       role: user.roleAssignment.role,
     };
+  }
+
+  async loginGuest(): Promise<SessionUser> {
+    this.requireLocalAuthMode();
+
+    const guestAccessEnabled = await this.isGuestAccessEnabled();
+
+    if (!guestAccessEnabled) {
+      throw new ForbiddenException('Guest access is disabled');
+    }
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({
+        where: { email: GUEST_LOCAL_USER_EMAIL },
+        include: { roleAssignment: true },
+      });
+
+      if (!existing) {
+        const passwordHash = await this.hashPassword(
+          randomBytes(16).toString('hex'),
+        );
+
+        return tx.user.create({
+          data: {
+            email: GUEST_LOCAL_USER_EMAIL,
+            name: GUEST_LOCAL_USER_NAME,
+            passwordHash,
+            roleAssignment: {
+              create: {
+                role: Role.viewer,
+              },
+            },
+          },
+          include: { roleAssignment: true },
+        });
+      }
+
+      if (
+        existing.name === GUEST_LOCAL_USER_NAME &&
+        existing.roleAssignment?.role === Role.viewer
+      ) {
+        return existing;
+      }
+
+      return tx.user.update({
+        where: { id: existing.id },
+        data: {
+          name: GUEST_LOCAL_USER_NAME,
+          roleAssignment: {
+            upsert: {
+              create: {
+                role: Role.viewer,
+              },
+              update: {
+                role: Role.viewer,
+              },
+            },
+          },
+        },
+        include: { roleAssignment: true },
+      });
+    });
+
+    const guestUser = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.roleAssignment?.role ?? Role.viewer,
+    } as const;
+
+    await this.recordAudit(guestUser, 'auth', user.id, 'login', {
+      guest: true,
+      role: guestUser.role,
+    });
+
+    return guestUser;
   }
 
   setSessionCookie(reply: FastifyReply, user: SessionUser) {
@@ -337,10 +415,21 @@ export class AuthService {
     }
   }
 
+  requireNonGuestAccess(
+    user: SessionUser,
+    message = 'Guest access cannot use this feature',
+  ) {
+    if (this.isGuestUser(user)) {
+      throw new ForbiddenException(message);
+    }
+  }
+
   async getLocalLoginHintStatus(): Promise<LocalLoginHintResponse> {
     if (!this.isLocalAuthModeEnabled()) {
-      return { visible: false };
+      return { guestEnabled: false, visible: false };
     }
+
+    const guestEnabled = await this.isGuestAccessEnabled();
 
     const users = await this.prisma.user.findMany({
       where: {
@@ -360,7 +449,7 @@ export class AuthService {
     });
 
     if (users.length !== DEFAULT_LOCAL_USERS.length) {
-      return { visible: false };
+      return { guestEnabled, visible: false };
     }
 
     const usersByEmail = new Map(users.map((user) => [user.email, user]));
@@ -369,7 +458,7 @@ export class AuthService {
       const user = usersByEmail.get(defaultUser.email);
 
       if (!user?.roleAssignment) {
-        return { visible: false };
+        return { guestEnabled, visible: false };
       }
 
       const passwordMatches = await this.verifyPassword(
@@ -378,11 +467,11 @@ export class AuthService {
       );
 
       if (!passwordMatches) {
-        return { visible: false };
+        return { guestEnabled, visible: false };
       }
     }
 
-    return { visible: true };
+    return { guestEnabled, visible: true };
   }
 
   async getNotificationPreferences(
@@ -561,8 +650,23 @@ export class AuthService {
     });
   }
 
+  isGuestUser(user: Pick<SessionUser, 'email'>) {
+    return user.email === GUEST_LOCAL_USER_EMAIL;
+  }
+
   private isLocalAuthModeEnabled() {
     return (process.env.AUTH_MODE ?? LOCAL_AUTH_MODE) === LOCAL_AUTH_MODE;
+  }
+
+  private async isGuestAccessEnabled() {
+    const settings = await this.prisma.emailSettings.findUnique({
+      where: { id: 'global' },
+      select: {
+        guestAccessEnabled: true,
+      },
+    });
+
+    return settings?.guestAccessEnabled ?? true;
   }
 
   private async clearPasswordResetOtp(userId: string) {

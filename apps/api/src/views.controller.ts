@@ -15,6 +15,7 @@ import {
   updateSavedViewSchema,
 } from '@tavi/schemas';
 import type { AuthenticatedRequest } from './auth.types';
+import { AuthService } from './auth.service';
 import { SessionGuard } from './session.guard';
 import { parseInput } from './validation';
 import { SavedViewsService } from './saved-views.service';
@@ -22,15 +23,26 @@ import { SavedViewsService } from './saved-views.service';
 @Controller('views')
 @UseGuards(SessionGuard)
 export class ViewsController {
-  constructor(private readonly savedViewsService: SavedViewsService) {}
+  constructor(
+    private readonly savedViewsService: SavedViewsService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get()
   listSavedViews(@Req() request: AuthenticatedRequest) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot use saved views',
+    );
     return this.savedViewsService.listSavedViews(request.user!);
   }
 
   @Post()
   createSavedView(@Body() body: unknown, @Req() request: AuthenticatedRequest) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot use saved views',
+    );
     const input = parseInput(createSavedViewSchema, body);
     return this.savedViewsService.createSavedView(input, request.user!);
   }
@@ -41,6 +53,10 @@ export class ViewsController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot use saved views',
+    );
     const input = parseInput(updateSavedViewSchema, body);
     return this.savedViewsService.updateSavedView(viewId, input, request.user!);
   }
@@ -51,6 +67,10 @@ export class ViewsController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot use saved views',
+    );
     const input = parseInput(renameSavedViewSchema, body);
     return this.savedViewsService.renameSavedView(viewId, input, request.user!);
   }
@@ -60,6 +80,10 @@ export class ViewsController {
     @Param('viewId') viewId: string,
     @Req() request: AuthenticatedRequest,
   ) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot use saved views',
+    );
     return this.savedViewsService.deleteSavedView(viewId, request.user!);
   }
 }

@@ -20,9 +20,13 @@ export class WorkspaceService {
   ) {}
 
   async getWorkspace(currentUser: SessionUser) {
-    await this.personalTodosService.pruneCompletedPersonalTodosForUser(
-      currentUser.id,
-    );
+    const isGuestUser = this.authService.isGuestUser(currentUser);
+
+    if (!isGuestUser) {
+      await this.personalTodosService.pruneCompletedPersonalTodosForUser(
+        currentUser.id,
+      );
+    }
 
     const [
       users,
@@ -54,17 +58,21 @@ export class WorkspaceService {
         },
         orderBy: [{ displayStatus: 'asc' }, { updatedAt: 'desc' }],
       }),
-      this.savedViewsService.listSavedViews(currentUser),
+      isGuestUser
+        ? Promise.resolve([])
+        : this.savedViewsService.listSavedViews(currentUser),
       this.prisma.emailSettings.findUnique({
         where: { id: 'global' },
         select: { dragHandlesEnabled: true },
       }),
-      this.prisma.personalTodo.findMany({
-        where: {
-          userId: currentUser.id,
-        },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      }),
+      isGuestUser
+        ? Promise.resolve([])
+        : this.prisma.personalTodo.findMany({
+            where: {
+              userId: currentUser.id,
+            },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          }),
       this.prisma.user.findUnique({
         where: { id: currentUser.id },
         select: { userConfigJson: true },

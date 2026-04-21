@@ -42,6 +42,7 @@ import {
   listAuditEmails,
   listAuditLogins,
   login,
+  loginAsGuest,
   logout,
   requestPasswordReset,
   renameSavedView,
@@ -194,6 +195,7 @@ const SCROLL_TO_TOP_VISIBILITY_OFFSET = 240;
 const PASSWORD_RESET_NOTICE =
   "If that account can receive email, a one-time password was sent. It expires in 10 minutes.";
 const PASSWORD_RESET_CODE_PATTERN = /^[0-9A-F]{4}-[0-9A-F]{4}$/;
+const GUEST_USER_EMAIL = "guest@tavi.local";
 const USER_CONFIG_SYNC_ERROR_MESSAGE =
   "Unable to sync user settings to the server. Your latest changes are still cached in this browser.";
 const DEFAULT_DAILY_DIGEST_TIME_UTC = "11:00";
@@ -510,24 +512,38 @@ function App() {
     );
   }, [serverWorkspacePreferences]);
 
+  const handleAuthSuccess = async () => {
+    setLoginError(null);
+    setLoginNotice(null);
+    setHasFailedLogin(false);
+    setPasswordResetOpen(false);
+    setPasswordResetRequested(false);
+    setPasswordResetError(null);
+    setPasswordResetNotice(null);
+    setLoginForm(EMPTY_LOGIN_FORM);
+    await queryClient.invalidateQueries({ queryKey: ["workspace"] });
+  };
+  const handleAuthError = (
+    error: unknown,
+    fallback: string,
+    markFailedLogin: boolean,
+  ) => {
+    setHasFailedLogin(markFailedLogin);
+    setLoginNotice(null);
+    setLoginError(error instanceof ApiError ? error.message : fallback);
+  };
   const loginMutation = useMutation({
     mutationFn: login,
-    onSuccess: async () => {
-      setLoginError(null);
-      setLoginNotice(null);
-      setHasFailedLogin(false);
-      setPasswordResetOpen(false);
-      setPasswordResetRequested(false);
-      setPasswordResetError(null);
-      setPasswordResetNotice(null);
-      await queryClient.invalidateQueries({ queryKey: ["workspace"] });
-    },
+    onSuccess: handleAuthSuccess,
     onError: (error) => {
-      setHasFailedLogin(true);
-      setLoginNotice(null);
-      setLoginError(
-        error instanceof ApiError ? error.message : "Unable to sign in",
-      );
+      handleAuthError(error, "Unable to sign in", true);
+    },
+  });
+  const guestLoginMutation = useMutation({
+    mutationFn: loginAsGuest,
+    onSuccess: handleAuthSuccess,
+    onError: (error) => {
+      handleAuthError(error, "Unable to sign in as guest", false);
     },
   });
 
@@ -605,7 +621,14 @@ function App() {
     localLoginHintQuery.isSuccess &&
     !localLoginHintQuery.isFetching &&
     localLoginHintQuery.data.visible;
+  const showGuestLogin =
+    authRequired &&
+    localLoginHintQuery.isSuccess &&
+    !localLoginHintQuery.isFetching &&
+    (localLoginHintQuery.data.guestEnabled ?? true);
   const showForgotPassword = hasFailedLogin;
+  const authMutationPending =
+    loginMutation.isPending || guestLoginMutation.isPending;
 
   if (workspaceQuery.isLoading) {
     return <div className="screen-state">Loading tavi...</div>;
@@ -670,30 +693,48 @@ function App() {
               />
             </label>
 
-            <button type="submit" disabled={loginMutation.isPending}>
+            <button type="submit" disabled={authMutationPending}>
               {loginMutation.isPending ? "Signing in..." : "Sign in"}
             </button>
           </form>
 
-          {showForgotPassword ? (
+          {showForgotPassword || showGuestLogin ? (
             <div className="login-secondary-actions">
-              <button
-                type="button"
-                className="ghost-button compact-button"
-                onClick={() => {
-                  const nextOpen = !passwordResetOpen;
-                  setPasswordResetOpen(nextOpen);
-                  setPasswordResetRequested(false);
-                  setPasswordResetError(null);
-                  setPasswordResetNotice(null);
-                  setPasswordResetForm({
-                    ...EMPTY_PASSWORD_RESET_FORM,
-                    email: loginForm.email,
-                  });
-                }}
-              >
-                Forgot password
-              </button>
+              {showGuestLogin ? (
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  disabled={authMutationPending}
+                  onClick={() => {
+                    setLoginError(null);
+                    setLoginNotice(null);
+                    guestLoginMutation.mutate();
+                  }}
+                >
+                  {guestLoginMutation.isPending
+                    ? "Opening guest view..."
+                    : "View as guest"}
+                </button>
+              ) : null}
+              {showForgotPassword ? (
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  onClick={() => {
+                    const nextOpen = !passwordResetOpen;
+                    setPasswordResetOpen(nextOpen);
+                    setPasswordResetRequested(false);
+                    setPasswordResetError(null);
+                    setPasswordResetNotice(null);
+                    setPasswordResetForm({
+                      ...EMPTY_PASSWORD_RESET_FORM,
+                      email: loginForm.email,
+                    });
+                  }}
+                >
+                  Forgot password
+                </button>
+              ) : null}
             </div>
           ) : null}
 
@@ -1084,6 +1125,7 @@ function WorkspaceScreen({
     () => readViewportScrollOffset() > SCROLL_TO_TOP_VISIBILITY_OFFSET,
   );
   const canEditWorkspace = data.currentUser.role !== "viewer";
+  const isGuestUser = data.currentUser.email === GUEST_USER_EMAIL;
   const appHomeUrl = getAppHomeUrl();
   const currentUserConfig = useMemo(
     () =>
@@ -2423,16 +2465,20 @@ function WorkspaceScreen({
         </div>
 
         <div className="header-actions">
-          <button
-            type="button"
-            className={`header-user header-user-button${panelState.profile ? " is-active" : ""}`}
-            aria-pressed={panelState.profile}
-            onClick={() =>
-              setWorkspacePanelOpen("profile", !panelState.profile)
-            }
-          >
-            {data.currentUser.name}
-          </button>
+          {isGuestUser ? (
+            <span className="header-user">{data.currentUser.name}</span>
+          ) : (
+            <button
+              type="button"
+              className={`header-user header-user-button${panelState.profile ? " is-active" : ""}`}
+              aria-pressed={panelState.profile}
+              onClick={() =>
+                setWorkspacePanelOpen("profile", !panelState.profile)
+              }
+            >
+              {data.currentUser.name}
+            </button>
+          )}
           <button type="button" className="ghost-button" onClick={onLogout}>
             Sign out
           </button>
@@ -2501,32 +2547,36 @@ function WorkspaceScreen({
           </div>
 
           <div className="workspace-panel-toggles">
-            <button
-              type="button"
-              className={`ghost-button compact-button panel-toggle-button${panelState.view ? " is-active" : ""}`}
-              aria-pressed={panelState.view}
-              onClick={() => toggleWorkspacePanel("view")}
-            >
-              View
-            </button>
-            <button
-              type="button"
-              className={`ghost-button compact-button panel-toggle-button${panelState.personalTodo ? " is-active" : ""}`}
-              aria-pressed={panelState.personalTodo}
-              onClick={() => toggleWorkspacePanel("personalTodo")}
-            >
-              Personal ToDo
-            </button>
-            <button
-              type="button"
-              className={`ghost-button compact-button panel-toggle-button${panelState.newProject ? " is-active" : ""}`}
-              aria-pressed={panelState.newProject}
-              disabled={!canEditWorkspace}
-              onClick={() => toggleWorkspacePanel("newProject")}
-            >
-              New Project
-            </button>
-            {data.currentUser.role === "admin" ? (
+            {!isGuestUser ? (
+              <>
+                <button
+                  type="button"
+                  className={`ghost-button compact-button panel-toggle-button${panelState.view ? " is-active" : ""}`}
+                  aria-pressed={panelState.view}
+                  onClick={() => toggleWorkspacePanel("view")}
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  className={`ghost-button compact-button panel-toggle-button${panelState.personalTodo ? " is-active" : ""}`}
+                  aria-pressed={panelState.personalTodo}
+                  onClick={() => toggleWorkspacePanel("personalTodo")}
+                >
+                  Personal ToDo
+                </button>
+                <button
+                  type="button"
+                  className={`ghost-button compact-button panel-toggle-button${panelState.newProject ? " is-active" : ""}`}
+                  aria-pressed={panelState.newProject}
+                  disabled={!canEditWorkspace}
+                  onClick={() => toggleWorkspacePanel("newProject")}
+                >
+                  New Project
+                </button>
+              </>
+            ) : null}
+            {data.currentUser.role === "admin" && !isGuestUser ? (
               <button
                 type="button"
                 className={`ghost-button compact-button panel-toggle-button${panelState.settings ? " is-active" : ""}`}
@@ -2545,13 +2595,14 @@ function WorkspaceScreen({
 
         {!canEditWorkspace ? (
           <p className="toolbar-hint">
-            Viewer access is read-only for shared projects and tasks. Personal
-            ToDo, filters, saved views, and audit history remain available.
+            {isGuestUser
+              ? "Guest access is read-only for shared projects and tasks."
+              : "Viewer access is read-only for shared projects and tasks. Personal ToDo, filters, saved views, and audit history remain available."}
           </p>
         ) : null}
 
         <div className="workspace-panel-stack">
-          {panelState.profile ? (
+          {panelState.profile && !isGuestUser ? (
             <ProfilePanel
               autoCollapse={autoCollapse}
               bulkActions={bulkActions}
@@ -2594,7 +2645,7 @@ function WorkspaceScreen({
             />
           ) : null}
 
-          {panelState.view ? (
+          {panelState.view && !isGuestUser ? (
             <section className="workspace-panel-card">
               <header className="panel-header">
                 <div>
@@ -2762,7 +2813,7 @@ function WorkspaceScreen({
             </section>
           ) : null}
 
-          {panelState.personalTodo ? (
+          {panelState.personalTodo && !isGuestUser ? (
             <PersonalTodoPanel
               hideDoneTodos={hideDonePersonalTodos}
               onClose={() => setWorkspacePanelOpen("personalTodo", false)}
@@ -2772,7 +2823,7 @@ function WorkspaceScreen({
             />
           ) : null}
 
-          {panelState.newProject && canEditWorkspace ? (
+          {panelState.newProject && canEditWorkspace && !isGuestUser ? (
             <section className="workspace-panel-card">
               <header className="panel-header">
                 <div>
@@ -2873,7 +2924,7 @@ function WorkspaceScreen({
             </section>
           ) : null}
 
-          {panelState.settings ? (
+          {panelState.settings && !isGuestUser ? (
             <SettingsPanel
               currentUser={data.currentUser}
               isBackupsOpen={panelState.backups}
@@ -3808,7 +3859,9 @@ function WorkspaceScreen({
                                       }
                                       placeholder="Task notes"
                                       rows={2}
-                                      style={toTextareaStyle(noteEditorHeights.task)}
+                                      style={toTextareaStyle(
+                                        noteEditorHeights.task,
+                                      )}
                                     />
                                   </div>
                                 </td>
@@ -5259,6 +5312,7 @@ function SettingsPanel({
       : null;
   const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
   const dragHandlesEnabled = smtpStatusQuery.data?.dragHandlesEnabled ?? true;
+  const guestAccessEnabled = smtpStatusQuery.data?.guestAccessEnabled ?? true;
 
   const syncWorkspaceDragHandlesEnabled = (enabled: boolean) => {
     queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
@@ -5287,6 +5341,7 @@ function SettingsPanel({
               ...current,
               dragHandlesEnabled: variables.dragHandlesEnabled,
               enabled: variables.enabled,
+              guestAccessEnabled: variables.guestAccessEnabled,
             }
           : current,
       );
@@ -5319,6 +5374,7 @@ function SettingsPanel({
     emailSettingsMutation.mutate({
       dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
       enabled: !smtpStatusQuery.data.enabled,
+      guestAccessEnabled: smtpStatusQuery.data.guestAccessEnabled,
     });
   };
   const toggleDragHandles = () => {
@@ -5329,6 +5385,18 @@ function SettingsPanel({
     emailSettingsMutation.mutate({
       dragHandlesEnabled: !smtpStatusQuery.data.dragHandlesEnabled,
       enabled: smtpStatusQuery.data.enabled,
+      guestAccessEnabled: smtpStatusQuery.data.guestAccessEnabled,
+    });
+  };
+  const toggleGuestAccess = () => {
+    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+      return;
+    }
+
+    emailSettingsMutation.mutate({
+      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
+      enabled: smtpStatusQuery.data.enabled,
+      guestAccessEnabled: !smtpStatusQuery.data.guestAccessEnabled,
     });
   };
 
@@ -5433,6 +5501,38 @@ function SettingsPanel({
                 emailSettingsMutation.isPending || !smtpStatusQuery.data
               }
               onChange={toggleDragHandles}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        </div>
+        <div
+          className="settings-item settings-item-toggle"
+          onClick={toggleGuestAccess}
+        >
+          <div className="settings-item-header">
+            <strong>Guest Access</strong>
+            <span>{guestAccessEnabled ? "On" : "Off"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Show or hide the login screen guest viewer entry point.
+          </p>
+          {emailPrefError ? (
+            <p className="error-banner">{emailPrefError}</p>
+          ) : null}
+          <label
+            className="settings-switch"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <span className="settings-switch-label">Guest Access</span>
+            <input
+              aria-label="Guest Access"
+              checked={guestAccessEnabled}
+              className="settings-switch-input"
+              disabled={
+                emailSettingsMutation.isPending || !smtpStatusQuery.data
+              }
+              onChange={toggleGuestAccess}
               role="switch"
               type="checkbox"
             />

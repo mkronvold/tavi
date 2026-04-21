@@ -19,6 +19,7 @@ import {
   updateOwnProfileSchema,
 } from '@tavi/schemas';
 import type { AuthenticatedRequest } from './auth.types';
+import { AuthService } from './auth.service';
 import { LocalAccountsService } from './local-accounts.service';
 import { SessionGuard } from './session.guard';
 import { parseInput } from './validation';
@@ -26,7 +27,10 @@ import { parseInput } from './validation';
 @Controller('auth')
 @UseGuards(SessionGuard)
 export class LocalAccountsController {
-  constructor(private readonly localAccountsService: LocalAccountsService) {}
+  constructor(
+    private readonly localAccountsService: LocalAccountsService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get('accounts')
   async listAccounts(@Req() request: AuthenticatedRequest) {
@@ -118,6 +122,10 @@ export class LocalAccountsController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot update the guest password',
+    );
     const input = parseInput(setOwnPasswordSchema, body);
 
     await this.localAccountsService.setOwnPassword(input, request.user!);
@@ -130,6 +138,10 @@ export class LocalAccountsController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot update the guest profile',
+    );
     const input = parseInput(updateOwnProfileSchema, body);
 
     return this.localAccountsService.updateOwnProfile(input, request.user!);

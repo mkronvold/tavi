@@ -48,6 +48,15 @@ export class AuthController {
     return { user };
   }
 
+  @Post('login/guest')
+  async loginGuest(@Res({ passthrough: true }) reply: FastifyReply) {
+    const user = await this.authService.loginGuest();
+
+    this.authService.setSessionCookie(reply, user);
+
+    return { user };
+  }
+
   @Post('password-reset/request')
   async requestPasswordReset(@Body() body: unknown) {
     const input = parseInput(requestPasswordResetSchema, body);
@@ -140,6 +149,10 @@ export class AuthController {
     @Body() body: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot update notification preferences',
+    );
     const input = parseInput(updateNotificationPreferencesSchema, body);
     return this.authService.updateNotificationPreferences(request.user!, input);
   }
@@ -157,6 +170,10 @@ export class AuthController {
   @Post('settings/reset')
   @UseGuards(SessionGuard)
   async resetUserSettings(@Req() request: AuthenticatedRequest) {
+    this.authService.requireNonGuestAccess(
+      request.user!,
+      'Guest access cannot reset user settings',
+    );
     return this.authService.resetUserSettings(request.user!);
   }
 }

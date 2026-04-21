@@ -545,6 +545,10 @@ export class LocalAccountsService {
     actor: SessionUser,
   ): Promise<{ account: LocalAccount; notificationEmailSent: boolean }> {
     this.authService.requireLocalAuthMode();
+    this.authService.requireNonGuestAccess(
+      actor,
+      'Guest access cannot update the guest profile',
+    );
 
     const existing = await this.findAccountOrThrow(actor.id);
     const nextEmail = input.email ?? existing.email;
@@ -752,6 +756,10 @@ export class LocalAccountsService {
 
   async setOwnPassword(input: SetOwnPasswordInput, actor: SessionUser) {
     this.authService.requireLocalAuthMode();
+    this.authService.requireNonGuestAccess(
+      actor,
+      'Guest access cannot update the guest password',
+    );
     await this.authService.reauthenticateCurrentUser(
       actor.id,
       input.currentPassword,

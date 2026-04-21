@@ -4,6 +4,12 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.8 - 2026-04-21
+
+- Added guest access for local auth, including a login-screen `View as guest` path that auto-creates or repairs the dedicated `guest@tavi.local` viewer account.
+- Added an admin `Guest Access` toggle in Settings and persisted the workspace-wide flag in `EmailSettings` with a Prisma migration.
+- Hid guest-only restricted UI surfaces and blocked guest access to saved views, Personal ToDo, profile edits, and related user settings APIs so guest sessions stay read-only.
+
 ## 0.9.7 - 2026-04-21
 
 - Redacted embedded SMTP passwords anywhere `SMTP_URL` reaches the web UI so admin diagnostics never display the raw secret.

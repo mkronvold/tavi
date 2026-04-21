@@ -221,6 +221,11 @@ export const login = (payload: LoginPayload) =>
     body: payload,
   });
 
+export const loginAsGuest = () =>
+  request("/auth/login/guest", {
+    method: "POST",
+  });
+
 export const requestPasswordReset = (payload: RequestPasswordResetPayload) =>
   request<SuccessResponse>("/auth/password-reset/request", {
     method: "POST",

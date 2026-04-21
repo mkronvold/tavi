@@ -38,6 +38,7 @@ const createSmtpStatusPayload = (
     dragHandlesEnabled: boolean;
     enabled: boolean;
     fromAddress: string;
+    guestAccessEnabled: boolean;
     host: string | null;
     port: number | null;
     secure: boolean;
@@ -47,6 +48,7 @@ const createSmtpStatusPayload = (
   dragHandlesEnabled: true,
   enabled: true,
   fromAddress: "noreply@tavi.local",
+  guestAccessEnabled: true,
   host: "10.120.64.99",
   port: 25,
   secure: false,
@@ -260,6 +262,30 @@ const createAdminWorkspacePayload = (): WorkspaceResponse => {
   payload.users[0] = {
     ...payload.users[0],
     role: "admin",
+  };
+
+  return payload;
+};
+
+const createGuestWorkspacePayload = (): WorkspaceResponse => {
+  const payload = createWorkspacePayload();
+
+  payload.currentUser = {
+    email: "guest@tavi.local",
+    id: "guest-user-1",
+    name: "Guest",
+    role: "viewer",
+  };
+  payload.personalTodos = [];
+  payload.savedViews = [];
+  payload.userConfig.panels = {
+    backups: false,
+    importExport: false,
+    newProject: false,
+    personalTodo: false,
+    profile: false,
+    settings: false,
+    view: false,
   };
 
   return payload;
@@ -583,6 +609,9 @@ describe("App", () => {
     expect(
       screen.getByText("We mostly just call it tavi."),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "View as guest" }),
+    ).toBeInTheDocument();
   });
 
   it("hides the login screen hint when the backend says defaults were removed", async () => {
@@ -610,6 +639,109 @@ describe("App", () => {
 
     expect(screen.queryByText("Local dev users")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("hides the guest login option when guest access is disabled", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse({ message: "Authentication required" }, 401);
+      }
+
+      if (url.endsWith("/auth/local-login-hint")) {
+        return createResponse({ guestEnabled: false, visible: true });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign in" }),
+      ).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "View as guest" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("logs in through the guest entry point and hides guest-restricted panels", async () => {
+    const workspacePayload = createGuestWorkspacePayload();
+    let guestAuthenticated = false;
+    let guestLoginRequestCount = 0;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return guestAuthenticated
+            ? createResponse(workspacePayload)
+            : createResponse({ message: "Authentication required" }, 401);
+        }
+
+        if (url.endsWith("/auth/local-login-hint")) {
+          return createResponse({ guestEnabled: true, visible: false });
+        }
+
+        if (url.endsWith("/auth/login/guest")) {
+          guestLoginRequestCount += 1;
+          expect(init?.method).toBe("POST");
+          guestAuthenticated = true;
+          return createResponse({
+            user: workspacePayload.currentUser,
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "View as guest" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View as guest" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Sign out" }),
+      ).toBeInTheDocument();
+    });
+
+    expect(guestLoginRequestCount).toBe(1);
+    expect(
+      screen.queryByRole("button", { name: "Guest" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "View" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Personal ToDo" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "New Project" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Settings" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Guest access is read-only for shared projects and tasks.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows forgot password only after a failed sign in", async () => {
@@ -2852,6 +2984,7 @@ describe("App", () => {
         JSON.stringify({
           dragHandlesEnabled: true,
           enabled: false,
+          guestAccessEnabled: true,
         }),
       );
       expect(emailNotificationsSwitch).not.toBeChecked();
@@ -2928,12 +3061,82 @@ describe("App", () => {
         JSON.stringify({
           dragHandlesEnabled: false,
           enabled: true,
+          guestAccessEnabled: true,
         }),
       );
       expect(dragHandlesSwitch).not.toBeChecked();
       expect(
         screen.queryByRole("button", { name: "Drag to reorder Kickoff" }),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  it("toggles guest access from admin settings", async () => {
+    const workspacePayload = createAdminWorkspacePayload();
+    let emailSettingsRequestBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse(createSmtpStatusPayload());
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse({
+            dailyDigestEnabled: false,
+            dailyDigestTime: "11:00",
+          });
+        }
+
+        if (url.endsWith("/auth/email/settings") && init?.method === "PUT") {
+          emailSettingsRequestBody =
+            typeof init.body === "string" ? init.body : null;
+          return createResponse(
+            createSmtpStatusPayload({
+              guestAccessEnabled: false,
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    const guestAccessSwitch = screen.getByRole("switch", {
+      name: "Guest Access",
+    });
+
+    await waitFor(() => {
+      expect(guestAccessSwitch).not.toBeDisabled();
+    });
+    expect(guestAccessSwitch).toBeChecked();
+
+    fireEvent.click(guestAccessSwitch);
+
+    await waitFor(() => {
+      expect(emailSettingsRequestBody).toBe(
+        JSON.stringify({
+          dragHandlesEnabled: true,
+          enabled: true,
+          guestAccessEnabled: false,
+        }),
+      );
+      expect(guestAccessSwitch).not.toBeChecked();
     });
   });
 
@@ -3005,7 +3208,9 @@ describe("App", () => {
         JSON.stringify({ dailyDigestEnabled: true }),
       );
       expect(notificationRateSelect).toHaveValue("daily");
-      expect(screen.getByLabelText("Daily notification time")).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("Daily notification time"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -3217,16 +3422,17 @@ describe("App", () => {
     );
 
     expect(settingsItems).not.toHaveLength(0);
-    expect(settingsItems).toHaveLength(9);
+    expect(settingsItems).toHaveLength(10);
     expect(settingsItems[0]?.textContent).toContain("Email Notifications");
     expect(settingsItems[1]?.textContent).toContain("Task Drag Handles");
-    expect(settingsItems[2]?.textContent).toContain("Backups");
-    expect(settingsItems[3]?.textContent).toContain("Retention");
-    expect(settingsItems[4]?.textContent).toContain("Import/Export");
-    expect(settingsItems[5]?.textContent).toContain("Local Accounts");
-    expect(settingsItems[6]?.textContent).toContain("Audit logins");
-    expect(settingsItems[7]?.textContent).toContain("Audit notifications");
-    expect(settingsItems[8]?.textContent).toContain("Audit changes");
+    expect(settingsItems[2]?.textContent).toContain("Guest Access");
+    expect(settingsItems[3]?.textContent).toContain("Backups");
+    expect(settingsItems[4]?.textContent).toContain("Retention");
+    expect(settingsItems[5]?.textContent).toContain("Import/Export");
+    expect(settingsItems[6]?.textContent).toContain("Local Accounts");
+    expect(settingsItems[7]?.textContent).toContain("Audit logins");
+    expect(settingsItems[8]?.textContent).toContain("Audit notifications");
+    expect(settingsItems[9]?.textContent).toContain("Audit changes");
     expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
       "href",
       appRepositoryUrl,
@@ -5763,8 +5969,7 @@ describe("App", () => {
         createdAt: "2026-02-05T08:30:00.000Z",
         entityId: "user-2",
         entityType: "auth",
-        error:
-          "SMTP timeout for smtp://mailer:super-secret@10.120.64.99:25",
+        error: "SMTP timeout for smtp://mailer:super-secret@10.120.64.99:25",
         failedAt: "2026-02-05T08:30:00.000Z",
         id: "email-audit-copy",
         kind: "password_reset",

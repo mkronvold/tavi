@@ -23,6 +23,16 @@ describe('AuthController', () => {
 
   const createController = () => {
     const requireAdminAccessMock = jest.fn();
+    const requireNonGuestAccessMock = jest.fn();
+    const loginGuestMock = jest.fn(() =>
+      Promise.resolve({
+        email: 'guest@tavi.local',
+        id: 'guest-1',
+        name: 'Guest',
+        role: 'viewer',
+      }),
+    );
+    const setSessionCookieMock = jest.fn();
     const resetUserSettingsMock = jest.fn(() =>
       Promise.resolve({
         notificationPreferences: {
@@ -66,8 +76,11 @@ describe('AuthController', () => {
     );
     const sendTestEmailMock = jest.fn(() => Promise.resolve());
     const authService = {
+      loginGuest: loginGuestMock,
       requireAdminAccess: requireAdminAccessMock,
+      requireNonGuestAccess: requireNonGuestAccessMock,
       resetUserSettings: resetUserSettingsMock,
+      setSessionCookie: setSessionCookieMock,
     } as never;
     const emailService = {
       sendTestEmail: sendTestEmailMock,
@@ -75,9 +88,12 @@ describe('AuthController', () => {
 
     return {
       controller: new AuthController(authService, emailService),
+      loginGuestMock,
       requireAdminAccessMock,
+      requireNonGuestAccessMock,
       resetUserSettingsMock,
       sendTestEmailMock,
+      setSessionCookieMock,
     };
   };
 
@@ -116,7 +132,8 @@ describe('AuthController', () => {
   });
 
   it('resets the signed-in user settings through POST auth/settings/reset', async () => {
-    const { controller, resetUserSettingsMock } = createController();
+    const { controller, requireNonGuestAccessMock, resetUserSettingsMock } =
+      createController();
     const request = {
       user: adminUser,
     } as AuthenticatedRequest;
@@ -134,6 +151,44 @@ describe('AuthController', () => {
 
     await controller.resetUserSettings(request);
 
+    expect(requireNonGuestAccessMock).toHaveBeenCalledWith(
+      adminUser,
+      'Guest access cannot reset user settings',
+    );
     expect(resetUserSettingsMock).toHaveBeenCalledWith(adminUser);
+  });
+
+  it('logs in as guest through POST auth/login/guest', async () => {
+    const { controller, loginGuestMock, setSessionCookieMock } =
+      createController();
+    const reply = {} as never;
+    const loginGuestHandler = Object.getOwnPropertyDescriptor(
+      AuthController.prototype,
+      'loginGuest',
+    )?.value as object;
+
+    expect(Reflect.getMetadata(PATH_METADATA, loginGuestHandler)).toBe(
+      'login/guest',
+    );
+    expect(Reflect.getMetadata(METHOD_METADATA, loginGuestHandler)).toBe(
+      RequestMethod.POST,
+    );
+
+    await expect(controller.loginGuest(reply)).resolves.toEqual({
+      user: {
+        email: 'guest@tavi.local',
+        id: 'guest-1',
+        name: 'Guest',
+        role: 'viewer',
+      },
+    });
+
+    expect(loginGuestMock).toHaveBeenCalled();
+    expect(setSessionCookieMock).toHaveBeenCalledWith(reply, {
+      email: 'guest@tavi.local',
+      id: 'guest-1',
+      name: 'Guest',
+      role: 'viewer',
+    });
   });
 });

@@ -381,6 +381,7 @@ export type ResetDefaultLocalAccountsResponse = z.infer<
 
 export const localLoginHintResponseSchema = z.object({
   visible: z.boolean(),
+  guestEnabled: z.boolean().default(true),
 });
 export type LocalLoginHintResponse = z.infer<
   typeof localLoginHintResponseSchema
@@ -2316,12 +2317,14 @@ export const dailyDigestTimeSchema = hourlyTimeOfDaySchema;
 export const emailSettingsSchema = z.object({
   enabled: z.boolean(),
   dragHandlesEnabled: z.boolean(),
+  guestAccessEnabled: z.boolean(),
 });
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
 export const updateEmailSettingsSchema = z.object({
   enabled: z.boolean(),
   dragHandlesEnabled: z.boolean(),
+  guestAccessEnabled: z.boolean(),
 });
 export type UpdateEmailSettingsInput = z.infer<
   typeof updateEmailSettingsSchema
@@ -2432,6 +2435,7 @@ export const smtpStatusSchema = z.object({
   secure: z.boolean(),
   fromAddress: z.string(),
   dragHandlesEnabled: z.boolean(),
+  guestAccessEnabled: z.boolean(),
 });
 export type SmtpStatus = z.infer<typeof smtpStatusSchema>;
 

@@ -14,6 +14,7 @@ describe('EmailService', () => {
   const createService = (enabled: boolean | null = true) => {
     let currentEnabled = enabled;
     let currentDragHandlesEnabled = true;
+    let currentGuestAccessEnabled = true;
     const upsertMock = jest.fn(
       ({
         create,
@@ -22,18 +23,23 @@ describe('EmailService', () => {
         create: {
           dragHandlesEnabled: boolean;
           enabled: boolean;
+          guestAccessEnabled: boolean;
         };
         update: {
           dragHandlesEnabled: boolean;
           enabled: boolean;
+          guestAccessEnabled: boolean;
         };
       }) => {
         currentEnabled = update.enabled ?? create.enabled;
         currentDragHandlesEnabled =
           update.dragHandlesEnabled ?? create.dragHandlesEnabled;
+        currentGuestAccessEnabled =
+          update.guestAccessEnabled ?? create.guestAccessEnabled;
         return Promise.resolve({
           dragHandlesEnabled: currentDragHandlesEnabled,
           enabled: currentEnabled,
+          guestAccessEnabled: currentGuestAccessEnabled,
         });
       },
     );
@@ -49,6 +55,7 @@ describe('EmailService', () => {
               : {
                   dragHandlesEnabled: currentDragHandlesEnabled,
                   enabled: currentEnabled,
+                  guestAccessEnabled: currentGuestAccessEnabled,
                 },
           ),
         ),
@@ -98,6 +105,7 @@ describe('EmailService', () => {
       configured: true,
       dragHandlesEnabled: true,
       enabled: true,
+      guestAccessEnabled: true,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
       port: 25,
@@ -112,6 +120,7 @@ describe('EmailService', () => {
       configured: true,
       dragHandlesEnabled: true,
       enabled: false,
+      guestAccessEnabled: true,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
       port: 25,
@@ -122,11 +131,13 @@ describe('EmailService', () => {
       update: {
         dragHandlesEnabled: true,
         enabled: false,
+        guestAccessEnabled: true,
       },
       create: {
         dragHandlesEnabled: true,
         id: 'global',
         enabled: false,
+        guestAccessEnabled: true,
       },
     });
   });
@@ -138,11 +149,13 @@ describe('EmailService', () => {
       service.updateEmailSettings({
         dragHandlesEnabled: false,
         enabled: true,
+        guestAccessEnabled: false,
       }),
     ).resolves.toEqual({
       configured: true,
       dragHandlesEnabled: false,
       enabled: true,
+      guestAccessEnabled: false,
       fromAddress: 'noreply@tavi.local',
       host: '10.120.64.99',
       port: 25,
@@ -154,11 +167,13 @@ describe('EmailService', () => {
       update: {
         dragHandlesEnabled: false,
         enabled: true,
+        guestAccessEnabled: false,
       },
       create: {
         dragHandlesEnabled: false,
         id: 'global',
         enabled: true,
+        guestAccessEnabled: false,
       },
     });
   });

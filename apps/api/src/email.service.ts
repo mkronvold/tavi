@@ -192,6 +192,7 @@ export class EmailService implements OnModuleInit {
     return {
       dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled: settings?.enabled ?? true,
+      guestAccessEnabled: settings?.guestAccessEnabled ?? true,
       configured: this.configured,
       host: this.smtpHost,
       port: this.smtpPort,
@@ -203,16 +204,20 @@ export class EmailService implements OnModuleInit {
   async updateEmailSettings(
     input: UpdateEmailSettingsInput,
   ): Promise<SmtpStatus> {
+    const guestAccessEnabled = input.guestAccessEnabled === true;
+
     await this.prisma.emailSettings.upsert({
       where: { id: EMAIL_SETTINGS_ID },
       update: {
         dragHandlesEnabled: input.dragHandlesEnabled,
         enabled: input.enabled,
+        guestAccessEnabled,
       },
       create: {
         dragHandlesEnabled: input.dragHandlesEnabled,
         id: EMAIL_SETTINGS_ID,
         enabled: input.enabled,
+        guestAccessEnabled,
       },
     });
 
@@ -225,6 +230,7 @@ export class EmailService implements OnModuleInit {
     return this.updateEmailSettings({
       dragHandlesEnabled: settings?.dragHandlesEnabled ?? true,
       enabled,
+      guestAccessEnabled: settings?.guestAccessEnabled ?? true,
     });
   }
 
@@ -631,6 +637,7 @@ export class EmailService implements OnModuleInit {
       select: {
         dragHandlesEnabled: true,
         enabled: true,
+        guestAccessEnabled: true,
       },
     });
   }

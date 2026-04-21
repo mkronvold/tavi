@@ -1,6 +1,8 @@
 import { Role } from '@prisma/client';
 
 export const DEFAULT_LOCAL_USER_PASSWORD = 'password123';
+export const GUEST_LOCAL_USER_EMAIL = 'guest@tavi.local';
+export const GUEST_LOCAL_USER_NAME = 'Guest';
 
 export const DEFAULT_LOCAL_ADMIN = {
   email: 'admin@tavi.local',

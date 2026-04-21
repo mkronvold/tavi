@@ -140,27 +140,27 @@ enum PersonalTodoRetentionPolicy {
 }
 
 model User {
-  id                         String                @id @default(cuid())
-  email                      String                @unique
-  name                       String
-  passwordHash               String
-  passwordResetOtpHash       String?
-  passwordResetOtpExpiresAt  DateTime?
-  dailyDigestEnabled         Boolean               @default(false)
-  dailyDigestTime            String                @default("11:00")
-  personalTodoRetention      PersonalTodoRetentionPolicy @default(never)
-  personalTodoRemindersEnabled Boolean             @default(true)
-  userConfigJson             String?
-  roleAssignment             RoleAssignment?
-  ownedProjects              Project[]             @relation("ProjectOwner")
-  assignedTasks              Task[]                @relation("TaskAssignee")
-  personalTodos              PersonalTodo[]
-  createdImports             ImportJob[]           @relation("ImportCreator")
-  savedViews                 SavedView[]
-  auditEvents                AuditEvent[]          @relation("AuditActor")
-  notifications              NotificationEvent[]   @relation("NotificationRecipient")
-  createdAt                  DateTime              @default(now())
-  updatedAt                  DateTime              @updatedAt
+  id                           String                      @id @default(cuid())
+  email                        String                      @unique
+  name                         String
+  passwordHash                 String
+  passwordResetOtpHash         String?
+  passwordResetOtpExpiresAt    DateTime?
+  dailyDigestEnabled           Boolean                     @default(false)
+  dailyDigestTime              String                      @default("11:00")
+  personalTodoRetention        PersonalTodoRetentionPolicy @default(never)
+  personalTodoRemindersEnabled Boolean                     @default(true)
+  userConfigJson               String?
+  roleAssignment               RoleAssignment?
+  ownedProjects                Project[]                   @relation("ProjectOwner")
+  assignedTasks                Task[]                      @relation("TaskAssignee")
+  personalTodos                PersonalTodo[]
+  createdImports               ImportJob[]                 @relation("ImportCreator")
+  savedViews                   SavedView[]
+  auditEvents                  AuditEvent[]                @relation("AuditActor")
+  notifications                NotificationEvent[]         @relation("NotificationRecipient")
+  createdAt                    DateTime                    @default(now())
+  updatedAt                    DateTime                    @updatedAt
 }
 
 model RoleAssignment {
@@ -293,22 +293,22 @@ model ImportJob {
 }
 
 model ImportRow {
-  id               String           @id @default(cuid())
-  importId         String
-  importJob        ImportJob        @relation(fields: [importId], references: [id], onDelete: Cascade)
-  rowNumber        Int
-  rawData          Json
+  id                   String              @id @default(cuid())
+  importId             String
+  importJob            ImportJob           @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowNumber            Int
+  rawData              Json
   projectOverlapAction ImportOverlapAction @default(update)
   taskOverlapAction    ImportOverlapAction @default(update)
-  rowOutcome       ImportRowOutcome @default(pending)
-  projectOutcome   ImportRowOutcome @default(pending)
-  taskOutcome      ImportRowOutcome @default(pending)
-  projectId        String?
-  taskId           String?
-  message          String?
-  validationErrors Json?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  rowOutcome           ImportRowOutcome    @default(pending)
+  projectOutcome       ImportRowOutcome    @default(pending)
+  taskOutcome          ImportRowOutcome    @default(pending)
+  projectId            String?
+  taskId               String?
+  message              String?
+  validationErrors     Json?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@unique([importId, rowNumber])
   @@index([importId, rowOutcome])
@@ -334,58 +334,59 @@ model AuditEvent {
 }
 
 model AuditLogRetention {
-  id        String                   @id @default("global")
+  id        String                  @id @default("global")
   olderThan AuditLogRetentionWindow
-  createdAt DateTime                 @default(now())
-  updatedAt DateTime                 @updatedAt
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
 }
 
 model EmailSettings {
   id                 String   @id @default("global")
   enabled            Boolean  @default(true)
   dragHandlesEnabled Boolean  @default(true)
+  guestAccessEnabled Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 }
 
 model BackupSettings {
-  id                 String   @id @default("global")
-  enabled            Boolean  @default(false)
-  scheduleTime       String   @default("02:00")
+  id                 String    @id @default("global")
+  enabled            Boolean   @default(false)
+  scheduleTime       String    @default("02:00")
   lastScheduledRunAt DateTime?
   lastSuccessAt      DateTime?
   lastFailureAt      DateTime?
   lastError          String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model RetentionSettings {
-  id                  String   @id @default("global")
-  backupRetention     String   @default("six_months")
-  loginRetention      String   @default("twelve_months")
-  changeRetention     String   @default("twelve_months")
-  notificationRetention String @default("one_month")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                    String   @id @default("global")
+  backupRetention       String   @default("six_months")
+  loginRetention        String   @default("twelve_months")
+  changeRetention       String   @default("twelve_months")
+  notificationRetention String   @default("one_month")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model NotificationEvent {
-  id               String                      @id @default(cuid())
+  id               String                        @id @default(cuid())
   recipientUserId  String?
-  recipient        User?                       @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipient        User?                         @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
   kind             NotificationKind
-  dedupeKey        String?                     @unique
+  dedupeKey        String?                       @unique
   payload          Json
-  status           NotificationStatus          @default(queued)
-  attemptCount     Int                         @default(0)
+  status           NotificationStatus            @default(queued)
+  attemptCount     Int                           @default(0)
   lastError        String?
-  nextAttemptAt    DateTime                    @default(now())
+  nextAttemptAt    DateTime                      @default(now())
   sentAt           DateTime?
   skippedAt        DateTime?
   failedAt         DateTime?
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
   deliveryAttempts NotificationDeliveryAttempt[]
 
   @@index([status, nextAttemptAt, createdAt])

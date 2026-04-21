@@ -8,6 +8,8 @@ import { AuthService } from './auth.service';
 import {
   DEFAULT_LOCAL_USERS,
   DEFAULT_LOCAL_USER_PASSWORD,
+  GUEST_LOCAL_USER_EMAIL,
+  GUEST_LOCAL_USER_NAME,
 } from './default-local-users';
 import { PrismaService } from './prisma.service';
 
@@ -18,10 +20,24 @@ describe('AuthService', () => {
       data: {
         action: string;
         entityId: string;
-        metadata?: {
-          emailKind?: string;
-          recipientEmail?: string;
+        metadata?: Record<string, unknown>;
+      };
+    },
+  ];
+  type CreateUserCall = [
+    {
+      data: {
+        email: string;
+        name: string;
+        passwordHash: string;
+        roleAssignment: {
+          create: {
+            role: string;
+          };
         };
+      };
+      include: {
+        roleAssignment: true;
       };
     },
   ];
@@ -34,12 +50,22 @@ describe('AuthService', () => {
       auditEvent: {
         create: jest.Mock;
       };
+      emailSettings: {
+        findUnique: jest.Mock;
+      };
       user: {
+        create: jest.Mock;
         findMany: jest.Mock;
         findUnique: jest.Mock;
         update: jest.Mock;
       };
     };
+    const findUniqueEmailSettingsMock = jest.fn(() =>
+      Promise.resolve({
+        guestAccessEnabled: true,
+      }),
+    );
+    const createUserMock = jest.fn<Promise<unknown>, CreateUserCall>();
     const findManyUsersMock = jest.fn();
     const findUniqueUserMock = jest.fn();
     const updateUserMock = jest.fn();
@@ -54,7 +80,11 @@ describe('AuthService', () => {
       auditEvent: {
         create: auditEventCreateMock,
       },
+      emailSettings: {
+        findUnique: findUniqueEmailSettingsMock,
+      },
       user: {
+        create: createUserMock,
         findMany: findManyUsersMock,
         findUnique: findUniqueUserMock,
         update: updateUserMock,
@@ -68,7 +98,9 @@ describe('AuthService', () => {
     return {
       assertPasswordResetEmailAvailableMock,
       auditEventCreateMock,
+      createUserMock,
       findManyUsersMock,
+      findUniqueEmailSettingsMock,
       findUniqueUserMock,
       sendPasswordResetOtpEmailMock,
       updateUserMock,
@@ -120,6 +152,7 @@ describe('AuthService', () => {
     );
 
     await expect(service.getLocalLoginHintStatus()).resolves.toEqual({
+      guestEnabled: true,
       visible: true,
     });
   });
@@ -141,6 +174,7 @@ describe('AuthService', () => {
     );
 
     await expect(service.getLocalLoginHintStatus()).resolves.toEqual({
+      guestEnabled: true,
       visible: false,
     });
   });
@@ -167,6 +201,7 @@ describe('AuthService', () => {
     );
 
     await expect(service.getLocalLoginHintStatus()).resolves.toEqual({
+      guestEnabled: true,
       visible: false,
     });
   });
@@ -186,6 +221,7 @@ describe('AuthService', () => {
     );
 
     await expect(service.getLocalLoginHintStatus()).resolves.toEqual({
+      guestEnabled: true,
       visible: false,
     });
   });
@@ -195,9 +231,112 @@ describe('AuthService', () => {
     const { findManyUsersMock, service } = createService();
 
     await expect(service.getLocalLoginHintStatus()).resolves.toEqual({
+      guestEnabled: false,
       visible: false,
     });
     expect(findManyUsersMock).not.toHaveBeenCalled();
+  });
+
+  it('returns the guest access toggle in the local login hint response', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { findManyUsersMock, findUniqueEmailSettingsMock, service } =
+      createService();
+
+    findUniqueEmailSettingsMock.mockResolvedValue({
+      guestAccessEnabled: false,
+    });
+    findManyUsersMock.mockResolvedValue(
+      await Promise.all(
+        DEFAULT_LOCAL_USERS.map(async (user) => ({
+          email: user.email,
+          passwordHash: await bcrypt.hash(DEFAULT_LOCAL_USER_PASSWORD, 10),
+          roleAssignment: {
+            role: user.role,
+          },
+        })),
+      ),
+    );
+
+    await expect(service.getLocalLoginHintStatus()).resolves.toEqual({
+      guestEnabled: false,
+      visible: true,
+    });
+  });
+
+  it('creates and signs in the guest user when guest access is enabled', async () => {
+    process.env.AUTH_MODE = 'local';
+    const {
+      auditEventCreateMock,
+      createUserMock,
+      findUniqueUserMock,
+      service,
+    } = createService();
+
+    findUniqueUserMock.mockResolvedValueOnce(null);
+    createUserMock.mockResolvedValue({
+      id: 'guest-user-1',
+      email: GUEST_LOCAL_USER_EMAIL,
+      name: GUEST_LOCAL_USER_NAME,
+      roleAssignment: {
+        role: 'viewer',
+      },
+    });
+
+    await expect(service.loginGuest()).resolves.toEqual({
+      id: 'guest-user-1',
+      email: GUEST_LOCAL_USER_EMAIL,
+      name: GUEST_LOCAL_USER_NAME,
+      role: 'viewer',
+    });
+
+    expect(createUserMock).toHaveBeenCalledTimes(1);
+    const createUserCall = createUserMock.mock.calls[0];
+
+    expect(createUserCall).toBeDefined();
+    expect(createUserCall?.[0]).toMatchObject({
+      data: {
+        email: GUEST_LOCAL_USER_EMAIL,
+        name: GUEST_LOCAL_USER_NAME,
+        roleAssignment: {
+          create: {
+            role: 'viewer',
+          },
+        },
+      },
+      include: { roleAssignment: true },
+    });
+    expect(typeof createUserCall?.[0].data.passwordHash).toBe('string');
+    expect(createUserCall?.[0].data.passwordHash.length).toBeGreaterThan(0);
+
+    expect(auditEventCreateMock).toHaveBeenCalledTimes(1);
+    const auditCall = auditEventCreateMock.mock.calls[0];
+
+    expect(auditCall).toBeDefined();
+    expect(auditCall?.[0]).toMatchObject({
+      data: {
+        action: 'login',
+        entityId: 'guest-user-1',
+        metadata: {
+          guest: true,
+          role: 'viewer',
+        },
+      },
+    });
+  });
+
+  it('rejects guest sign-in when guest access is disabled', async () => {
+    process.env.AUTH_MODE = 'local';
+    const { createUserMock, findUniqueEmailSettingsMock, service } =
+      createService();
+
+    findUniqueEmailSettingsMock.mockResolvedValue({
+      guestAccessEnabled: false,
+    });
+
+    await expect(service.loginGuest()).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(createUserMock).not.toHaveBeenCalled();
   });
 
   it('reauthenticates the current local user with their password', async () => {
