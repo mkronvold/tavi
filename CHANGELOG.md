@@ -4,9 +4,11 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
-- Added a pinned `cloudnative-pg-install/` kustomization for the `infra/k8s/k8s-with-replicas-and-internal-ha-db/` variant so CloudNativePG operator and CRD installation is versioned alongside the Tavi HA manifests.
-- Added a root `kustomization.yaml` for the HA internal-database variant so the namespace, config, backup PVC, CNPG cluster, services, deployments, and ingress can be applied together after the operator is installed.
-- Updated Kubernetes documentation to explain the required two-step HA rollout, CNPG verification commands, and the cluster-scoped permissions needed for the operator bundle.
+## 0.9.5 - 2026-04-21
+
+- Added a pinned `cloudnative-pg-install/` kustomization for the `infra/k8s/k8s-with-replicas-and-internal-ha-db/` variant and a root HA stack `kustomization.yaml` so CloudNativePG setup and the rest of the HA manifests are applied in the documented two-step flow.
+- Updated Kubernetes deployment documentation to explain the CNPG operator install order, verification commands, and the cluster-scoped permissions required by the HA variant.
+- Added project-search links to notification email bodies and synced the worker runtime env wiring so notification emails use the configured `SMTP_FROM`, `SMTP_URL`, and `TAVI_HOME_URL` values in Docker and Kubernetes deployments.
 
 ## 0.9.4 - 2026-04-20
 

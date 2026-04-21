@@ -55,6 +55,7 @@ They now include:
 1. The project or task context.
 2. A formatted change summary.
 3. Simulated code-fence `From:` and `To:` blocks so the before and after values are easy to compare.
+4. Project names in email bodies link to a prefilled workspace search for that project.
 
 ## Daily digest behavior
 

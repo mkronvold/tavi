@@ -1094,131 +1094,142 @@ function buildNotificationEmail(input: {
   payload: Record<string, unknown>;
   recipientName: string;
 }) {
-  const content = buildNotificationContent(input.kind, input.payload);
+  const content = buildNotificationContent(
+    input.homeUrl,
+    input.kind,
+    input.payload,
+  );
 
   return toEmail(input, content.subject, content.bodyHtml);
 }
 
 function buildNotificationContent(
+  homeUrl: string,
   kind: string,
   payload: Record<string, unknown>,
 ): {
   bodyHtml: string;
   subject: string;
 } {
-  const taskTitle = escapeHtml(readString(payload.taskTitle) ?? "Untitled task");
-  const projectTitle = escapeHtml(
-    readString(payload.projectTitle) ?? "Unassigned",
-  );
-  const actorName = escapeHtml(readString(payload.actorName) ?? "Someone");
+  const taskTitleText = readString(payload.taskTitle) ?? "Untitled task";
+  const projectTitleText = readString(payload.projectTitle) ?? "Unassigned";
+  const actorNameText = readString(payload.actorName) ?? "Someone";
+  const taskTitle = escapeHtml(taskTitleText);
+  const projectTitle = buildProjectNameHtml({
+    fallback: "Unassigned",
+    homeUrl,
+    projectTitle: readString(payload.projectTitle),
+    strong: true,
+  });
+  const actorName = escapeHtml(actorNameText);
   const dueDate = formatDate(readString(payload.dueDate));
 
   switch (kind) {
     case "task_assigned":
       return {
-        bodyHtml: `${actorName} assigned you <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.${dueDate ? `<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate}</strong></p>` : ""}`,
-        subject: `New task assigned: ${taskTitle}`,
+        bodyHtml: `${actorName} assigned you <strong>${taskTitle}</strong> in ${projectTitle}.${dueDate ? `<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate}</strong></p>` : ""}`,
+        subject: `New task assigned: ${taskTitleText}`,
       };
     case "task_unassigned":
       return {
-        bodyHtml: `${actorName} removed you from <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.`,
-        subject: `Task unassigned: ${taskTitle}`,
+        bodyHtml: `${actorName} removed you from <strong>${taskTitle}</strong> in ${projectTitle}.`,
+        subject: `Task unassigned: ${taskTitleText}`,
       };
     case "task_updated":
       return {
         bodyHtml: buildChangeUpdateBody({
           actorName,
-          entityTitle: taskTitle,
+          entityHtml: `<strong>${taskTitle}</strong>`,
           fromLines: readStringArray(payload.fromLines),
-          projectTitle,
+          projectHtml: projectTitle,
           toLines: readStringArray(payload.toLines),
         }),
-        subject: `Task updated: ${taskTitle}`,
+        subject: `Task updated: ${taskTitleText}`,
       };
     case "task_due_date_added":
       return {
-        bodyHtml: `${actorName} added a due date to <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
-        subject: `Due date added: ${taskTitle}`,
+        bodyHtml: `${actorName} added a due date to <strong>${taskTitle}</strong> in ${projectTitle}.<p style="margin:12px 0 0;">Due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
+        subject: `Due date added: ${taskTitleText}`,
       };
     case "task_due_date_changed":
       return {
-        bodyHtml: `${actorName} changed the due date for <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.<p style="margin:12px 0 0;">New due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
-        subject: `Due date changed: ${taskTitle}`,
+        bodyHtml: `${actorName} changed the due date for <strong>${taskTitle}</strong> in ${projectTitle}.<p style="margin:12px 0 0;">New due date: <strong style="color:#e2e8f0;">${dueDate ?? "-"}</strong></p>`,
+        subject: `Due date changed: ${taskTitleText}`,
       };
     case "task_blocked":
       return {
-        bodyHtml: `${actorName} marked <strong>${taskTitle}</strong> as blocked in <strong>${projectTitle}</strong>.`,
-        subject: `Task blocked: ${taskTitle}`,
+        bodyHtml: `${actorName} marked <strong>${taskTitle}</strong> as blocked in ${projectTitle}.`,
+        subject: `Task blocked: ${taskTitleText}`,
       };
     case "task_unblocked":
       return {
-        bodyHtml: `${actorName} moved <strong>${taskTitle}</strong> out of blocked status in <strong>${projectTitle}</strong>.`,
-        subject: `Task unblocked: ${taskTitle}`,
+        bodyHtml: `${actorName} moved <strong>${taskTitle}</strong> out of blocked status in ${projectTitle}.`,
+        subject: `Task unblocked: ${taskTitleText}`,
       };
     case "task_on_hold":
       return {
-        bodyHtml: `${actorName} put <strong>${taskTitle}</strong> on hold in <strong>${projectTitle}</strong>.`,
-        subject: `Task on hold: ${taskTitle}`,
+        bodyHtml: `${actorName} put <strong>${taskTitle}</strong> on hold in ${projectTitle}.`,
+        subject: `Task on hold: ${taskTitleText}`,
       };
     case "task_resumed":
       return {
-        bodyHtml: `${actorName} took <strong>${taskTitle}</strong> off hold in <strong>${projectTitle}</strong>.`,
-        subject: `Task resumed: ${taskTitle}`,
+        bodyHtml: `${actorName} took <strong>${taskTitle}</strong> off hold in ${projectTitle}.`,
+        subject: `Task resumed: ${taskTitleText}`,
       };
     case "task_reopened":
       return {
-        bodyHtml: `${actorName} reopened <strong>${taskTitle}</strong> in <strong>${projectTitle}</strong>.`,
-        subject: `Task reopened: ${taskTitle}`,
+        bodyHtml: `${actorName} reopened <strong>${taskTitle}</strong> in ${projectTitle}.`,
+        subject: `Task reopened: ${taskTitleText}`,
       };
     case "task_completed":
       return {
-        bodyHtml: `${actorName} marked <strong>${taskTitle}</strong> done in <strong>${projectTitle}</strong>.`,
-        subject: `Task completed: ${taskTitle}`,
+        bodyHtml: `${actorName} marked <strong>${taskTitle}</strong> done in ${projectTitle}.`,
+        subject: `Task completed: ${taskTitleText}`,
       };
     case "task_moved":
       return {
-        bodyHtml: `${actorName} moved <strong>${taskTitle}</strong> to <strong>${projectTitle}</strong>.`,
-        subject: `Task moved: ${taskTitle}`,
+        bodyHtml: `${actorName} moved <strong>${taskTitle}</strong> to ${projectTitle}.`,
+        subject: `Task moved: ${taskTitleText}`,
       };
     case "project_owner_assigned":
       return {
-        bodyHtml: `${actorName} assigned you as the owner of <strong>${projectTitle}</strong>.`,
-        subject: `You now own: ${projectTitle}`,
+        bodyHtml: `${actorName} assigned you as the owner of ${projectTitle}.`,
+        subject: `You now own: ${projectTitleText}`,
       };
     case "project_owner_changed":
       return {
-        bodyHtml: `${actorName} assigned you as the new owner of <strong>${projectTitle}</strong>.`,
-        subject: `Project owner changed: ${projectTitle}`,
+        bodyHtml: `${actorName} assigned you as the new owner of ${projectTitle}.`,
+        subject: `Project owner changed: ${projectTitleText}`,
       };
     case "project_owner_removed":
       return {
-        bodyHtml: `${actorName} removed you as the owner of <strong>${projectTitle}</strong>.`,
-        subject: `Owner removed: ${projectTitle}`,
+        bodyHtml: `${actorName} removed you as the owner of ${projectTitle}.`,
+        subject: `Owner removed: ${projectTitleText}`,
       };
     case "project_updated":
       return {
         bodyHtml: buildChangeUpdateBody({
           actorName,
-          entityTitle: projectTitle,
+          entityHtml: projectTitle,
           fromLines: readStringArray(payload.fromLines),
           toLines: readStringArray(payload.toLines),
         }),
-        subject: `Project updated: ${projectTitle}`,
+        subject: `Project updated: ${projectTitleText}`,
       };
     case "project_blocked":
       return {
-        bodyHtml: `${actorName} marked <strong>${projectTitle}</strong> as blocked.`,
-        subject: `Project blocked: ${projectTitle}`,
+        bodyHtml: `${actorName} marked ${projectTitle} as blocked.`,
+        subject: `Project blocked: ${projectTitleText}`,
       };
     case "project_on_hold":
       return {
-        bodyHtml: `${actorName} put <strong>${projectTitle}</strong> on hold.`,
-        subject: `Project on hold: ${projectTitle}`,
+        bodyHtml: `${actorName} put ${projectTitle} on hold.`,
+        subject: `Project on hold: ${projectTitleText}`,
       };
     case "project_resumed":
       return {
-        bodyHtml: `${actorName} took <strong>${projectTitle}</strong> off hold.`,
-        subject: `Project resumed: ${projectTitle}`,
+        bodyHtml: `${actorName} took ${projectTitle} off hold.`,
+        subject: `Project resumed: ${projectTitleText}`,
       };
     case "task_due_7_days":
     case "task_due_3_days":
@@ -1226,8 +1237,8 @@ function buildNotificationContent(
     case "task_due_today":
     case "task_overdue":
       return {
-        bodyHtml: `<strong>${taskTitle}</strong> in <strong>${projectTitle}</strong> is ${dueReminderBody(kind, dueDate)}.`,
-        subject: `${dueReminderSubject(kind)}: ${taskTitle}`,
+        bodyHtml: `<strong>${taskTitle}</strong> in ${projectTitle} is ${dueReminderBody(kind, dueDate)}.`,
+        subject: `${dueReminderSubject(kind)}: ${taskTitleText}`,
       };
     case "personal_todo_due_7_days":
     case "personal_todo_due_3_days":
@@ -1236,26 +1247,26 @@ function buildNotificationContent(
     case "personal_todo_overdue":
       return {
         bodyHtml: `<strong>${taskTitle}</strong> is ${dueReminderBody(toTaskDueReminderKind(kind), dueDate)}.`,
-        subject: `${dueReminderSubject(toTaskDueReminderKind(kind))}: ${taskTitle}`,
+        subject: `${dueReminderSubject(toTaskDueReminderKind(kind))}: ${taskTitleText}`,
       };
     case "daily_non_admin_digest":
       return {
-        bodyHtml: buildDailyNonAdminDigestBody(payload),
+        bodyHtml: buildDailyNonAdminDigestBody(homeUrl, payload),
         subject: buildDailyNonAdminDigestSubject(payload),
       };
     case "hourly_non_admin_digest":
       return {
-        bodyHtml: buildHourlyNonAdminDigestBody(payload),
+        bodyHtml: buildHourlyNonAdminDigestBody(homeUrl, payload),
         subject: buildHourlyNonAdminDigestSubject(payload),
       };
     case "daily_task_summary":
       return {
-        bodyHtml: buildDailyTaskSummaryBody(payload),
+        bodyHtml: buildDailyTaskSummaryBody(homeUrl, payload),
         subject: "Daily task summary",
       };
     case "daily_project_summary":
       return {
-        bodyHtml: buildDailyProjectSummaryBody(payload),
+        bodyHtml: buildDailyProjectSummaryBody(homeUrl, payload),
         subject: "Daily project summary",
       };
     default:
@@ -1266,7 +1277,10 @@ function buildNotificationContent(
   }
 }
 
-function buildDailyTaskSummaryBody(payload: Record<string, unknown>) {
+function buildDailyTaskSummaryBody(
+  homeUrl: string,
+  payload: Record<string, unknown>,
+) {
   const totalOpenCount = readNumber(payload.totalOpenCount);
   const overdueCount = readNumber(payload.overdueCount);
   const dueTodayCount = readNumber(payload.dueTodayCount);
@@ -1284,10 +1298,13 @@ function buildDailyTaskSummaryBody(payload: Record<string, unknown>) {
   On hold: <strong style="color:#e2e8f0;">${onHoldCount}</strong>
 </p>
 
-${buildTaskList(items)}`;
+${buildTaskList(homeUrl, items)}`;
 }
 
-function buildDailyProjectSummaryBody(payload: Record<string, unknown>) {
+function buildDailyProjectSummaryBody(
+  homeUrl: string,
+  payload: Record<string, unknown>,
+) {
   const activeProjectCount = readNumber(payload.activeProjectCount);
   const blockedProjectCount = readNumber(payload.blockedProjectCount);
   const onHoldProjectCount = readNumber(payload.onHoldProjectCount);
@@ -1303,7 +1320,7 @@ function buildDailyProjectSummaryBody(payload: Record<string, unknown>) {
   Overdue tasks across owned projects: <strong style="color:#e2e8f0;">${overdueTaskCount}</strong>
 </p>
 
-${buildProjectList(items)}`;
+${buildProjectList(homeUrl, items)}`;
 }
 
 function buildDailyNonAdminDigestSubject(payload: Record<string, unknown>) {
@@ -1320,7 +1337,10 @@ function buildHourlyNonAdminDigestSubject(payload: Record<string, unknown>) {
     : `Hourly updates (${itemCount} updates)`;
 }
 
-function buildDailyNonAdminDigestBody(payload: Record<string, unknown>) {
+function buildDailyNonAdminDigestBody(
+  homeUrl: string,
+  payload: Record<string, unknown>,
+) {
   const itemCount = readNumber(payload.itemCount);
   const items = readRecordArray(payload.items);
   const taskSummary = toNullableRecord(payload.taskSummary);
@@ -1335,7 +1355,10 @@ function buildDailyNonAdminDigestBody(payload: Record<string, unknown>) {
 
   if (taskSummary) {
     sections.push(
-      buildDigestSection("Assigned tasks", buildDailyTaskSummaryBody(taskSummary)),
+      buildDigestSection(
+        "Assigned tasks",
+        buildDailyTaskSummaryBody(homeUrl, taskSummary),
+      ),
     );
   }
 
@@ -1343,19 +1366,22 @@ function buildDailyNonAdminDigestBody(payload: Record<string, unknown>) {
     sections.push(
       buildDigestSection(
         "Projects you own",
-        buildDailyProjectSummaryBody(projectSummary),
+        buildDailyProjectSummaryBody(homeUrl, projectSummary),
       ),
     );
   }
 
   if (items.length > 0) {
-    sections.push(buildDigestNotificationList(items));
+    sections.push(buildDigestNotificationList(homeUrl, items));
   }
 
   return sections.join("\n\n");
 }
 
-function buildHourlyNonAdminDigestBody(payload: Record<string, unknown>): string {
+function buildHourlyNonAdminDigestBody(
+  homeUrl: string,
+  payload: Record<string, unknown>,
+): string {
   const itemCount = readNumber(payload.itemCount);
   const items = readRecordArray(payload.items);
 
@@ -1365,7 +1391,7 @@ function buildHourlyNonAdminDigestBody(payload: Record<string, unknown>): string
 <p style="margin:16px 0 0;">
   Updates in this batch: <strong style="color:#e2e8f0;">${itemCount}</strong>
 </p>`,
-    buildDigestNotificationList(items),
+    buildDigestNotificationList(homeUrl, items),
   ]
     .filter((section) => section.length > 0)
     .join("\n\n");
@@ -1378,17 +1404,23 @@ function buildDigestSection(title: string, bodyHtml: string) {
 </div>`;
 }
 
-function buildDigestNotificationList(items: Array<Record<string, unknown>>): string {
+function buildDigestNotificationList(
+  homeUrl: string,
+  items: Array<Record<string, unknown>>,
+): string {
   return buildDigestSection(
     "Recent updates",
-    items.map((item) => buildDigestNotificationCard(item)).join(""),
+    items.map((item) => buildDigestNotificationCard(homeUrl, item)).join(""),
   );
 }
 
-function buildDigestNotificationCard(item: Record<string, unknown>): string {
+function buildDigestNotificationCard(
+  homeUrl: string,
+  item: Record<string, unknown>,
+): string {
   const kind = readString(item.kind) ?? "notification";
   const createdAt = formatDigestTimestamp(readString(item.createdAt));
-  const content = buildNotificationContent(kind, toRecord(item.payload));
+  const content = buildNotificationContent(homeUrl, kind, toRecord(item.payload));
 
   return `<div style="margin:12px 0 0;padding:14px 16px;background-color:#111827;border:1px solid #334155;border-radius:10px;">
   <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
@@ -1403,7 +1435,7 @@ function buildDigestNotificationCard(item: Record<string, unknown>): string {
 </div>`;
 }
 
-function buildTaskList(items: Array<Record<string, unknown>>) {
+function buildTaskList(homeUrl: string, items: Array<Record<string, unknown>>) {
   if (items.length === 0) {
     return "";
   }
@@ -1411,9 +1443,11 @@ function buildTaskList(items: Array<Record<string, unknown>>) {
   return `<ul style="margin:16px 0 0;padding-left:20px;">${items
     .map((item) => {
       const title = escapeHtml(readString(item.taskTitle) ?? "Untitled task");
-      const projectTitle = escapeHtml(
-        readString(item.projectTitle) ?? "Unassigned",
-      );
+      const projectTitle = buildProjectNameHtml({
+        fallback: "Unassigned",
+        homeUrl,
+        projectTitle: readString(item.projectTitle),
+      });
       const status = escapeHtml(formatStatus(readString(item.status)));
       const dueDate = formatDate(readString(item.dueDate));
 
@@ -1422,19 +1456,27 @@ function buildTaskList(items: Array<Record<string, unknown>>) {
     .join("")}</ul>`;
 }
 
-function buildProjectList(items: Array<Record<string, unknown>>) {
+function buildProjectList(
+  homeUrl: string,
+  items: Array<Record<string, unknown>>,
+) {
   if (items.length === 0) {
     return "";
   }
 
   return `<ul style="margin:16px 0 0;padding-left:20px;">${items
     .map((item) => {
-      const title = escapeHtml(readString(item.projectTitle) ?? "Untitled project");
+      const title = buildProjectNameHtml({
+        fallback: "Untitled project",
+        homeUrl,
+        projectTitle: readString(item.projectTitle),
+        strong: true,
+      });
       const status = escapeHtml(formatStatus(readString(item.status)));
       const overdueTaskCount = readNumber(item.taskOverdueCount);
       const blockedTaskCount = readNumber(item.taskBlockedCount);
 
-      return `<li style="margin:0 0 8px;"><strong style="color:#e2e8f0;">${title}</strong> - ${status} (${blockedTaskCount} blocked, ${overdueTaskCount} overdue)</li>`;
+      return `<li style="margin:0 0 8px;">${title} - ${status} (${blockedTaskCount} blocked, ${overdueTaskCount} overdue)</li>`;
     })
     .join("")}</ul>`;
 }
@@ -1455,31 +1497,61 @@ function toEmail(
 
 function buildChangeUpdateBody(input: {
   actorName: string;
-  entityTitle: string;
+  entityHtml: string;
   fromLines: string[];
-  projectTitle?: string;
+  projectHtml?: string;
   toLines: string[];
 }) {
-  const projectContext = input.projectTitle
-    ? ` in <strong>${input.projectTitle}</strong>`
-    : '';
+  const projectContext = input.projectHtml ? ` in ${input.projectHtml}` : "";
 
-  return `${input.actorName} updated <strong>${input.entityTitle}</strong>${projectContext}.
+  return `${input.actorName} updated ${input.entityHtml}${projectContext}.
 
-${buildChangeFence('From', input.fromLines)}
-${buildChangeFence('To', input.toLines)}`;
+${buildChangeFence("From", input.fromLines)}
+${buildChangeFence("To", input.toLines)}`;
 }
 
-function buildChangeFence(label: 'From' | 'To', lines: string[]) {
+function buildChangeFence(label: "From" | "To", lines: string[]) {
   const content =
     lines.length > 0
       ? lines.map((line) => escapeHtml(line)).join('\n')
-      : 'No changed values';
+      : "No changed values";
 
   return `<div style="margin:16px 0 0;">
   <div style="margin:0 0 6px;color:#94a3b8;font-size:13px;font-weight:600;">${label}:</div>
   <pre style="margin:0;padding:14px 16px;background-color:#111827;border:1px solid #334155;border-radius:10px;color:#e2e8f0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${content}</pre>
 </div>`;
+}
+
+function buildProjectNameHtml(input: {
+  fallback: string;
+  homeUrl: string;
+  projectTitle: string | null | undefined;
+  strong?: boolean;
+}) {
+  const projectTitle = input.projectTitle?.trim() ?? "";
+  const label = projectTitle.length > 0 ? projectTitle : input.fallback;
+  const content = input.strong
+    ? `<strong>${escapeHtml(label)}</strong>`
+    : escapeHtml(label);
+
+  if (projectTitle.length === 0) {
+    return content;
+  }
+
+  return `<a href="${escapeHtml(buildProjectSearchUrl(input.homeUrl, projectTitle))}" style="color:#93c5fd;text-decoration:none;">${content}</a>`;
+}
+
+function buildProjectSearchUrl(homeUrl: string, projectTitle: string) {
+  try {
+    const url = new URL(homeUrl);
+
+    url.search = "";
+    url.searchParams.set("search", projectTitle);
+    return url.toString();
+  } catch {
+    const baseUrl = homeUrl.split("?")[0] ?? homeUrl;
+    return `${baseUrl}?search=${encodeURIComponent(projectTitle)}`;
+  }
 }
 
 function summarizeAssignedTasks(

@@ -80,6 +80,11 @@ services:
     environment:
       <<: *tavi-common-env
       PORT: 4100
+      SMTP_URL: ${SMTP_URL:-smtp://10.120.64.99:25}
+      SMTP_FROM: ${SMTP_FROM:-noreply@tavi.local}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      TAVI_HOME_URL: ${TAVI_HOME_URL:-http://localhost:${TAVI_WEB_HOST_PORT:-5173}}
     ports:
       - "${TAVI_WORKER_HOST_PORT:-4100}:4100"
     volumes:
