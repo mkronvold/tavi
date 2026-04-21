@@ -309,7 +309,7 @@ describe('EmailService', () => {
         },
       ),
     ).rejects.toThrow(
-      'Test email is unavailable right now. SMTP configuration error: Invalid SMTP_URL: missing host. From noreply@tavi.local. Check SMTP_URL and any required SMTP_USER/SMTP_PASS settings.',
+      'Test email is unavailable right now. SMTP configuration error: Invalid SMTP_URL: missing host. From noreply@tavi.local. Check SMTP_URL (including protocol, host, port, and any required credentials).',
     );
   });
 

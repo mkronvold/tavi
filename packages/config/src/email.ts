@@ -5,11 +5,22 @@ export function parseSmtpUrl(url: string): {
   host: string;
   port: number;
   secure: boolean;
+  auth?: {
+    user: string;
+    pass: string;
+  };
 } {
   const parsed = new URL(url);
   const secure = parsed.protocol === "smtps:";
   const port = parsed.port ? Number(parsed.port) : secure ? 465 : 25;
-  return { host: parsed.hostname, port, secure };
+  const user = decodeURIComponent(parsed.username);
+  const pass = decodeURIComponent(parsed.password);
+  const base = {
+    host: parsed.hostname,
+    port,
+    secure,
+  };
+  return user || pass ? { ...base, auth: { user, pass } } : base;
 }
 
 export function buildEmailHtml(

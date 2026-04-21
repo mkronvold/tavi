@@ -114,26 +114,15 @@ spec:
                   key: COOKIE_SECRET
             - name: SMTP_URL
               valueFrom:
-                configMapKeyRef:
-                  name: tavi-config
+                secretKeyRef:
+                  name: tavi-secrets
                   key: SMTP_URL
+                  optional: true
             - name: SMTP_FROM
               valueFrom:
                 configMapKeyRef:
                   name: tavi-config
                   key: SMTP_FROM
-            - name: SMTP_USER
-              valueFrom:
-                secretKeyRef:
-                  name: tavi-secrets
-                  key: SMTP_USER
-                  optional: true
-            - name: SMTP_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: tavi-secrets
-                  key: SMTP_PASS
-                  optional: true
             - name: TAVI_HOME_URL
               valueFrom:
                 configMapKeyRef:

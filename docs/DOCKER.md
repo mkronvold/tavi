@@ -43,7 +43,7 @@ Important variables:
 | `TAVI_API_BASE_URL` | Browser-facing API base URL used by the web container | `http://localhost:4000/api` |
 | `TAVI_CORS_ORIGIN` | Allowed browser origin for the API | `http://localhost:5173` |
 | `TAVI_BACKUP_DIRECTORY` | Shared backup path inside API and worker containers | `/var/tavi/backups` |
-| `SMTP_URL`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS` | Optional outbound email settings | example/local defaults |
+| `SMTP_URL`, `SMTP_FROM` | Optional outbound email settings (`SMTP_URL` includes protocol, host, port, and any required credentials) | example/local defaults |
 
 Notes:
 
@@ -55,6 +55,9 @@ Notes:
 3. If you want a different env file name or location, keep the compose file as
    is and pass that path with `--env-file`. You do not need to edit the compose
    YAML just to use a custom env file.
+4. Put the full SMTP connection string in `SMTP_URL`, for example
+   `smtp://username:password@smtp.office365.com:587` or
+   `smtps://username:password@smtp.example.com:465`.
 
 ## Recommended quick start with Docker Compose
 

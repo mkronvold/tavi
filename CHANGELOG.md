@@ -4,6 +4,12 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.6 - 2026-04-21
+
+- Consolidated outbound SMTP configuration around a single `SMTP_URL` connection string that now carries protocol, host, port, and optional credentials.
+- Updated the API and worker mail transports to parse SMTP authentication directly from `SMTP_URL` and aligned the test-email diagnostics with the new configuration model.
+- Moved Kubernetes SMTP examples to secret-backed `SMTP_URL` values and refreshed the Docker runtime examples and docs to match the new secret-based SMTP wiring.
+
 ## 0.9.5 - 2026-04-21
 
 - Added a pinned `cloudnative-pg-install/` kustomization for the `infra/k8s/k8s-with-replicas-and-internal-ha-db/` variant and a root HA stack `kustomization.yaml` so CloudNativePG setup and the rest of the HA manifests are applied in the documented two-step flow.

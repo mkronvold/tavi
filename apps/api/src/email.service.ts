@@ -148,19 +148,14 @@ export class EmailService implements OnModuleInit {
 
   onModuleInit() {
     const smtpUrl = process.env.SMTP_URL ?? DEFAULT_SMTP_URL;
-    const smtpUser = process.env.SMTP_USER || undefined;
-    const smtpPass = process.env.SMTP_PASS || undefined;
     this.fromAddress = process.env.SMTP_FROM ?? DEFAULT_SMTP_FROM;
     this.homeUrl = process.env.TAVI_HOME_URL ?? 'http://localhost:5173';
 
     try {
-      const { host, port, secure } = parseSmtpUrl(smtpUrl);
+      const { auth, host, port, secure } = parseSmtpUrl(smtpUrl);
       this.smtpHost = host;
       this.smtpPort = port;
       this.smtpSecure = secure;
-
-      const auth =
-        smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined;
 
       this.transporter = createTransport({
         host,
@@ -599,7 +594,7 @@ export class EmailService implements OnModuleInit {
         ? `Configured host ${this.formatSmtpHostLabel()}`
         : null,
       `From ${this.fromAddress}`,
-      'Check SMTP_URL and any required SMTP_USER/SMTP_PASS settings',
+      'Check SMTP_URL (including protocol, host, port, and any required credentials)',
     ].filter((value): value is string => Boolean(value));
 
     return `${TEST_EMAIL_UNAVAILABLE_MESSAGE}. ${details.join('. ')}.`;

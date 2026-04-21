@@ -82,17 +82,14 @@ export class NotificationWorker {
 
     try {
       const smtpUrl = process.env.SMTP_URL ?? DEFAULT_SMTP_URL;
-      const smtpUser = process.env.SMTP_USER || undefined;
-      const smtpPass = process.env.SMTP_PASS || undefined;
-      const { host, port, secure } = parseSmtpUrl(smtpUrl);
+      const { auth, host, port, secure } = parseSmtpUrl(smtpUrl);
       this.smtpHostLabel = `${host}:${port.toString()}`;
 
       this.transporter = createTransport({
         host,
         port,
         secure,
-        auth:
-          smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
+        auth,
         tls: secure ? undefined : { rejectUnauthorized: false },
       });
       this.configured = true;
