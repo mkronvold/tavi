@@ -8,6 +8,8 @@ import type {
   AuditLoginsQueryPayload,
   BackupRestorePreview,
   BackupStatus,
+  ClearAllLocalAccountsPayload,
+  ClearAllLocalAccountsResponse,
   BulkCopyTasksPayload,
   BulkDeleteTasksPayload,
   BulkUpdateTasksPayload,
@@ -283,6 +285,12 @@ export const importLocalAccounts = (payload: ImportLocalAccountsPayload) =>
 export const resetDefaultLocalAccounts = () =>
   request<ResetDefaultLocalAccountsResponse>("/auth/accounts/reset-defaults", {
     method: "POST",
+  });
+
+export const clearAllLocalAccounts = (payload: ClearAllLocalAccountsPayload) =>
+  request<ClearAllLocalAccountsResponse>("/auth/accounts/clear-all", {
+    method: "POST",
+    body: payload,
   });
 
 export const updateLocalAccount = (

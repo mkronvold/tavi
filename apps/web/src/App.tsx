@@ -7210,7 +7210,7 @@ function filterProjects({
       return [];
     }
 
-    const tasksAfterAssigneeFilter = project.tasks.filter((task) => {
+    const hasMatchingAssigneeTask = project.tasks.some((task) => {
       const matchesAssignee =
         assigneeUserIds.length === 0 ||
         (task.assigneeUserId === null
@@ -7220,13 +7220,11 @@ function filterProjects({
       return matchesAssignee;
     });
 
-    if (hasAssigneeFilter && tasksAfterAssigneeFilter.length === 0) {
+    if (hasAssigneeFilter && !hasMatchingAssigneeTask) {
       return [];
     }
 
-    const candidateTasks = hasAssigneeFilter
-      ? tasksAfterAssigneeFilter
-      : project.tasks;
+    const candidateTasks = project.tasks;
 
     if (!normalizedSearch) {
       return [{ ...project, tasks: candidateTasks }];

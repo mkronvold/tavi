@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  clearAllLocalAccountsSchema,
   createLocalAccountSchema,
   deleteLocalAccountSchema,
   importLocalAccountsSchema,
@@ -69,6 +70,16 @@ export class LocalAccountsController {
   @Post('accounts/reset-defaults')
   resetDefaultAccounts(@Req() request: AuthenticatedRequest) {
     return this.localAccountsService.resetDefaultAccounts(request.user!);
+  }
+
+  @Post('accounts/clear-all')
+  clearAllAccounts(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const input = parseInput(clearAllLocalAccountsSchema, body);
+
+    return this.localAccountsService.clearAllAccounts(input, request.user!);
   }
 
   @Patch('accounts/:userId')

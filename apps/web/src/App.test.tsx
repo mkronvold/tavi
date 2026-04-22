@@ -1384,6 +1384,36 @@ describe("App", () => {
     });
   });
 
+  it("shows the full project task list when filtering by assignee", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Assignee: All" }));
+
+    const assigneeMenu = screen.getByRole("dialog", { name: "Assignee" });
+    fireEvent.click(
+      within(assigneeMenu).getByRole("checkbox", { name: "Tavi Viewer" }),
+    );
+    fireEvent.click(
+      within(assigneeMenu).getByRole("button", { name: "Apply assignee" }),
+    );
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+    });
+  });
+
   it("normalizes multi-sort order and applies it when the menu closes", async () => {
     vi.stubGlobal(
       "fetch",
@@ -2604,6 +2634,100 @@ describe("App", () => {
         JSON.stringify({ personalTodoRemindersEnabled: false }),
       );
       expect(reminderSwitch).not.toBeChecked();
+    });
+  });
+
+  it("reorders Personal ToDo items even if the browser clears local drag state before drop", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let reorderBody: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(createNotificationPreferencesPayload());
+        }
+
+        if (url.endsWith("/personal-todos/reorder")) {
+          reorderBody = typeof init?.body === "string" ? init.body : null;
+          workspacePayload.personalTodos = [
+            {
+              ...workspacePayload.personalTodos[1]!,
+              sortOrder: 0,
+            },
+            {
+              ...workspacePayload.personalTodos[0]!,
+              sortOrder: 1,
+            },
+          ];
+          return createResponse({ success: true });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+
+    const draftHandle = await screen.findByRole("button", {
+      name: "Drag to reorder Private draft",
+    });
+    const closedLoopRow = screen.getByText("Closed loop").closest("tr");
+
+    expect(closedLoopRow).not.toBeNull();
+    if (!(closedLoopRow instanceof HTMLTableRowElement)) {
+      throw new Error("Expected target personal todo row");
+    }
+
+    closedLoopRow.getBoundingClientRect = () =>
+      ({
+        bottom: 40,
+        height: 40,
+        left: 0,
+        right: 400,
+        top: 0,
+        width: 400,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    const dragData = new Map<string, string>();
+    const dataTransfer = {
+      dropEffect: "move",
+      effectAllowed: "move",
+      getData: vi.fn((type: string) => dragData.get(type) ?? ""),
+      setData: vi.fn((type: string, value: string) => {
+        dragData.set(type, value);
+      }),
+    } as unknown as DataTransfer;
+
+    fireEvent.dragStart(draftHandle, { dataTransfer });
+    fireEvent.dragEnd(draftHandle, { dataTransfer });
+    fireEvent.drop(closedLoopRow, { clientY: 30, dataTransfer });
+
+    await waitFor(() => {
+      expect(reorderBody).toBe('{"todoIds":["todo-2","todo-1"]}');
+    });
+
+    await waitFor(() => {
+      const reorderedTodoTitles = Array.from(
+        document.querySelectorAll(".personal-todo-table tbody tr strong"),
+      ).map((element) => element.textContent?.trim());
+
+      expect(reorderedTodoTitles).toEqual(["Closed loop", "Private draft"]);
     });
   });
 

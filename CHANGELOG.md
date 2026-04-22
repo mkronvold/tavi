@@ -4,6 +4,12 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.9 - 2026-04-22
+
+- Renamed local-account `Reset Defaults` to `Restore Defaults` and added an admin-only `Clear all local accounts` action that requires the current password and preserves the signed-in account plus guest access.
+- Fixed the Personal ToDo drag-and-drop reorder flow so browser-cleared drag state no longer leaves the page in a white-screen crash state.
+- Updated assignee filtering so matching projects stay visible with their full task list instead of hiding sibling tasks that do not match the selected assignee.
+
 ## 0.9.8 - 2026-04-21
 
 - Added guest access for local auth, including a login-screen `View as guest` path that auto-creates or repairs the dedicated `guest@tavi.local` viewer account.

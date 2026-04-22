@@ -379,6 +379,20 @@ export type ResetDefaultLocalAccountsResponse = z.infer<
   typeof resetDefaultLocalAccountsResponseSchema
 >;
 
+export const clearAllLocalAccountsSchema = z.object({
+  currentPassword: localPasswordSchema,
+});
+export type ClearAllLocalAccountsInput = z.infer<
+  typeof clearAllLocalAccountsSchema
+>;
+
+export const clearAllLocalAccountsResponseSchema = z.object({
+  deletedCount: z.number().int().nonnegative(),
+});
+export type ClearAllLocalAccountsResponse = z.infer<
+  typeof clearAllLocalAccountsResponseSchema
+>;
+
 export const localLoginHintResponseSchema = z.object({
   visible: z.boolean(),
   guestEnabled: z.boolean().default(true),

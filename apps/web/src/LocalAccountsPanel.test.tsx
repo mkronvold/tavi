@@ -1505,7 +1505,7 @@ describe("LocalAccountsPanel", () => {
       expect(screen.getByText("other.user@tavi.local")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Reset Defaults" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore Defaults" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -1523,7 +1523,77 @@ describe("LocalAccountsPanel", () => {
     });
 
     expect(onNotice).toHaveBeenCalledWith(
-      "Reset the default @tavi.local accounts to password123 and re-enabled the login hint.",
+      "Restored the default @tavi.local accounts to password123 and re-enabled the login hint.",
+    );
+  });
+
+  it("clears all local accounts except the current user and guest after password confirmation", async () => {
+    let listResponse = {
+      accounts: [
+        createAccountRecord("user-1", "admin@tavi.local", "Admin", "admin"),
+        createAccountRecord("user-2", "guest@tavi.local", "Guest", "viewer"),
+        createAccountRecord("user-3", "editor.one@tavi.local", "Editor One", "editor"),
+        createAccountRecord("user-4", "viewer.one@tavi.local", "Viewer One", "viewer"),
+      ],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/auth/accounts") && !init?.method) {
+        return createResponse(listResponse);
+      }
+
+      if (url.endsWith("/auth/accounts/clear-all") && init?.method === "POST") {
+        expect(init.body).toBe(JSON.stringify({ currentPassword: "currentpassword123" }));
+        listResponse = {
+          accounts: [
+            createAccountRecord("user-1", "admin@tavi.local", "Admin", "admin"),
+            createAccountRecord("user-2", "guest@tavi.local", "Guest", "viewer"),
+          ],
+        };
+
+        return createResponse({ deletedCount: 2 });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { onNotice } = renderPanel(adminUser, true);
+
+    await waitFor(() => {
+      expect(screen.getByText("editor.one@tavi.local")).toBeInTheDocument();
+      expect(screen.getByText("viewer.one@tavi.local")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all local accounts" }));
+    fireEvent.change(screen.getByPlaceholderText("Current admin password"), {
+      target: { value: "currentpassword123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Clear Accounts" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/auth/accounts/clear-all",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            currentPassword: "currentpassword123",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("editor.one@tavi.local")).not.toBeInTheDocument();
+      expect(screen.queryByText("viewer.one@tavi.local")).not.toBeInTheDocument();
+      expect(screen.getByText("admin@tavi.local")).toBeInTheDocument();
+      expect(screen.getByText("guest@tavi.local")).toBeInTheDocument();
+    });
+
+    expect(onNotice).toHaveBeenCalledWith(
+      "Cleared 2 local accounts. Kept your account and guest.",
     );
   });
 });

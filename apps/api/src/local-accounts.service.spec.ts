@@ -1102,6 +1102,97 @@ describe('LocalAccountsService', () => {
     ]);
   });
 
+  it('clears all local accounts except the current admin and guest after password confirmation', async () => {
+    const { mocks, service } = createService();
+    const passwordHash = await bcrypt.hash('current-password-123', 10);
+
+    mocks.findUniqueUserMock.mockResolvedValue(
+      createUserFixture({
+        id: adminActor.id,
+        email: adminActor.email,
+        name: adminActor.name,
+        passwordHash,
+        roleAssignment: {
+          role: Role.admin,
+        },
+      }),
+    );
+    mocks.findManyUsersMock.mockResolvedValue([
+      Object.assign(
+        createUserFixture({
+          id: 'user-2',
+          email: 'editor@tavi.local',
+          name: 'Editor User',
+          roleAssignment: {
+            role: Role.editor,
+          },
+        }),
+        {
+          _count: {
+            assignedTasks: 2,
+            ownedProjects: 1,
+          },
+        },
+      ),
+      Object.assign(
+        createUserFixture({
+          id: 'user-3',
+          email: 'viewer@tavi.local',
+          name: 'Viewer User',
+          roleAssignment: {
+            role: Role.viewer,
+          },
+        }),
+        {
+          _count: {
+            assignedTasks: 0,
+            ownedProjects: 0,
+          },
+        },
+      ),
+    ]);
+
+    const result = await service.clearAllAccounts(
+      {
+        currentPassword: 'current-password-123',
+      },
+      adminActor,
+    );
+
+    expect(mocks.findManyUsersMock).toHaveBeenCalledWith({
+      where: {
+        id: { not: adminActor.id },
+        email: { not: 'guest@tavi.local' },
+      },
+      include: {
+        roleAssignment: true,
+        _count: {
+          select: {
+            assignedTasks: true,
+            ownedProjects: true,
+          },
+        },
+      },
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+    });
+    expect(mocks.updateManyProjectMock).toHaveBeenCalledWith({
+      where: { ownerUserId: 'user-2' },
+      data: { ownerUserId: null },
+    });
+    expect(mocks.updateManyTaskMock).toHaveBeenCalledWith({
+      where: { assigneeUserId: 'user-2' },
+      data: { assigneeUserId: null },
+    });
+    expect(mocks.deleteUserMock).toHaveBeenNthCalledWith(1, {
+      where: { id: 'user-2' },
+    });
+    expect(mocks.deleteUserMock).toHaveBeenNthCalledWith(2, {
+      where: { id: 'user-3' },
+    });
+    expect(mocks.createAuditEventTxMock).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ deletedCount: 2 });
+  });
+
   it('deletes unused non-admin accounts', async () => {
     const { mocks, service } = createService();
 

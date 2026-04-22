@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type {
+  ClearAllLocalAccountsInput,
   CreateLocalAccountInput,
   DeleteLocalAccountInput,
   ExportLocalAccountsResponse,
@@ -21,7 +22,10 @@ import type {
 import { Role } from '@prisma/client';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
-import { DEFAULT_LOCAL_USERS } from './default-local-users';
+import {
+  DEFAULT_LOCAL_USERS,
+  GUEST_LOCAL_USER_EMAIL,
+} from './default-local-users';
 import { EmailService } from './email.service';
 import { PrismaService } from './prisma.service';
 
@@ -720,6 +724,90 @@ export class LocalAccountsService {
     });
 
     return { id: userId };
+  }
+
+  async clearAllAccounts(
+    input: ClearAllLocalAccountsInput,
+    actor: SessionUser,
+  ) {
+    this.authService.requireLocalAuthMode();
+    this.authService.requireAdminAccess(
+      actor,
+      'Only admins can manage local accounts',
+    );
+    await this.authService.reauthenticateCurrentUser(
+      actor.id,
+      input.currentPassword,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      const accountsToDelete = await tx.user.findMany({
+        where: {
+          id: { not: actor.id },
+          email: { not: GUEST_LOCAL_USER_EMAIL },
+        },
+        include: {
+          roleAssignment: true,
+          _count: {
+            select: {
+              assignedTasks: true,
+              ownedProjects: true,
+            },
+          },
+        },
+        orderBy: [{ name: 'asc' }, { email: 'asc' }],
+      });
+
+      for (const account of accountsToDelete) {
+        if (account._count.ownedProjects > 0) {
+          await tx.project.updateMany({
+            where: { ownerUserId: account.id },
+            data: { ownerUserId: null },
+          });
+        }
+
+        if (account._count.assignedTasks > 0) {
+          await tx.task.updateMany({
+            where: { assigneeUserId: account.id },
+            data: { assigneeUserId: null },
+          });
+        }
+
+        await this.authService.recordAudit(
+          actor,
+          'auth',
+          account.id,
+          'account_delete',
+          {
+            email: account.email,
+            name: account.name,
+            role: account.roleAssignment?.role ?? Role.viewer,
+            scope: 'clear_all',
+            ...(account._count.ownedProjects > 0
+              ? {
+                  ownedProjectCount: account._count.ownedProjects,
+                  nextProjectOwnerUserId: null,
+                }
+              : {}),
+            ...(account._count.assignedTasks > 0
+              ? {
+                  assignedTaskCount: account._count.assignedTasks,
+                  nextTaskAssigneeUserId: null,
+                }
+              : {}),
+          },
+          tx,
+        );
+
+        await tx.user.delete({
+          where: { id: account.id },
+        });
+      }
+
+      return {
+        deletedCount: accountsToDelete.length,
+      };
+    });
   }
 
   async setAccountPassword(

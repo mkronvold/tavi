@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ApiError,
+  clearAllLocalAccounts,
   createLocalAccount,
   deleteLocalAccount,
   exportLocalAccounts,
@@ -15,6 +16,7 @@ import {
 import { generateAlphanumericPassword } from "./password-generator";
 import type {
   CreateLocalAccountPayload,
+  ClearAllLocalAccountsPayload,
   DeleteLocalAccountPayload,
   ExportLocalAccountsResponse,
   ImportLocalAccountsPayload,
@@ -35,6 +37,9 @@ type LocalAccountsPanelProps = {
 type PanelMode =
   | {
       kind: "create";
+    }
+  | {
+      kind: "clearAll";
     }
   | {
       account: LocalAccount;
@@ -62,6 +67,7 @@ const EMPTY_CREATE_DRAFT: CreateLocalAccountPayload = {
   password: "",
   role: "viewer",
 };
+const GUEST_LOCAL_ACCOUNT_EMAIL = "guest@tavi.local";
 const NONE_LOCAL_ACCOUNT_REASSIGN_VALUE = "__none__";
 
 export function LocalAccountsPanel({
@@ -96,6 +102,7 @@ export function LocalAccountsPanel({
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [currentPasswordDraft, setCurrentPasswordDraft] = useState("");
+  const [clearAllPasswordDraft, setClearAllPasswordDraft] = useState("");
   const [sendEmail, setSendEmail] = useState(false);
   const emailDeliveryAvailable = smtpConfigured && emailEnabled;
 
@@ -131,6 +138,16 @@ export function LocalAccountsPanel({
     () => (accounts ?? []).filter((account) => account.role === "admin").length,
     [accounts],
   );
+  const clearableAccounts = useMemo(
+    () =>
+      (accounts ?? []).filter(
+        (account) =>
+          account.id !== currentUser.id &&
+          account.email !== GUEST_LOCAL_ACCOUNT_EMAIL,
+      ),
+    [accounts, currentUser.id],
+  );
+  const clearableAccountCount = clearableAccounts.length;
   const activeRowMode =
     mode?.kind && mode.kind !== "create" ? mode.kind : null;
 
@@ -261,7 +278,10 @@ export function LocalAccountsPanel({
       setError(null);
       resetDeleteDraft();
       setMode((currentMode) =>
-        currentMode?.kind !== "create" && currentMode?.account.id === id
+        (currentMode?.kind === "delete" ||
+          currentMode?.kind === "edit" ||
+          currentMode?.kind === "password") &&
+        currentMode.account.id === id
           ? null
           : currentMode,
       );
@@ -400,23 +420,29 @@ export function LocalAccountsPanel({
     setDeleteProjectOwnerUserId(NONE_LOCAL_ACCOUNT_REASSIGN_VALUE);
     setDeleteTaskAssigneeUserId(NONE_LOCAL_ACCOUNT_REASSIGN_VALUE);
   };
+  const resetClearAllDraft = () => {
+    setClearAllPasswordDraft("");
+  };
 
   const resetEditorState = () => {
     setMode(null);
     setAccountDraft(EMPTY_CREATE_DRAFT);
     resetDeleteDraft();
+    resetClearAllDraft();
     resetPasswordDrafts();
   };
   const openBulkMode = (nextMode: Exclude<BulkLocalAccountMode, null>) => {
     setMode(null);
     setBulkMode(nextMode);
     resetDeleteDraft();
+    resetClearAllDraft();
     resetPasswordDrafts();
     setError(null);
   };
   const openAccountMode = (nextMode: Exclude<PanelMode, null>) => {
     resetBulkEditorState();
     setMode(nextMode);
+    resetClearAllDraft();
     setError(null);
   };
   const openEditMode = (account: LocalAccount) => {
@@ -656,7 +682,7 @@ export function LocalAccountsPanel({
       resetEditorState();
       await refreshAccountData();
       onNotice(
-        "Reset the default @tavi.local accounts to password123 and re-enabled the login hint.",
+        "Restored the default @tavi.local accounts to password123 and re-enabled the login hint.",
       );
     },
     onError: (mutationError) => {
@@ -668,13 +694,37 @@ export function LocalAccountsPanel({
     },
   });
 
+  const clearAllAccountsMutation = useMutation({
+    mutationFn: (payload: ClearAllLocalAccountsPayload) =>
+      clearAllLocalAccounts(payload),
+    onSuccess: async (result) => {
+      setError(null);
+      clearSelectedAccounts();
+      resetEditorState();
+      await refreshAccountData();
+      onNotice(
+        result.deletedCount > 0
+          ? `Cleared ${formatLocalAccountCount(result.deletedCount)}. Kept your account and guest.`
+          : "No local accounts were cleared. Kept your account and guest.",
+      );
+    },
+    onError: (mutationError) => {
+      setError(
+        mutationError instanceof ApiError
+          ? mutationError.message
+          : "Unable to clear local accounts",
+      );
+    },
+  });
+
   const bulkActionPending =
     exportAccountsMutation.isPending ||
     importAccountsMutation.isPending ||
     bulkDeleteAccountMutation.isPending ||
     bulkSetPasswordMutation.isPending ||
     bulkUpdateRoleMutation.isPending ||
-    resetDefaultAccountsMutation.isPending;
+    resetDefaultAccountsMutation.isPending ||
+    clearAllAccountsMutation.isPending;
 
   const submitPassword = (targetAccount?: LocalAccount) => {
     if (!passwordDraft.trim()) {
@@ -749,7 +799,7 @@ export function LocalAccountsPanel({
           <strong>Local Accounts</strong>
           <span>
             {isAdmin
-              ? "Create, import, export, reset, edit, remove, and set passwords for local accounts."
+              ? "Create, import, export, restore, clear, edit, remove, and set passwords for local accounts."
               : "Change your own password in local-auth mode."}
           </span>
         </div>
@@ -786,6 +836,7 @@ export function LocalAccountsPanel({
                   setMode({ kind: "create" });
                   setAccountDraft(EMPTY_CREATE_DRAFT);
                   resetDeleteDraft();
+                  resetClearAllDraft();
                   resetPasswordDrafts();
                   setError(null);
                 }}
@@ -817,18 +868,34 @@ export function LocalAccountsPanel({
                 className="ghost-button danger-button compact-button"
                 disabled={bulkActionPending}
                 onClick={() => {
-                  if (
-                    window.confirm(
-                      "Reset admin@tavi.local, editor@tavi.local, and viewer@tavi.local to password123? Other local accounts will stay in place.",
-                    )
-                  ) {
-                    resetDefaultAccountsMutation.mutate();
-                  }
-                }}
-              >
+                    if (
+                      window.confirm(
+                        "Reset admin@tavi.local, editor@tavi.local, and viewer@tavi.local to password123? Other local accounts will stay in place.",
+                      )
+                    ) {
+                      resetDefaultAccountsMutation.mutate();
+                    }
+                  }}
+                >
                 {resetDefaultAccountsMutation.isPending
                   ? "Resetting..."
-                  : "Reset Defaults"}
+                  : "Restore Defaults"}
+              </button>
+              <button
+                type="button"
+                className="ghost-button danger-button compact-button"
+                disabled={bulkActionPending || clearableAccountCount === 0}
+                onClick={() => {
+                  resetBulkEditorState();
+                  setMode({ kind: "clearAll" });
+                  setAccountDraft(EMPTY_CREATE_DRAFT);
+                  resetDeleteDraft();
+                  resetPasswordDrafts();
+                  resetClearAllDraft();
+                  setError(null);
+                }}
+              >
+                Clear all local accounts
               </button>
               <input
                 ref={importFileInputRef}
@@ -864,9 +931,68 @@ export function LocalAccountsPanel({
             password hash. JSON and CSV imports match accounts by email, keep
             existing passwords when the password field is blank, and require a
             password or password hash for any new JSON account. CSV imports use
-            name, email, role, and optional password columns. Reset Defaults
+            name, email, role, and optional password columns. Restore Defaults
             restores the default @tavi.local users with password123.
           </p>
+
+          {mode?.kind === "clearAll" ? (
+            <form
+              ref={(element) => {
+                if (element) {
+                  activeModeRef.current = element;
+                }
+              }}
+              tabIndex={-1}
+              className="inline-form local-account-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!clearAllPasswordDraft.trim()) {
+                  setError("Enter your current password");
+                  return;
+                }
+
+                clearAllAccountsMutation.mutate({
+                  currentPassword: clearAllPasswordDraft,
+                });
+              }}
+            >
+              <strong>Clear all local accounts</strong>
+              <p className="local-account-inline-note">
+                Remove every local account except your current account and guest.
+              </p>
+              {error ? (
+                <p className="error-banner local-account-inline-error">{error}</p>
+              ) : null}
+              <input
+                type="password"
+                value={clearAllPasswordDraft}
+                onChange={(event) => setClearAllPasswordDraft(event.target.value)}
+                placeholder="Current admin password"
+              />
+              <div className="settings-actions">
+                <button
+                  type="submit"
+                  className="danger-button"
+                  disabled={clearAllAccountsMutation.isPending}
+                >
+                  {clearAllAccountsMutation.isPending
+                    ? "Clearing..."
+                    : "Clear Accounts"}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button compact-button"
+                  onClick={() => {
+                    setMode(null);
+                    resetClearAllDraft();
+                    setError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : null}
 
           {selectedAccountCount > 0 ? (
             <section className="bulk-action-card local-account-bulk-card">

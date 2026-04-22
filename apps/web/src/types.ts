@@ -48,6 +48,8 @@ export type {
   BackupRetentionWindow,
   BackupRestorePreview,
   BackupStatus,
+  ClearAllLocalAccountsInput as ClearAllLocalAccountsPayload,
+  ClearAllLocalAccountsResponse,
   ConvertProjectToTaskResponse,
   ConvertTaskToProjectResponse,
   DeleteLocalAccountInput as DeleteLocalAccountPayload,

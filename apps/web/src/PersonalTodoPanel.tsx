@@ -48,6 +48,8 @@ type PersonalTodoDragState = {
   overTodoId: string;
 };
 
+const PERSONAL_TODO_DRAG_DATA_TYPE = "application/x-tavi-personal-todo";
+
 const createEmptyPersonalTodoDraft = (): PersonalTodoDraft => ({
   dueDate: getTomorrowDateInput(),
   notes: "",
@@ -645,6 +647,15 @@ export function PersonalTodoPanel({
 
                       event.preventDefault();
                       event.stopPropagation();
+                      const draggedTodoId = readDraggedPersonalTodoId(
+                        event,
+                        dragState,
+                      );
+
+                      if (!draggedTodoId) {
+                        return;
+                      }
+
                       setDragState((current) =>
                         current
                           ? {
@@ -652,19 +663,33 @@ export function PersonalTodoPanel({
                               overTodoId: todo.id,
                               position: readDropPosition(event),
                             }
-                          : current,
+                          : {
+                              todoId: draggedTodoId,
+                              overTodoId: todo.id,
+                              position: readDropPosition(event),
+                            },
                       );
                     }}
                     onDrop={(event) => {
-                      if (!canReorderTodos || !dragState) {
+                      if (!canReorderTodos) {
                         return;
                       }
 
                       event.preventDefault();
                       event.stopPropagation();
+                      const draggedTodoId = readDraggedPersonalTodoId(
+                        event,
+                        dragState,
+                      );
+
+                      if (!draggedTodoId) {
+                        setDragState(null);
+                        return;
+                      }
+
                       const nextTodoIds = reorderTodoIds(
                         personalTodos.map((item) => item.id),
-                        dragState.todoId,
+                        draggedTodoId,
                         todo.id,
                         readDropPosition(event),
                       );
@@ -695,6 +720,10 @@ export function PersonalTodoPanel({
 
                           event.stopPropagation();
                           event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData(
+                            PERSONAL_TODO_DRAG_DATA_TYPE,
+                            todo.id,
+                          );
                           event.dataTransfer.setData("text/plain", todo.id);
                           setDragState({
                             todoId: todo.id,
@@ -702,7 +731,8 @@ export function PersonalTodoPanel({
                             position: "before",
                           });
                         }}
-                        onDragEnd={() => {
+                        onDragEnd={(event) => {
+                          event.stopPropagation();
                           setDragState(null);
                         }}
                       >
@@ -863,6 +893,18 @@ function reorderTodoIds(
 
   nextTodoIds.splice(insertIndex, 0, draggedTodoId);
   return nextTodoIds;
+}
+
+function readDraggedPersonalTodoId(
+  event: ReactDragEvent<HTMLElement>,
+  dragState: PersonalTodoDragState | null,
+) {
+  const draggedTodoId =
+    dragState?.todoId ||
+    event.dataTransfer.getData(PERSONAL_TODO_DRAG_DATA_TYPE) ||
+    event.dataTransfer.getData("text/plain");
+
+  return draggedTodoId.trim().length > 0 ? draggedTodoId : null;
 }
 
 function readDropPosition(event: ReactDragEvent<HTMLTableRowElement>) {
