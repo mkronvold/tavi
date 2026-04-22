@@ -4,6 +4,11 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.10 - 2026-04-22
+
+- Fixed the Personal ToDo white-screen crash in the real browser drag flow by computing drop position before React clears the drag event target during state updates.
+- Kept the Personal ToDo drag path aligned with the working project-task reorder behavior and added regression coverage for the live dragover/drop failure mode.
+
 ## 0.9.9 - 2026-04-22
 
 - Renamed local-account `Reset Defaults` to `Restore Defaults` and added an admin-only `Clear all local accounts` action that requires the current password and preserves the signed-in account plus guest access.

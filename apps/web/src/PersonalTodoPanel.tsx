@@ -1,6 +1,7 @@
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -48,8 +49,6 @@ type PersonalTodoDragState = {
   overTodoId: string;
 };
 
-const PERSONAL_TODO_DRAG_DATA_TYPE = "application/x-tavi-personal-todo";
-
 const createEmptyPersonalTodoDraft = (): PersonalTodoDraft => ({
   dueDate: getTomorrowDateInput(),
   notes: "",
@@ -65,6 +64,8 @@ export function PersonalTodoPanel({
 }: PersonalTodoPanelProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeDraggedTodoIdRef = useRef<string | null>(null);
+  const pendingDragCleanupRef = useRef<number | null>(null);
   const [createDraft, setCreateDraft] = useState<PersonalTodoDraft>(() =>
     createEmptyPersonalTodoDraft(),
   );
@@ -77,6 +78,7 @@ export function PersonalTodoPanel({
   const [dragState, setDragState] = useState<PersonalTodoDragState | null>(
     null,
   );
+  const [isDragGuardActive, setIsDragGuardActive] = useState(false);
   const doneTodoCount = personalTodos.filter(
     (todo) => todo.status === "done",
   ).length;
@@ -90,6 +92,55 @@ export function PersonalTodoPanel({
 
   const invalidateWorkspace = () =>
     queryClient.invalidateQueries({ queryKey: ["workspace"] });
+  const clearPendingDragCleanup = () => {
+    if (pendingDragCleanupRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(pendingDragCleanupRef.current);
+    pendingDragCleanupRef.current = null;
+  };
+  const clearActiveDragSession = () => {
+    clearPendingDragCleanup();
+    activeDraggedTodoIdRef.current = null;
+    setIsDragGuardActive(false);
+    setDragState(null);
+  };
+  const scheduleActiveDragSessionCleanup = () => {
+    clearPendingDragCleanup();
+    pendingDragCleanupRef.current = window.setTimeout(() => {
+      pendingDragCleanupRef.current = null;
+      activeDraggedTodoIdRef.current = null;
+      setIsDragGuardActive(false);
+      setDragState(null);
+    }, 0);
+  };
+
+  useEffect(
+    () => () => {
+      clearPendingDragCleanup();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isDragGuardActive) {
+      return;
+    }
+
+    const suppressNativeDrop = (event: DragEvent) => {
+      event.preventDefault();
+    };
+
+    window.addEventListener("dragover", suppressNativeDrop);
+    window.addEventListener("drop", suppressNativeDrop);
+
+    return () => {
+      window.removeEventListener("dragover", suppressNativeDrop);
+      window.removeEventListener("drop", suppressNativeDrop);
+    };
+  }, [isDragGuardActive]);
+
   const notificationPreferencesQuery = useQuery({
     queryFn: getNotificationPreferences,
     queryKey: ["notification-preferences"],
@@ -236,7 +287,7 @@ export function PersonalTodoPanel({
       );
     },
     onSettled: () => {
-      setDragState(null);
+      clearActiveDragSession();
     },
   });
 
@@ -647,26 +698,30 @@ export function PersonalTodoPanel({
 
                       event.preventDefault();
                       event.stopPropagation();
+                      clearPendingDragCleanup();
                       const draggedTodoId = readDraggedPersonalTodoId(
                         event,
                         dragState,
+                        activeDraggedTodoIdRef.current,
                       );
 
                       if (!draggedTodoId) {
                         return;
                       }
 
+                      const position = readDropPosition(event);
+
                       setDragState((current) =>
                         current
                           ? {
                               ...current,
                               overTodoId: todo.id,
-                              position: readDropPosition(event),
+                              position,
                             }
                           : {
                               todoId: draggedTodoId,
                               overTodoId: todo.id,
-                              position: readDropPosition(event),
+                              position,
                             },
                       );
                     }}
@@ -677,13 +732,15 @@ export function PersonalTodoPanel({
 
                       event.preventDefault();
                       event.stopPropagation();
+                      clearPendingDragCleanup();
                       const draggedTodoId = readDraggedPersonalTodoId(
                         event,
                         dragState,
+                        activeDraggedTodoIdRef.current,
                       );
 
                       if (!draggedTodoId) {
-                        setDragState(null);
+                        clearActiveDragSession();
                         return;
                       }
 
@@ -693,6 +750,14 @@ export function PersonalTodoPanel({
                         todo.id,
                         readDropPosition(event),
                       );
+
+                      if (
+                        nextTodoIds.length === personalTodos.length &&
+                        nextTodoIds.every((todoId, index) => todoId === personalTodos[index]?.id)
+                      ) {
+                        clearActiveDragSession();
+                        return;
+                      }
 
                       reorderPersonalTodosMutation.mutate({
                         todoIds: nextTodoIds,
@@ -719,11 +784,10 @@ export function PersonalTodoPanel({
                           }
 
                           event.stopPropagation();
+                          clearPendingDragCleanup();
+                          activeDraggedTodoIdRef.current = todo.id;
+                          setIsDragGuardActive(true);
                           event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData(
-                            PERSONAL_TODO_DRAG_DATA_TYPE,
-                            todo.id,
-                          );
                           event.dataTransfer.setData("text/plain", todo.id);
                           setDragState({
                             todoId: todo.id,
@@ -733,7 +797,7 @@ export function PersonalTodoPanel({
                         }}
                         onDragEnd={(event) => {
                           event.stopPropagation();
-                          setDragState(null);
+                          scheduleActiveDragSessionCleanup();
                         }}
                       >
                         ::
@@ -898,10 +962,11 @@ function reorderTodoIds(
 function readDraggedPersonalTodoId(
   event: ReactDragEvent<HTMLElement>,
   dragState: PersonalTodoDragState | null,
+  activeDraggedTodoId: string | null,
 ) {
   const draggedTodoId =
     dragState?.todoId ||
-    event.dataTransfer.getData(PERSONAL_TODO_DRAG_DATA_TYPE) ||
+    activeDraggedTodoId ||
     event.dataTransfer.getData("text/plain");
 
   return draggedTodoId.trim().length > 0 ? draggedTodoId : null;

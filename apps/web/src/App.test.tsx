@@ -2715,6 +2715,7 @@ describe("App", () => {
     } as unknown as DataTransfer;
 
     fireEvent.dragStart(draftHandle, { dataTransfer });
+    fireEvent.dragOver(closedLoopRow, { clientY: 30, dataTransfer });
     fireEvent.dragEnd(draftHandle, { dataTransfer });
     fireEvent.drop(closedLoopRow, { clientY: 30, dataTransfer });
 
@@ -2728,6 +2729,51 @@ describe("App", () => {
       ).map((element) => element.textContent?.trim());
 
       expect(reorderedTodoTitles).toEqual(["Closed loop", "Private draft"]);
+    });
+  });
+
+  it("prevents native browser drop handling during a Personal ToDo drag", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(createWorkspacePayload());
+        }
+
+        if (url.endsWith("/auth/notification/preferences")) {
+          return createResponse(createNotificationPreferencesPayload());
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+
+    const draftHandle = await screen.findByRole("button", {
+      name: "Drag to reorder Private draft",
+    });
+    const dataTransfer = {
+      effectAllowed: "move",
+      getData: vi.fn(() => "todo-1"),
+      setData: vi.fn(),
+    } as unknown as DataTransfer;
+
+    fireEvent.dragStart(draftHandle, { dataTransfer });
+
+    await waitFor(() => {
+      const dropEvent = new Event("drop", { cancelable: true });
+
+      window.dispatchEvent(dropEvent);
+      expect(dropEvent.defaultPrevented).toBe(true);
     });
   });
 
