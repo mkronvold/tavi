@@ -4,6 +4,11 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.11 - 2026-04-23
+
+- Added `infra/docker/up.sh` and `infra/docker/down.sh` as convenience wrappers for the published-image `compose-prod` local runtime.
+- Made the new Docker helper scripts resolve their own directory before invoking Compose so they work reliably when launched from anywhere in the repo.
+
 ## 0.9.10 - 2026-04-22
 
 - Fixed the Personal ToDo white-screen crash in the real browser drag flow by computing drop position before React clears the drag event target during state updates.
