@@ -27,8 +27,8 @@ unambiguous:
 cp infra/docker/compose-prod.env.example infra/docker/compose-prod.env
 ```
 
-Edit `infra/docker/compose-prod.env` and set at least a real
-`TAVI_COOKIE_SECRET` before the first start.
+Edit `infra/docker/compose-prod.env` and set a real `TAVI_COOKIE_SECRET` and
+`POSTGRES_PASSWORD` before the first start.
 
 Important variables:
 
@@ -58,6 +58,10 @@ Notes:
 4. Put the full SMTP connection string in `SMTP_URL`, for example
    `smtp://username:password@smtp.office365.com:587` or
    `smtps://username:password@smtp.example.com:465`.
+5. `POSTGRES_PASSWORD` is required for the bundled Postgres service. Changing
+   it in the env file after Postgres has already initialized its data volume
+   does not rotate the existing database user's password; either update the role
+   in Postgres or recreate the Postgres volume for a fresh database.
 
 ## Recommended quick start with Docker Compose
 

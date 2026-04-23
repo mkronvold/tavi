@@ -1,7 +1,7 @@
 name: tavi-runtime
 
 x-tavi-common-env: &tavi-common-env
-  DATABASE_URL: ${TAVI_DATABASE_URL:-postgresql://${POSTGRES_USER:-tavi}:${POSTGRES_PASSWORD:-tavi}@postgres:5432/${POSTGRES_DB:-tavi}?schema=public}
+  DATABASE_URL: ${TAVI_DATABASE_URL:-postgresql://${POSTGRES_USER:-tavi}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in compose-prod.env or provide TAVI_DATABASE_URL}@postgres:5432/${POSTGRES_DB:-tavi}?schema=public}
   BACKUP_DIRECTORY: ${TAVI_BACKUP_DIRECTORY:-/var/tavi/backups}
   NODE_ENV: production
 
@@ -21,7 +21,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tavi}
       POSTGRES_USER: ${POSTGRES_USER:-tavi}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tavi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in compose-prod.env or provide TAVI_DATABASE_URL}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "${TAVI_POSTGRES_HOST_PORT:-5432}:5432"
