@@ -23,11 +23,28 @@ import { Role } from '@prisma/client';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
 import {
+  DEFAULT_LOCAL_USER_EMAILS,
   DEFAULT_LOCAL_USERS,
   GUEST_LOCAL_USER_EMAIL,
 } from './default-local-users';
 import { EmailService } from './email.service';
 import { PrismaService } from './prisma.service';
+
+const ACTIVE_LOCAL_ACCOUNT_RELATED_DATA_COUNT_SELECT = {
+  assignedTasks: {
+    where: {
+      archivedAt: null,
+      project: {
+        archivedAt: null,
+      },
+    },
+  },
+  ownedProjects: {
+    where: {
+      archivedAt: null,
+    },
+  },
+} as const;
 
 type LocalAccountRecord = {
   createdAt: Date;
@@ -67,10 +84,7 @@ export class LocalAccountsService {
       include: {
         roleAssignment: true,
         _count: {
-          select: {
-            assignedTasks: true,
-            ownedProjects: true,
-          },
+          select: ACTIVE_LOCAL_ACCOUNT_RELATED_DATA_COUNT_SELECT,
         },
       },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
@@ -292,7 +306,7 @@ export class LocalAccountsService {
       const existingUsers = await tx.user.findMany({
         where: {
           email: {
-            in: DEFAULT_LOCAL_USERS.map((user) => user.email),
+            in: DEFAULT_LOCAL_USER_EMAILS,
           },
         },
         include: { roleAssignment: true },
@@ -749,10 +763,7 @@ export class LocalAccountsService {
         include: {
           roleAssignment: true,
           _count: {
-            select: {
-              assignedTasks: true,
-              ownedProjects: true,
-            },
+            select: ACTIVE_LOCAL_ACCOUNT_RELATED_DATA_COUNT_SELECT,
           },
         },
         orderBy: [{ name: 'asc' }, { email: 'asc' }],
@@ -1023,10 +1034,7 @@ export class LocalAccountsService {
       include: {
         roleAssignment: true,
         _count: {
-          select: {
-            assignedTasks: true,
-            ownedProjects: true,
-          },
+          select: ACTIVE_LOCAL_ACCOUNT_RELATED_DATA_COUNT_SELECT,
         },
       },
     });

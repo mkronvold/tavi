@@ -4,6 +4,12 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.13 - 2026-05-01
+
+- Fixed local-account delete dependency checks so archived projects/tasks no longer make accounts look blocked by invisible assignments.
+- Updated example workspace resets to use the fake default local accounts instead of arbitrary test users, creating missing defaults when needed.
+- Ignored `.tmux*` workspace layout files.
+
 ## 0.9.12 - 2026-05-01
 
 - Added per-user viewed-change tracking for projects and tasks, including subtle unviewed highlights, actor-aware audit-event detection, collapse-to-mark-viewed behavior, and a toolbar `Mark all viewed` action.

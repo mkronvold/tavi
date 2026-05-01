@@ -231,8 +231,19 @@ describe('LocalAccountsService', () => {
         roleAssignment: true,
         _count: {
           select: {
-            assignedTasks: true,
-            ownedProjects: true,
+            assignedTasks: {
+              where: {
+                archivedAt: null,
+                project: {
+                  archivedAt: null,
+                },
+              },
+            },
+            ownedProjects: {
+              where: {
+                archivedAt: null,
+              },
+            },
           },
         },
       },
@@ -1168,8 +1179,19 @@ describe('LocalAccountsService', () => {
         roleAssignment: true,
         _count: {
           select: {
-            assignedTasks: true,
-            ownedProjects: true,
+            assignedTasks: {
+              where: {
+                archivedAt: null,
+                project: {
+                  archivedAt: null,
+                },
+              },
+            },
+            ownedProjects: {
+              where: {
+                archivedAt: null,
+              },
+            },
           },
         },
       },

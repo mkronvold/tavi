@@ -12,11 +12,11 @@ The import card follows the same flow described in the UI: import from CSV, appl
 
 ## Permissions
 
-| Feature | Who can use it |
-| --- | --- |
-| CSV, XLSX, JSON, and Loop exports | Any signed-in user |
-| CSV import staging and commit | Admin only |
-| Clear all Projects/Tasks / Reset to example Projects/Tasks | Admin only |
+| Feature                                                    | Who can use it     |
+| ---------------------------------------------------------- | ------------------ |
+| CSV, XLSX, JSON, and Loop exports                          | Any signed-in user |
+| CSV import staging and commit                              | Admin only         |
+| Clear all Projects/Tasks / Reset to example Projects/Tasks | Admin only         |
 
 ## Export the current workspace
 
@@ -24,11 +24,11 @@ Exports always follow the current search text, grouping choice, task `Status` fi
 
 Available export buttons:
 
-| Button | Result |
-| --- | --- |
-| `CSV` | Spreadsheet-friendly export of the filtered workspace |
-| `XLSX` | Native Excel workbook export of the filtered workspace |
-| `JSON` | Structured export for automation or archiving |
+| Button | Result                                                  |
+| ------ | ------------------------------------------------------- |
+| `CSV`  | Spreadsheet-friendly export of the filtered workspace   |
+| `XLSX` | Native Excel workbook export of the filtered workspace  |
+| `JSON` | Structured export for automation or archiving           |
 | `Loop` | Loop-oriented CSV generated from the filtered workspace |
 
 ## CSV import workflow
@@ -101,6 +101,8 @@ What it does:
 1. Deletes current projects and tasks.
 2. Seeds a compact example workspace.
 3. Keeps local accounts, saved views, and import history.
+
+In local-auth mode, example projects use the fake default local accounts `admin@tavi.local`, `editor@tavi.local`, and `viewer@tavi.local`. If those accounts are missing, Tavi recreates them with the default password before seeding example project/task assignments so test accounts are not selected by accident.
 
 ## Loop checklist reference
 

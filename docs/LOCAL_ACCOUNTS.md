@@ -28,12 +28,12 @@ From the account list, admins can:
 
 Use the search box to filter by name, email, or role before making bulk admin changes.
 
-If an account still has assigned tasks, Tavi pauses deletion and lets you either:
+If an account still has active assigned tasks, Tavi pauses deletion and lets you either:
 
 1. Reassign those tasks to another local account.
 2. Set those tasks to `None` so they become unassigned.
 
-Accounts that still own projects must have those projects reassigned or removed before deletion can continue.
+Accounts that still own active projects must have those projects reassigned or removed before deletion can continue. Archived projects and tasks do not block account deletion.
 
 ## Bulk actions
 
@@ -46,7 +46,7 @@ Admins can select multiple rows with the account checkboxes, then:
 Important rules:
 
 1. Bulk role changes and bulk delete still require at least one admin account to remain.
-2. Bulk delete skips accounts that still own projects or have assigned tasks and reports the failures after the run.
+2. Bulk delete skips accounts that still own active projects or have active assigned tasks and reports the failures after the run.
 
 ## Export JSON and import JSON or CSV
 
@@ -103,9 +103,9 @@ Casey Admin,casey@tavi.local,admin,change-me-now
 Riley Viewer,riley@tavi.local,viewer,
 ```
 
-## Reset Defaults
+## Restore Defaults
 
-`Reset Defaults` restores:
+`Restore Defaults` restores these fake local accounts:
 
 1. `admin@tavi.local`
 2. `editor@tavi.local`

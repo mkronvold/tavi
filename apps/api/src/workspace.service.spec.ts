@@ -17,6 +17,7 @@ describe('WorkspaceService', () => {
   const createService = () => {
     const findUsersMock = jest.fn();
     const findCurrentUserMock = jest.fn();
+    const createUserMock = jest.fn();
     const findProjectsMock = jest.fn();
     const findActiveProjectMock = jest.fn();
     const countProjectsMock = jest.fn();
@@ -39,6 +40,10 @@ describe('WorkspaceService', () => {
       task: {
         count: typeof countTasksMock;
         create: typeof createTaskMock;
+      };
+      user: {
+        create: typeof createUserMock;
+        findMany: typeof findUsersMock;
       };
     };
     const transactionMock = jest.fn(
@@ -65,6 +70,10 @@ describe('WorkspaceService', () => {
               count: countTasksMock,
               create: createTaskMock,
             },
+            user: {
+              create: createUserMock,
+              findMany: findUsersMock,
+            },
           }),
         );
       },
@@ -76,6 +85,11 @@ describe('WorkspaceService', () => {
     const isGuestUserMock = jest.fn().mockReturnValue(false);
     const reauthenticateCurrentUserMock = jest.fn();
     const recordAuditMock = jest.fn();
+    const hashPasswordMock = jest
+      .fn()
+      .mockImplementation((password: string) =>
+        Promise.resolve(`hashed-${password}`),
+      );
     const recalculateProjectMock = jest.fn();
     const prisma = {
       $transaction: transactionMock,
@@ -108,6 +122,7 @@ describe('WorkspaceService', () => {
       requireAdminAccess: requireAdminAccessMock,
       requireNonGuestAccess: requireNonGuestAccessMock,
       isGuestUser: isGuestUserMock,
+      hashPassword: hashPasswordMock,
       reauthenticateCurrentUser: reauthenticateCurrentUserMock,
       recordAudit: recordAuditMock,
     } as unknown as AuthService;
@@ -123,6 +138,7 @@ describe('WorkspaceService', () => {
       mocks: {
         countProjectsMock,
         countTasksMock,
+        createUserMock,
         createProjectMock,
         createTaskMock,
         deleteProjectsMock,
@@ -134,6 +150,7 @@ describe('WorkspaceService', () => {
         findProjectsMock,
         findCurrentUserMock,
         findUsersMock,
+        hashPasswordMock,
         isGuestUserMock,
         listSavedViewsMock,
         pruneCompletedPersonalTodosForUserMock,
@@ -431,6 +448,11 @@ describe('WorkspaceService', () => {
 
     mocks.findUsersMock.mockResolvedValue([
       {
+        id: 'user-jeyson',
+        email: 'jeyson@example.com',
+        name: 'Jeyson Remigivse',
+      },
+      {
         id: 'user-admin',
         email: 'admin@tavi.local',
         name: 'Tavi Admin',
@@ -444,6 +466,11 @@ describe('WorkspaceService', () => {
         id: 'user-viewer',
         email: 'viewer@tavi.local',
         name: 'Tavi Viewer',
+      },
+      {
+        id: 'user-king',
+        email: 'king@example.com',
+        name: 'King Cheung',
       },
     ]);
     mocks.countProjectsMock.mockResolvedValue(2);
@@ -466,9 +493,41 @@ describe('WorkspaceService', () => {
       'current-password-123',
     );
     expect(mocks.transactionMock).toHaveBeenCalledTimes(1);
+    expect(mocks.findUsersMock).toHaveBeenCalledWith({
+      where: {
+        email: {
+          in: ['admin@tavi.local', 'editor@tavi.local', 'viewer@tavi.local'],
+        },
+      },
+      select: {
+        email: true,
+        id: true,
+        name: true,
+      },
+    });
     expect(mocks.deleteProjectsMock).toHaveBeenCalledWith({});
     expect(mocks.createProjectMock).toHaveBeenCalledTimes(4);
+    const defaultOwnerDataMatcher: unknown = expect.objectContaining({
+      ownerUserId: 'user-admin',
+    });
+    const defaultOwnerProjectMatcher: unknown = expect.objectContaining({
+      data: defaultOwnerDataMatcher,
+    });
+    expect(mocks.createProjectMock).toHaveBeenNthCalledWith(
+      1,
+      defaultOwnerProjectMatcher,
+    );
     expect(mocks.createTaskMock).toHaveBeenCalledTimes(11);
+    const defaultAssigneeDataMatcher: unknown = expect.objectContaining({
+      assigneeUserId: 'user-editor',
+    });
+    const defaultAssigneeTaskMatcher: unknown = expect.objectContaining({
+      data: defaultAssigneeDataMatcher,
+    });
+    expect(mocks.createTaskMock).toHaveBeenNthCalledWith(
+      2,
+      defaultAssigneeTaskMatcher,
+    );
     expect(mocks.recalculateProjectMock).toHaveBeenCalledTimes(4);
     expect(mocks.recordAuditMock).toHaveBeenCalledWith(
       adminUser,
@@ -490,6 +549,83 @@ describe('WorkspaceService', () => {
       deletedProjectCount: 2,
       deletedTaskCount: 5,
     });
+  });
+
+  it('creates missing default local users before seeding example projects', async () => {
+    const adminUser: SessionUser = {
+      id: 'user-admin',
+      email: 'admin@tavi.local',
+      name: 'Tavi Admin',
+      role: 'admin',
+    };
+    const { mocks, service } = createService();
+
+    mocks.findUsersMock.mockResolvedValue([]);
+    mocks.createUserMock
+      .mockResolvedValueOnce({
+        id: 'user-admin',
+        email: 'admin@tavi.local',
+        name: 'Tavi Admin',
+      })
+      .mockResolvedValueOnce({
+        id: 'user-editor',
+        email: 'editor@tavi.local',
+        name: 'Tavi Editor',
+      })
+      .mockResolvedValueOnce({
+        id: 'user-viewer',
+        email: 'viewer@tavi.local',
+        name: 'Tavi Viewer',
+      });
+    mocks.countProjectsMock.mockResolvedValue(0);
+    mocks.countTasksMock.mockResolvedValue(0);
+    mocks.deleteProjectsMock.mockResolvedValue({ count: 0 });
+    mocks.createProjectMock
+      .mockResolvedValueOnce({ id: 'project-1' })
+      .mockResolvedValueOnce({ id: 'project-2' })
+      .mockResolvedValueOnce({ id: 'project-3' })
+      .mockResolvedValueOnce({ id: 'project-4' });
+
+    await service.resetWorkspaceExamples(
+      { password: 'current-password-123' },
+      adminUser,
+    );
+
+    expect(mocks.createUserMock).toHaveBeenCalledTimes(3);
+    const defaultAdminCreateDataMatcher: unknown = expect.objectContaining({
+      email: 'admin@tavi.local',
+      passwordHash: 'hashed-password123',
+    });
+    const defaultAdminCreateMatcher: unknown = expect.objectContaining({
+      data: defaultAdminCreateDataMatcher,
+    });
+    expect(mocks.createUserMock).toHaveBeenNthCalledWith(
+      1,
+      defaultAdminCreateMatcher,
+    );
+    expect(mocks.hashPasswordMock).toHaveBeenCalledWith('password123');
+    const createdDefaultOwnerDataMatcher: unknown = expect.objectContaining({
+      ownerUserId: 'user-admin',
+    });
+    const createdDefaultOwnerProjectMatcher: unknown = expect.objectContaining({
+      data: createdDefaultOwnerDataMatcher,
+    });
+    expect(mocks.createProjectMock).toHaveBeenNthCalledWith(
+      1,
+      createdDefaultOwnerProjectMatcher,
+    );
+    const resetDefaultAuditMatcher: unknown = expect.objectContaining({
+      email: 'admin@tavi.local',
+      source: 'workspace_reset_examples',
+    });
+    expect(mocks.recordAuditMock).toHaveBeenCalledWith(
+      adminUser,
+      'auth',
+      'user-admin',
+      'account_reset_defaults',
+      resetDefaultAuditMatcher,
+      expect.any(Object),
+    );
   });
 
   it('clears project and task data without seeding examples when requested', async () => {

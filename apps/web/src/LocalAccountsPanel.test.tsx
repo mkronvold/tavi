@@ -1523,7 +1523,7 @@ describe("LocalAccountsPanel", () => {
     });
 
     expect(onNotice).toHaveBeenCalledWith(
-      "Restored the default @tavi.local accounts to password123 and re-enabled the login hint.",
+      "Restored admin@tavi.local, editor@tavi.local, and viewer@tavi.local to password123 and re-enabled the login hint.",
     );
   });
 

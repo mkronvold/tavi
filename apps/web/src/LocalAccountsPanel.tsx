@@ -682,7 +682,7 @@ export function LocalAccountsPanel({
       resetEditorState();
       await refreshAccountData();
       onNotice(
-        "Restored the default @tavi.local accounts to password123 and re-enabled the login hint.",
+        "Restored admin@tavi.local, editor@tavi.local, and viewer@tavi.local to password123 and re-enabled the login hint.",
       );
     },
     onError: (mutationError) => {
@@ -932,7 +932,8 @@ export function LocalAccountsPanel({
             existing passwords when the password field is blank, and require a
             password or password hash for any new JSON account. CSV imports use
             name, email, role, and optional password columns. Restore Defaults
-            restores the default @tavi.local users with password123.
+            restores the fake default local accounts admin@tavi.local,
+            editor@tavi.local, and viewer@tavi.local with password123.
           </p>
 
           {mode?.kind === "clearAll" ? (

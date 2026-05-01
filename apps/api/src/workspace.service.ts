@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Role, type Prisma } from '@prisma/client';
 import type { ResetWorkspaceExamplesInput } from '@tavi/schemas';
 import type { SessionUser } from './auth.types';
 import { AuthService } from './auth.service';
+import {
+  DEFAULT_LOCAL_USER_EMAILS,
+  DEFAULT_LOCAL_USERS,
+} from './default-local-users';
 import { PersonalTodosService } from './personal-todos.service';
 import { PrismaService } from './prisma.service';
 import { ProjectsService } from './projects.service';
@@ -16,6 +21,7 @@ type ProjectViewChangeState = {
 };
 
 const NEVER_VIEWED_AT = new Date(0);
+const LOCAL_AUTH_MODE = 'local';
 
 @Injectable()
 export class WorkspaceService {
@@ -356,32 +362,13 @@ export class WorkspaceService {
     await this.authService.reauthenticateCurrentUser(actor.id, input.password);
 
     const shouldSeedExamples = input.seedExamples !== false;
-    let exampleProjects = [] as ReturnType<typeof buildWorkspaceResetExamples>;
-
-    if (shouldSeedExamples) {
-      const users = await this.prisma.user.findMany({
-        orderBy: [{ name: 'asc' }, { email: 'asc' }],
-        select: {
-          id: true,
-          email: true,
-          name: true,
-        },
-      });
-      const participants =
-        users.length > 0
-          ? users
-          : [
-              {
-                id: actor.id,
-                email: actor.email,
-                name: actor.name,
-              },
-            ];
-
-      exampleProjects = buildWorkspaceResetExamples(participants);
-    }
 
     return this.prisma.$transaction(async (tx) => {
+      const exampleProjects = shouldSeedExamples
+        ? buildWorkspaceResetExamples(
+            await this.resolveWorkspaceResetParticipants(actor, tx),
+          )
+        : [];
       const [deletedProjectCount, deletedTaskCount] = await Promise.all([
         tx.project.count(),
         tx.task.count(),
@@ -450,5 +437,120 @@ export class WorkspaceService {
         deletedTaskCount,
       };
     });
+  }
+
+  private async resolveWorkspaceResetParticipants(
+    actor: SessionUser,
+    tx: Prisma.TransactionClient,
+  ) {
+    const defaultUsers = await tx.user.findMany({
+      where: {
+        email: { in: DEFAULT_LOCAL_USER_EMAILS },
+      },
+      select: {
+        email: true,
+        id: true,
+        name: true,
+      },
+    });
+    const defaultUsersByEmail = new Map(
+      defaultUsers.map((user) => [user.email, user] as const),
+    );
+
+    if (
+      defaultUsers.length < DEFAULT_LOCAL_USERS.length &&
+      this.isLocalAuthModeEnabled()
+    ) {
+      for (const defaultUser of DEFAULT_LOCAL_USERS) {
+        if (defaultUsersByEmail.has(defaultUser.email)) {
+          continue;
+        }
+
+        const createdUser = await tx.user.create({
+          data: {
+            email: defaultUser.email,
+            name: defaultUser.name,
+            passwordHash: await this.authService.hashPassword(
+              defaultUser.password,
+            ),
+            roleAssignment: {
+              create: {
+                role: defaultUser.role,
+              },
+            },
+          },
+          select: {
+            email: true,
+            id: true,
+            name: true,
+          },
+        });
+
+        defaultUsersByEmail.set(defaultUser.email, createdUser);
+        await this.authService.recordAudit(
+          actor,
+          'auth',
+          createdUser.id,
+          'account_reset_defaults',
+          {
+            email: createdUser.email,
+            name: createdUser.name,
+            outcome: 'created',
+            role: defaultUser.role,
+            source: 'workspace_reset_examples',
+          },
+          tx,
+        );
+      }
+    }
+
+    const orderedDefaultUsers = DEFAULT_LOCAL_USERS.flatMap((defaultUser) => {
+      const user = defaultUsersByEmail.get(defaultUser.email);
+      return user ? [user] : [];
+    });
+
+    if (orderedDefaultUsers.length === DEFAULT_LOCAL_USERS.length) {
+      return orderedDefaultUsers;
+    }
+
+    const users = await tx.user.findMany({
+      orderBy: [{ name: 'asc' }, { email: 'asc' }],
+      select: {
+        email: true,
+        id: true,
+        name: true,
+        roleAssignment: {
+          select: {
+            role: true,
+          },
+        },
+      },
+    });
+    const orderedRoleUsers = [Role.admin, Role.editor, Role.viewer].flatMap(
+      (role) => {
+        const user = users.find(
+          (candidate) => candidate.roleAssignment?.role === role,
+        );
+        return user ? [user] : [];
+      },
+    );
+    const participants =
+      orderedRoleUsers.length > 0
+        ? orderedRoleUsers
+        : users.length > 0
+          ? users
+          : [
+              {
+                id: actor.id,
+                email: actor.email,
+                name: actor.name,
+              },
+            ];
+
+    return participants.map(({ email, id, name }) => ({ email, id, name }));
+  }
+
+  private isLocalAuthModeEnabled() {
+    return (process.env.AUTH_MODE ?? LOCAL_AUTH_MODE) === LOCAL_AUTH_MODE;
   }
 }
