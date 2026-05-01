@@ -12,7 +12,7 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 | Status        | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects         |
 | Assignee      | Multi-select task filter for one or more assignees                                                                                                       |
 | View          | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state                    |
-| Personal ToDo | Opens the current user's private personal task panel without changing the shared workspace list                                                          |
+| Mark all viewed | Clears the current user's unviewed-change highlights across the workspace                                                                                |
 | New Project   | Opens the inline project-creation panel                                                                                                                  |
 | Settings      | Opens per-user synced preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
 
@@ -23,6 +23,10 @@ When `Group by` is set to `Status`, Tavi keeps groups in this fixed order: `Not 
 The top search, grouping, filter, and bulk-action controls stay pinned while you scroll so review controls remain visible during long discussions. After you scroll down, a floating `To top` button appears in the lower-right corner of the browser frame so you can jump back to the top quickly.
 
 Each project row shows the project title, notes, references, owner, due date, priority, status, and completion percentage. Expanded projects also get a highlighted border so the active discussion area is easier to track.
+
+If another user changes a project or one of its tasks after you last viewed that project, Tavi shades the project card. When you expand that project, task rows with unviewed changes are shaded too. Your own edits do not create unviewed highlights for you.
+
+Tavi marks a project's project and task changes viewed for you when you collapse that project manually or when `Auto Collapse` closes it because you moved focus to another project. Use `Mark all viewed` in the toolbar when you want to clear all current unviewed highlights at once.
 
 Project, task, and Personal ToDo notes render basic markdown in place. Tavi keeps line breaks, recognizes simple lists and emphasis, and turns plain URLs into clickable links.
 
@@ -75,7 +79,7 @@ Use `Delete` inside task edit when a single task should be removed without using
 
 ## Personal ToDo panel
 
-`Personal ToDo` opens a private per-user task list that does not appear in the shared project workspace.
+`Personal ToDo` opens from `User Profile` and shows a private per-user task list that does not appear in the shared project workspace.
 
 Inside the panel you can:
 
@@ -112,7 +116,7 @@ Once enabled:
 ## Non-obvious behavior
 
 1. A project can show both a manual override and the task-derived status. The override changes the display status, but the underlying derived rollup is still tracked.
-2. `Status` filters whole projects by project display status. `Assignee` filters task rows inside the remaining visible projects.
+2. `Status` filters whole projects by project display status. `Assignee` filters decide which projects remain visible, but matching projects still show their complete task list.
 3. `Group by`, `Sort by`, `Status`, and `Assignee` selections are stored in per-user synced config and can also be captured in a saved view.
 4. `Add Task` visibility is stored in per-user synced config, not in a saved view.
 5. Auto-collapse behavior is controlled from [`SETTINGS.md`](./SETTINGS.md), not from the workspace row actions.
@@ -123,6 +127,7 @@ Once enabled:
 10. [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) and [`BACKUPS.md`](./BACKUPS.md) are opened from [`SETTINGS.md`](./SETTINGS.md), not from the top workspace toolbar.
 11. When auto-collapse switches from one expanded project to another, Tavi scrolls the newly expanded project back into view so the screen focus stays on the open project.
 12. The `Personal ToDo` panel is private to the signed-in user, and its `hide done` toggle is stored only in that browser's local Tavi storage.
+13. Unviewed-change tracking is per user. Collapsing a project or using `Mark all viewed` affects only your viewed state.
 
 ## Derived project status
 

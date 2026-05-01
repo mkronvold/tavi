@@ -75,6 +75,8 @@ export type {
   LoopImportMissingAssignee,
   LoopImportOverlapAction,
   LoopImportJobStatus,
+  MarkAllProjectsViewedResponse,
+  MarkProjectViewedResponse,
   NotificationPreferences,
   NotificationRetentionSummary,
   NotificationRetentionWindow,
@@ -121,6 +123,7 @@ export type WorkspaceTask = {
   status: TaskStatus;
   sortOrder: number;
   completedAt: string | null;
+  hasUnviewedChanges?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -146,6 +149,8 @@ export type WorkspaceProject = {
   taskDoneCount: number;
   taskCanceledCount: number;
   taskOverdueCount: number;
+  hasUnviewedChanges?: boolean;
+  lastViewedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
   tasks: WorkspaceTask[];

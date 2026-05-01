@@ -11,6 +11,7 @@ Use this path when the cluster should run a single PostgreSQL instance for Tavi.
 | Secret template               | `secret.example.yaml`                                                                  |
 | Backup storage                | `backup-pvc.yaml`                                                                      |
 | Backup post-process templates | `backup-post-process-pvc.example.yaml`, `backup-post-process-cronjob.example.yaml`     |
+| Optional DB network policy    | `postgres-network-policy.example.yaml`                                                 |
 | PostgreSQL                    | `postgres-headless-service.yaml`, `postgres-service.yaml`, `postgres-statefulset.yaml` |
 | API                           | `api-deployment.yaml`, `api-service.yaml`                                              |
 | Web                           | `web-deployment.yaml`, `web-service.yaml`                                              |
@@ -30,6 +31,7 @@ Use this path when the cluster should run a single PostgreSQL instance for Tavi.
 3. Adjust the `postgres-statefulset.yaml` storage request if `10Gi` is not appropriate.
 4. Update `backup-pvc.yaml` if your cluster needs a different storage class or size. The API and worker share this PVC, so the storage class must support `ReadWriteMany`.
 5. If you need downstream archival or off-cluster replication, customize `backup-post-process-pvc.example.yaml` and `backup-post-process-cronjob.example.yaml`.
+6. If your cluster enforces or supports NetworkPolicy, customize `postgres-network-policy.example.yaml` to allow only the pods that should reach Postgres before applying it.
 
 ## Install
 
@@ -53,6 +55,12 @@ Apply the post-process templates only after customizing them:
 ```bash
 kubectl apply -f infra/k8s/k8s-with-internal-db/backup-post-process-pvc.example.yaml
 kubectl apply -f infra/k8s/k8s-with-internal-db/backup-post-process-cronjob.example.yaml
+```
+
+Apply the example Postgres NetworkPolicy only after confirming the allowed pod labels match your deployment:
+
+```bash
+kubectl apply -f infra/k8s/k8s-with-internal-db/postgres-network-policy.example.yaml
 ```
 
 ## Verify

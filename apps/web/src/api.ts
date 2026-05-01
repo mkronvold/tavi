@@ -37,6 +37,8 @@ import type {
   LocalAccountsResponse,
   LoopImportJob,
   LoopImportJobSummary,
+  MarkAllProjectsViewedResponse,
+  MarkProjectViewedResponse,
   NotificationPreferences,
   PruneRetentionDataPayload,
   PruneRetentionDataResponse,
@@ -206,6 +208,15 @@ export const getWorkspace = async () => {
     personalTodos: Array.isArray(response.personalTodos)
       ? response.personalTodos
       : [],
+    projects: response.projects.map((project) => ({
+      ...project,
+      hasUnviewedChanges: project.hasUnviewedChanges === true,
+      lastViewedAt: project.lastViewedAt ?? null,
+      tasks: project.tasks.map((task) => ({
+        ...task,
+        hasUnviewedChanges: task.hasUnviewedChanges === true,
+      })),
+    })),
   } satisfies WorkspaceResponse;
 };
 
@@ -215,6 +226,19 @@ export const resetWorkspaceExamples = (
   request<ResetWorkspaceExamplesResponse>("/workspace/reset-examples", {
     method: "POST",
     body: payload,
+  });
+
+export const markProjectViewed = (projectId: string) =>
+  request<MarkProjectViewedResponse>(
+    `/workspace/projects/${encodeURIComponent(projectId)}/viewed`,
+    {
+      method: "POST",
+    },
+  );
+
+export const markAllProjectsViewed = () =>
+  request<MarkAllProjectsViewedResponse>("/workspace/projects/viewed", {
+    method: "POST",
   });
 
 export const login = (payload: LoginPayload) =>

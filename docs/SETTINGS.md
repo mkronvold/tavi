@@ -15,6 +15,7 @@ Most launcher cards and audit cards are whole-card click targets. If a card open
 | ------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Account       | Name / Email                                         | Updates the current signed-in local account                                                                                              |
 | Account       | Current password + Change password + Repeat password | Lets the current signed-in local account rotate its password                                                                             |
+| User tool     | Personal ToDo                                        | Opens or closes the current user's private personal task panel                                                                           |
 | User-specific | Theme                                                | Cycles through the Light, Sepia, Spring, Ocean, Forest, Autumn, and Night workspace themes and syncs across browsers after login         |
 | User-specific | Auto Collapse                                        | Expands one project at a time by collapsing the rest automatically                                                                       |
 | User-specific | Bulk Actions                                         | Shows task selection checkboxes and the bulk action bar                                                                                  |
@@ -91,5 +92,5 @@ It does not delete projects, tasks, imports, backups, accounts, or saved views.
 3. `Daily Digest` applies only to non-admin notification emails. Administrative account emails still send immediately when global email is enabled, and password-reset emails still send whenever SMTP is configured even if `Email Notifications` is off.
 4. Admin-only email controls do not force users into digest mode or pick a send time for them. Each user chooses whether non-admin notifications arrive immediately or in the daily digest and saves their own digest time.
 5. New users default to digest off and a stored UTC digest time of `11:00`, which corresponds to `5:00 AM` CST.
-6. `Personal ToDo` is opened from the main workspace toolbar, not from `Settings`, but its `hide done` preference is still reset by `Reset all user settings`.
+6. `Personal ToDo` opens from `User Profile` after the account card. Its `hide done` preference is still reset by `Reset all user settings`.
 7. `Audit Changes` intentionally excludes outbound email-delivery steps. Use `Audit Notifications` when you need the notification timeline or test-email diagnostics.

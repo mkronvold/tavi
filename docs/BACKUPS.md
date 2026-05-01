@@ -52,6 +52,8 @@ Visible backup timestamps such as `Last success`, `Last failure`, stored-backup 
 | Projects and tasks only | Restores selected projects plus their tasks without replacing user records |
 | Users only | Restores selected users and role assignments without replacing projects or tasks |
 
+Full backups include per-user project viewed state, so unviewed-change highlights survive a full restore. Older backups that predate viewed-state data are restored with projects treated as already viewed to avoid flooding users with old highlights.
+
 ## Download and delete
 
 1. `Download` streams the selected stored backup JSON file to your browser.

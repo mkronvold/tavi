@@ -41,8 +41,9 @@ Each variant README follows the same pattern:
 1. Edit `configmap.yaml` and `ingress.yaml` in the chosen folder for your hostname and public URLs.
 2. Create real secrets from that folder's `secret.example.yaml`.
 3. Review that folder's `backup-pvc.yaml`. The API and worker share the backup volume, so the storage class must support `ReadWriteMany`.
-4. Apply the manifests from that folder only.
-5. Verify the rollout for the app deployments and, if present, the database workload.
+4. Internal DB variants also ship an optional `postgres-network-policy.example.yaml` you can customize and apply if your cluster uses NetworkPolicy to limit Postgres access to the API and worker pods.
+5. Apply the manifests from that folder only.
+6. Verify the rollout for the app deployments and, if present, the database workload.
 
 ## Installing CloudNativePG for the HA variant
 

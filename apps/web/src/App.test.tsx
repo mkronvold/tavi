@@ -548,6 +548,41 @@ describe("App", () => {
     return groupCard!;
   };
 
+  const openPersonalTodoFromProfile = async (
+    expectedPanelText: string | null = "Private draft",
+  ) => {
+    const profileButton = document.querySelector<HTMLButtonElement>(
+      ".header-user-button",
+    );
+
+    expect(profileButton).not.toBeNull();
+    fireEvent.click(profileButton!);
+
+    await waitFor(() => {
+      expect(screen.getByText("User Profile")).toBeInTheDocument();
+    });
+
+    const profilePanel = screen.getByText("User Profile").closest("section");
+
+    expect(profilePanel).not.toBeNull();
+    if (!(profilePanel instanceof HTMLElement)) {
+      throw new Error("Expected profile panel");
+    }
+
+    const personalTodoTile = within(profilePanel)
+      .getByText("Personal ToDo")
+      .closest(".settings-item");
+
+    expect(personalTodoTile).not.toBeNull();
+    fireEvent.click(personalTodoTile!);
+
+    if (expectedPanelText) {
+      await waitFor(() => {
+        expect(screen.getByText(expectedPanelText)).toBeInTheDocument();
+      });
+    }
+  };
+
   const getVisibleProjectTitles = () =>
     Array.from(document.querySelectorAll(".project-card .project-main strong"))
       .map((element) => element.textContent?.trim())
@@ -2460,7 +2495,7 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile();
     fireEvent.click(screen.getByRole("button", { name: "New Project" }));
 
     await waitFor(() => {
@@ -2519,7 +2554,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile(null);
 
     await waitFor(() => {
       expect(
@@ -2548,7 +2583,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile();
 
     await waitFor(() => {
       expect(screen.getByRole("link", { name: "runbook" })).toHaveAttribute(
@@ -2571,7 +2606,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile();
 
     const dueDateField = await screen.findByDisplayValue(
       formatDateInputValue(getTomorrowLocalDate()),
@@ -2620,7 +2655,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile();
 
     const reminderSwitch = await screen.findByRole("switch", {
       name: "Enable reminders",
@@ -2679,7 +2714,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile();
 
     const draftHandle = await screen.findByRole("button", {
       name: "Drag to reorder Private draft",
@@ -2756,7 +2791,7 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Personal ToDo" }));
+    await openPersonalTodoFromProfile();
 
     const draftHandle = await screen.findByRole("button", {
       name: "Drag to reorder Private draft",
@@ -2804,11 +2839,9 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    const personalTodoButton = screen.getByRole("button", {
-      name: "Personal ToDo",
-    });
-
-    expect(personalTodoButton).not.toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "Personal ToDo" }),
+    ).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText("Task name")).toBeInTheDocument();
@@ -6468,6 +6501,425 @@ describe("App", () => {
         block: "end",
         inline: "nearest",
       });
+    });
+  });
+
+  it("keeps a regrouped project in view after a task status change", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const scrollIntoViewMock = vi.fn();
+    let patchBody: string | null = null;
+
+    workspacePayload.userConfig.filters.groupBy = "status";
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      derivedStatus: "not_started",
+      displayStatus: "not_started",
+      manualStatus: null,
+      taskTodoCount: 2,
+      taskInProgressCount: 0,
+      tasks: workspacePayload.projects[0].tasks.map((task) => ({
+        ...task,
+        status: "not_started",
+        completedAt: null,
+      })),
+    };
+    workspacePayload.projects.push({
+      id: "project-2",
+      title: "Beta rollout",
+      notes: null,
+      references: null,
+      ownerUserId: "user-2",
+      ownerName: "Tavi Viewer",
+      dueDate: null,
+      priority: "high",
+      derivedStatus: "in_progress",
+      displayStatus: "in_progress",
+      manualStatus: null,
+      taskTotalCount: 1,
+      taskTodoCount: 0,
+      taskInProgressCount: 1,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      createdAt: "2026-04-03T09:00:00.000Z",
+      updatedAt: "2026-04-03T10:00:00.000Z",
+      tasks: [
+        {
+          id: "task-3",
+          projectId: "project-2",
+          title: "Draft brief",
+          notes: "Confirm the launch checklist",
+          assigneeUserId: "user-2",
+          assigneeName: "Tavi Viewer",
+          dueDate: null,
+          priority: "high",
+          status: "in_progress",
+          sortOrder: 0,
+          completedAt: null,
+          createdAt: "2026-04-03T11:00:00.000Z",
+          updatedAt: "2026-04-03T11:00:00.000Z",
+        },
+      ],
+    });
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/task-1") && init?.method === "PATCH") {
+          patchBody = typeof init.body === "string" ? init.body : null;
+          workspacePayload.projects[0] = {
+            ...workspacePayload.projects[0],
+            derivedStatus: "in_progress",
+            displayStatus: "in_progress",
+            taskTodoCount: 1,
+            taskInProgressCount: 1,
+            updatedAt: "2026-04-03T12:30:00.000Z",
+            tasks: workspacePayload.projects[0].tasks.map((task) =>
+              task.id === "task-1"
+                ? {
+                    ...task,
+                    status: "in_progress",
+                    updatedAt: "2026-04-03T12:30:00.000Z",
+                  }
+                : task,
+            ),
+          };
+
+          return createResponse(workspacePayload.projects[0].tasks[0]);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+      expect(screen.getByText("Beta rollout")).toBeInTheDocument();
+      expect(screen.getByLabelText("Group by")).toHaveValue("status");
+    });
+
+    const roadmapProjectCard = screen
+      .getByText("Roadmap refresh")
+      .closest("article");
+
+    expect(roadmapProjectCard).not.toBeNull();
+    if (!(roadmapProjectCard instanceof HTMLElement)) {
+      throw new Error("Expected roadmap project card");
+    }
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () =>
+        ({
+          bottom: 1020,
+          height: 120,
+          left: 0,
+          right: 500,
+          top: 900,
+          width: 500,
+          x: 0,
+          y: 900,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    );
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(roadmapProjectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(
+      within(roadmapProjectCard).getByDisplayValue("Not Started"),
+      {
+        target: { value: "in_progress" },
+      },
+    );
+
+    scrollIntoViewMock.mockClear();
+    fireEvent.click(
+      within(roadmapProjectCard).getByRole("button", { name: "Save" }),
+    );
+
+    await waitFor(() => {
+      expect(patchBody).toBe(
+        JSON.stringify({
+          projectId: "project-1",
+          title: "Kickoff",
+          notes: "Confirm milestone scope",
+          assigneeUserId: "user-1",
+          dueDate: "",
+          priority: "medium",
+          status: "in_progress",
+        }),
+      );
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({
+        block: "end",
+        inline: "nearest",
+      });
+    });
+  });
+
+  it("moves Personal ToDo into profile and replaces the toolbar action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Mark all viewed" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Personal ToDo" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("User Profile")).toBeInTheDocument();
+    });
+
+    const profilePanel = screen.getByText("User Profile").closest("section");
+
+    expect(profilePanel).not.toBeNull();
+    if (!(profilePanel instanceof HTMLElement)) {
+      throw new Error("Expected profile panel");
+    }
+
+    const accountHeading = within(profilePanel).getByText("Account");
+    const personalTodoHeading = within(profilePanel).getByText("Personal ToDo");
+    const themeHeading = within(profilePanel).getByText("Theme");
+
+    expect(
+      accountHeading.compareDocumentPosition(personalTodoHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      personalTodoHeading.compareDocumentPosition(themeHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const personalTodoTile = personalTodoHeading.closest(".settings-item");
+
+    expect(personalTodoTile).not.toBeNull();
+    fireEvent.click(personalTodoTile!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Private draft")).toBeInTheDocument();
+    });
+  });
+
+  it("highlights projects and expanded tasks with unviewed changes", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      hasUnviewedChanges: true,
+      lastViewedAt: "2026-04-03T10:00:00.000Z",
+      tasks: workspacePayload.projects[0].tasks.map((task, index) => ({
+        ...task,
+        hasUnviewedChanges: index === 0,
+      })),
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).toHaveClass("project-card--unviewed");
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Kickoff").closest("tr")).toHaveClass(
+      "task-row--unviewed",
+    );
+    expect(screen.getByText("Review plan").closest("tr")).not.toHaveClass(
+      "task-row--unviewed",
+    );
+  });
+
+  it("marks a project viewed when it is collapsed", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/workspace/projects/project-1/viewed") &&
+          init?.method === "POST"
+        ) {
+          workspacePayload.projects[0] = {
+            ...workspacePayload.projects[0],
+            hasUnviewedChanges: false,
+            lastViewedAt: "2026-04-03T12:00:00.000Z",
+            tasks: workspacePayload.projects[0].tasks.map((task) => ({
+              ...task,
+              hasUnviewedChanges: false,
+            })),
+          };
+
+          return createResponse({
+            projectId: "project-1",
+            viewedAt: "2026-04-03T12:00:00.000Z",
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      hasUnviewedChanges: true,
+      lastViewedAt: "2026-04-03T10:00:00.000Z",
+      tasks: workspacePayload.projects[0].tasks.map((task) => ({
+        ...task,
+        hasUnviewedChanges: true,
+      })),
+    };
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/workspace/projects/project-1/viewed",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+  });
+
+  it("marks all unviewed projects from the toolbar", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (
+          url.endsWith("/workspace/projects/viewed") &&
+          init?.method === "POST"
+        ) {
+          workspacePayload.projects = workspacePayload.projects.map(
+            (project) => ({
+              ...project,
+              hasUnviewedChanges: false,
+              lastViewedAt: "2026-04-03T12:00:00.000Z",
+              tasks: project.tasks.map((task) => ({
+                ...task,
+                hasUnviewedChanges: false,
+              })),
+            }),
+          );
+
+          return createResponse({
+            viewedAt: "2026-04-03T12:00:00.000Z",
+            viewedProjectCount: 1,
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      hasUnviewedChanges: true,
+      lastViewedAt: "2026-04-03T10:00:00.000Z",
+      tasks: workspacePayload.projects[0].tasks.map((task) => ({
+        ...task,
+        hasUnviewedChanges: true,
+      })),
+    };
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).toHaveClass("project-card--unviewed");
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all viewed" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/workspace/projects/viewed",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+      expect(projectCard).not.toHaveClass("project-card--unviewed");
     });
   });
 

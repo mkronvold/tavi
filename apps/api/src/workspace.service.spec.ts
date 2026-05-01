@@ -18,6 +18,7 @@ describe('WorkspaceService', () => {
     const findUsersMock = jest.fn();
     const findCurrentUserMock = jest.fn();
     const findProjectsMock = jest.fn();
+    const findActiveProjectMock = jest.fn();
     const countProjectsMock = jest.fn();
     const deleteProjectsMock = jest.fn();
     const createProjectMock = jest.fn();
@@ -25,24 +26,54 @@ describe('WorkspaceService', () => {
     const createTaskMock = jest.fn();
     const findEmailSettingsMock = jest.fn();
     const findPersonalTodosMock = jest.fn();
-    const transactionMock = jest.fn((callback: (tx: unknown) => unknown) =>
-      Promise.resolve(
-        callback({
-          project: {
-            count: countProjectsMock,
-            create: createProjectMock,
-            deleteMany: deleteProjectsMock,
-          },
-          task: {
-            count: countTasksMock,
-            create: createTaskMock,
-          },
-        }),
-      ),
+    const findProjectViewStatesMock = jest.fn().mockResolvedValue([]);
+    const upsertProjectViewStateMock = jest.fn();
+    const findAuditEventsMock = jest.fn().mockResolvedValue([]);
+    type WorkspaceTransactionClient = {
+      projectViewState: { upsert: typeof upsertProjectViewStateMock };
+      project: {
+        count: typeof countProjectsMock;
+        create: typeof createProjectMock;
+        deleteMany: typeof deleteProjectsMock;
+      };
+      task: {
+        count: typeof countTasksMock;
+        create: typeof createTaskMock;
+      };
+    };
+    const transactionMock = jest.fn(
+      (
+        input:
+          | Array<Promise<unknown>>
+          | ((tx: WorkspaceTransactionClient) => Promise<unknown>),
+      ) => {
+        if (Array.isArray(input)) {
+          return Promise.all(input);
+        }
+
+        return Promise.resolve(
+          input({
+            projectViewState: {
+              upsert: upsertProjectViewStateMock,
+            },
+            project: {
+              count: countProjectsMock,
+              create: createProjectMock,
+              deleteMany: deleteProjectsMock,
+            },
+            task: {
+              count: countTasksMock,
+              create: createTaskMock,
+            },
+          }),
+        );
+      },
     );
     const listSavedViewsMock = jest.fn();
     const pruneCompletedPersonalTodosForUserMock = jest.fn();
     const requireAdminAccessMock = jest.fn();
+    const requireNonGuestAccessMock = jest.fn();
+    const isGuestUserMock = jest.fn().mockReturnValue(false);
     const reauthenticateCurrentUserMock = jest.fn();
     const recordAuditMock = jest.fn();
     const recalculateProjectMock = jest.fn();
@@ -53,7 +84,15 @@ describe('WorkspaceService', () => {
         findUnique: findCurrentUserMock,
       },
       project: {
+        findFirst: findActiveProjectMock,
         findMany: findProjectsMock,
+      },
+      projectViewState: {
+        findMany: findProjectViewStatesMock,
+        upsert: upsertProjectViewStateMock,
+      },
+      auditEvent: {
+        findMany: findAuditEventsMock,
       },
       emailSettings: {
         findUnique: findEmailSettingsMock,
@@ -67,6 +106,8 @@ describe('WorkspaceService', () => {
     } as unknown as SavedViewsService;
     const authService = {
       requireAdminAccess: requireAdminAccessMock,
+      requireNonGuestAccess: requireNonGuestAccessMock,
+      isGuestUser: isGuestUserMock,
       reauthenticateCurrentUser: reauthenticateCurrentUserMock,
       recordAudit: recordAuditMock,
     } as unknown as AuthService;
@@ -86,16 +127,22 @@ describe('WorkspaceService', () => {
         createTaskMock,
         deleteProjectsMock,
         findEmailSettingsMock,
+        findActiveProjectMock,
+        findAuditEventsMock,
         findPersonalTodosMock,
+        findProjectViewStatesMock,
         findProjectsMock,
         findCurrentUserMock,
         findUsersMock,
+        isGuestUserMock,
         listSavedViewsMock,
         pruneCompletedPersonalTodosForUserMock,
         reauthenticateCurrentUserMock,
         recordAuditMock,
         recalculateProjectMock,
         requireAdminAccessMock,
+        requireNonGuestAccessMock,
+        upsertProjectViewStateMock,
         transactionMock,
       },
       service: new WorkspaceService(
@@ -203,6 +250,174 @@ describe('WorkspaceService', () => {
         title: 'Private follow-up',
       }),
     ]);
+  });
+
+  it('flags other-user project and task changes as unviewed', async () => {
+    const { mocks, service } = createService();
+    const viewedAt = new Date('2026-04-03T10:00:00.000Z');
+
+    mocks.findUsersMock.mockResolvedValue([]);
+    mocks.findProjectsMock.mockResolvedValue([
+      {
+        id: 'project-1',
+        title: 'Roadmap refresh',
+        notes: null,
+        references: null,
+        ownerUserId: null,
+        owner: null,
+        dueDate: null,
+        priority: 'medium',
+        derivedStatus: 'not_started',
+        displayStatus: 'not_started',
+        manualStatus: null,
+        taskTotalCount: 2,
+        taskTodoCount: 2,
+        taskInProgressCount: 0,
+        taskBlockedCount: 0,
+        taskDoneCount: 0,
+        taskCanceledCount: 0,
+        taskOverdueCount: 0,
+        createdAt: new Date('2026-04-03T09:00:00.000Z'),
+        updatedAt: new Date('2026-04-03T12:00:00.000Z'),
+        tasks: [
+          {
+            id: 'task-1',
+            projectId: 'project-1',
+            title: 'Kickoff',
+            notes: null,
+            assigneeUserId: null,
+            assignee: null,
+            dueDate: null,
+            priority: 'medium',
+            status: 'not_started',
+            sortOrder: 0,
+            completedAt: null,
+            createdAt: new Date('2026-04-03T09:30:00.000Z'),
+            updatedAt: new Date('2026-04-03T11:00:00.000Z'),
+          },
+          {
+            id: 'task-2',
+            projectId: 'project-1',
+            title: 'Review plan',
+            notes: null,
+            assigneeUserId: null,
+            assignee: null,
+            dueDate: null,
+            priority: 'medium',
+            status: 'not_started',
+            sortOrder: 1,
+            completedAt: null,
+            createdAt: new Date('2026-04-03T09:45:00.000Z'),
+            updatedAt: new Date('2026-04-03T11:30:00.000Z'),
+          },
+        ],
+      },
+    ]);
+    mocks.findEmailSettingsMock.mockResolvedValue(null);
+    mocks.findCurrentUserMock.mockResolvedValue({ userConfigJson: null });
+    mocks.findPersonalTodosMock.mockResolvedValue([]);
+    mocks.listSavedViewsMock.mockResolvedValue([]);
+    mocks.findProjectViewStatesMock.mockResolvedValue([
+      {
+        projectId: 'project-1',
+        viewedAt,
+      },
+    ]);
+    mocks.findAuditEventsMock.mockResolvedValue([
+      {
+        entityType: 'task',
+        entityId: 'task-1',
+        createdAt: new Date('2026-04-03T11:00:00.000Z'),
+      },
+      {
+        entityType: 'task',
+        entityId: 'task-2',
+        createdAt: new Date('2026-04-03T11:30:00.000Z'),
+      },
+      {
+        entityType: 'project',
+        entityId: 'project-1',
+        createdAt: new Date('2026-04-03T09:30:00.000Z'),
+      },
+    ]);
+
+    const result = await service.getWorkspace(currentUser);
+
+    const actorOrMatcher: unknown = expect.arrayContaining([
+      { actorUserId: null },
+      { actorUserId: { not: currentUser.id } },
+    ]);
+    const actorFilterMatcher: unknown = expect.objectContaining({
+      OR: actorOrMatcher,
+    });
+    const auditAndMatcher: unknown = expect.arrayContaining([
+      actorFilterMatcher,
+    ]);
+    const auditWhereMatcher: unknown = expect.objectContaining({
+      AND: auditAndMatcher,
+    });
+    const auditQueryMatcher: unknown = expect.objectContaining({
+      where: auditWhereMatcher,
+    });
+    expect(mocks.findAuditEventsMock).toHaveBeenCalledWith(auditQueryMatcher);
+    const project = result.projects[0];
+
+    expect(project).toBeDefined();
+    if (!project) {
+      throw new Error('Expected project');
+    }
+    expect(project).toEqual(
+      expect.objectContaining({
+        hasUnviewedChanges: true,
+        lastViewedAt: viewedAt,
+      }),
+    );
+    expect(project.tasks[0]).toEqual(
+      expect.objectContaining({
+        hasUnviewedChanges: true,
+      }),
+    );
+    expect(project.tasks[1]).toEqual(
+      expect.objectContaining({
+        hasUnviewedChanges: true,
+      }),
+    );
+  });
+
+  it('marks a single active project viewed for the current user', async () => {
+    const { mocks, service } = createService();
+
+    mocks.findActiveProjectMock.mockResolvedValue({ id: 'project-1' });
+    mocks.upsertProjectViewStateMock.mockResolvedValue({});
+
+    const result = await service.markProjectViewed('project-1', currentUser);
+
+    expect(mocks.requireNonGuestAccessMock).toHaveBeenCalledWith(currentUser);
+    expect(mocks.findActiveProjectMock).toHaveBeenCalledWith({
+      where: {
+        archivedAt: null,
+        id: 'project-1',
+      },
+      select: { id: true },
+    });
+    const viewedAtDateMatcher: unknown = expect.any(Date);
+    const createViewStateMatcher: unknown = expect.objectContaining({
+      projectId: 'project-1',
+      userId: currentUser.id,
+    });
+    const updateViewStateMatcher: unknown = expect.objectContaining({
+      viewedAt: viewedAtDateMatcher,
+    });
+    const upsertViewStateMatcher: unknown = expect.objectContaining({
+      create: createViewStateMatcher,
+      update: updateViewStateMatcher,
+    });
+
+    expect(mocks.upsertProjectViewStateMock).toHaveBeenCalledWith(
+      upsertViewStateMatcher,
+    );
+    expect(result.projectId).toBe('project-1');
+    expect(typeof result.viewedAt).toBe('string');
   });
 
   it('resets project and task data after admin password confirmation', async () => {

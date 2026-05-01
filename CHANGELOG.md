@@ -4,6 +4,13 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.12 - 2026-05-01
+
+- Added per-user viewed-change tracking for projects and tasks, including subtle unviewed highlights, actor-aware audit-event detection, collapse-to-mark-viewed behavior, and a toolbar `Mark all viewed` action.
+- Moved `Personal ToDo` into the User Profile panel and kept the top workspace toolbar focused on shared-workspace review actions.
+- Added backup/restore coverage, Prisma persistence, API endpoints, web regression coverage, and documentation for viewed-state behavior.
+- Added Kubernetes example NetworkPolicies that keep PostgreSQL reachable only from the Tavi API and worker pods, with deployment docs explaining when and how to apply them.
+
 ## 0.9.11 - 2026-04-23
 
 - Added `infra/docker/up.sh` and `infra/docker/down.sh` as convenience wrappers for the published-image `compose-prod` local runtime.

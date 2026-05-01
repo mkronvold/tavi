@@ -132,6 +132,7 @@ Recommended primary tables:
 - `projects`
 - `tasks`
 - `personal_todos`
+- `project_view_states`
 - `saved_views`
 - `imports`
 - `import_rows`
@@ -227,6 +228,19 @@ Migration note:
 
 - Existing task descriptions and blocked reasons should be preserved by merging them into `tasks.notes`.
 - Existing project override reasons should seed `projects.notes`.
+
+### project_view_states
+
+Important columns:
+
+- `id`
+- `user_id`
+- `project_id`
+- `viewed_at`
+- `created_at`
+- `updated_at`
+
+This table stores per-user viewed state for shared projects. Workspace responses compare actor-aware project and task audit events against `viewed_at`; changes made by the current user do not create unviewed highlights for that same user. Existing projects are baselined as viewed when the feature is introduced so older audit history does not light up the entire workspace.
 
 ### saved_views
 

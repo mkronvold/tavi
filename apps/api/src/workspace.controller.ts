@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { resetWorkspaceExamplesSchema } from '@tavi/schemas';
 import type { AuthenticatedRequest } from './auth.types';
 import { SessionGuard } from './session.guard';
@@ -13,6 +21,19 @@ export class WorkspaceController {
   @Get()
   getWorkspace(@Req() request: AuthenticatedRequest) {
     return this.workspaceService.getWorkspace(request.user!);
+  }
+
+  @Post('projects/:projectId/viewed')
+  markProjectViewed(
+    @Param('projectId') projectId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.workspaceService.markProjectViewed(projectId, request.user!);
+  }
+
+  @Post('projects/viewed')
+  markAllProjectsViewed(@Req() request: AuthenticatedRequest) {
+    return this.workspaceService.markAllProjectsViewed(request.user!);
   }
 
   @Post('reset-examples')

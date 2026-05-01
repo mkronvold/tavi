@@ -443,6 +443,22 @@ export type ResetWorkspaceExamplesResponse = z.infer<
   typeof resetWorkspaceExamplesResponseSchema
 >;
 
+export const markProjectViewedResponseSchema = z.object({
+  projectId: z.string().min(1),
+  viewedAt: z.string().min(1),
+});
+export type MarkProjectViewedResponse = z.infer<
+  typeof markProjectViewedResponseSchema
+>;
+
+export const markAllProjectsViewedResponseSchema = z.object({
+  viewedAt: z.string().min(1),
+  viewedProjectCount: z.number().int().nonnegative(),
+});
+export type MarkAllProjectsViewedResponse = z.infer<
+  typeof markAllProjectsViewedResponseSchema
+>;
+
 export const createProjectSchema = z.object({
   title: z.string().min(1).max(120),
   notes: z.string().max(PROJECT_NOTES_MAX_LENGTH).optional(),

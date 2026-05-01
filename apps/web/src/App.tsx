@@ -44,6 +44,8 @@ import {
   login,
   loginAsGuest,
   logout,
+  markAllProjectsViewed,
+  markProjectViewed,
   requestPasswordReset,
   renameSavedView,
   reorderProjectTasks,
@@ -1572,6 +1574,51 @@ function WorkspaceScreen({
 
     globalThis.setTimeout(reveal, 0);
   };
+  const revealRegroupedStatusProject = async (
+    previousProjectStatuses: Map<string, ProjectStatus>,
+  ) => {
+    await invalidateWorkspaceAndAudit();
+
+    if (groupBy !== "status" || previousProjectStatuses.size === 0) {
+      return;
+    }
+
+    const refreshedWorkspace = queryClient.getQueryData<WorkspaceResponse>([
+      "workspace",
+    ]);
+
+    if (!refreshedWorkspace) {
+      return;
+    }
+
+    const regroupedProjectId = findFirstRegroupedProjectId(
+      previousProjectStatuses,
+      refreshedWorkspace.projects,
+    );
+
+    if (!regroupedProjectId) {
+      return;
+    }
+
+    revealExpandedProjectCard(regroupedProjectId);
+  };
+  const markCollapsedProjectsViewed = (projectIds: string[]) => {
+    if (isGuestUser || projectIds.length === 0) {
+      return;
+    }
+
+    const unviewedProjectIds = new Set(
+      data.projects
+        .filter((project) => project.hasUnviewedChanges === true)
+        .map((project) => project.id),
+    );
+
+    for (const projectId of projectIds) {
+      if (unviewedProjectIds.has(projectId)) {
+        markProjectViewedMutation.mutate(projectId);
+      }
+    }
+  };
 
   const setProjectExpanded = (projectId: string, nextValue: boolean) => {
     const collapsedProjectIds = !nextValue
@@ -1585,6 +1632,7 @@ function WorkspaceScreen({
       nextValue && autoCollapse && collapsedProjectIds.length > 0;
 
     clearAddTaskPanelsForProjects(collapsedProjectIds);
+    markCollapsedProjectsViewed(collapsedProjectIds);
 
     const editingTaskProjectId = editingTaskId
       ? findProjectIdForTask(data.projects, editingTaskId)
@@ -1827,12 +1875,19 @@ function WorkspaceScreen({
       payload: UpdateTaskPayload;
     }) => updateTask(taskId, payload),
     onSuccess: async (_, variables) => {
+      const previousProjectStatuses =
+        variables.payload.status === undefined || !variables.payload.projectId
+          ? new Map<string, ProjectStatus>()
+          : snapshotProjectDisplayStatuses(data.projects, [
+              variables.payload.projectId,
+            ]);
+
       setTaskEditError(null);
       setEditingTaskId(null);
       if (variables.payload.projectId) {
         setProjectExpanded(variables.payload.projectId, true);
       }
-      await invalidateWorkspaceAndAudit();
+      await revealRegroupedStatusProject(previousProjectStatuses);
     },
     onError: (error) => {
       setTaskEditError(
@@ -1950,11 +2005,19 @@ function WorkspaceScreen({
 
   const bulkUpdateTaskMutation = useMutation({
     mutationFn: bulkUpdateTasks,
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
+      const previousProjectStatuses =
+        variables.status === undefined
+          ? new Map<string, ProjectStatus>()
+          : snapshotProjectDisplayStatusesForTasks(
+              data.projects,
+              variables.taskIds,
+            );
+
       setBulkTaskError(null);
       setSelectedTasks({});
       setBulkTaskDraft(createEmptyBulkTaskDraft());
-      await invalidateWorkspaceAndAudit();
+      await revealRegroupedStatusProject(previousProjectStatuses);
     },
     onError: (error) => {
       setBulkTaskError(
@@ -2080,6 +2143,84 @@ function WorkspaceScreen({
       );
     },
   });
+  const markProjectViewedMutation = useMutation({
+    mutationFn: markProjectViewed,
+    onMutate: async (projectId: string) => {
+      setWorkspaceNotice(null);
+      await queryClient.cancelQueries({ queryKey: ["workspace"] });
+      const previous = queryClient.getQueryData<WorkspaceResponse>([
+        "workspace",
+      ]);
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        clearViewedChangesForProjects(current, [projectId], new Date()),
+      );
+
+      return { previous };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        clearViewedChangesForProjects(
+          current,
+          [result.projectId],
+          result.viewedAt,
+        ),
+      );
+    },
+    onError: (error, _projectId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["workspace"], context.previous);
+      }
+
+      setWorkspaceNotice(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to mark project changes viewed.",
+      );
+    },
+  });
+  const markAllProjectsViewedMutation = useMutation({
+    mutationFn: async (projectIds: string[]) => ({
+      ...(await markAllProjectsViewed()),
+      projectIds,
+    }),
+    onMutate: async (projectIds: string[]) => {
+      setWorkspaceNotice(null);
+      await queryClient.cancelQueries({ queryKey: ["workspace"] });
+      const previous = queryClient.getQueryData<WorkspaceResponse>([
+        "workspace",
+      ]);
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        clearViewedChangesForProjects(current, projectIds, new Date()),
+      );
+
+      return { previous };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
+        clearViewedChangesForProjects(
+          current,
+          result.projectIds,
+          result.viewedAt,
+        ),
+      );
+      setWorkspaceNotice(
+        result.projectIds.length === 0
+          ? "All visible projects were already marked viewed."
+          : `Marked ${result.projectIds.length.toString()} project${result.projectIds.length === 1 ? "" : "s"} viewed.`,
+      );
+    },
+    onError: (error, _projectIds, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["workspace"], context.previous);
+      }
+
+      setWorkspaceNotice(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to mark all changes viewed.",
+      );
+    },
+  });
 
   const filteredProjects = useMemo(
     () =>
@@ -2111,6 +2252,12 @@ function WorkspaceScreen({
       Object.fromEntries(
         data.projects.map((project) => [project.id, project]),
       ) as Record<string, WorkspaceProject>,
+    [data.projects],
+  );
+  const unviewedProjectCount = useMemo(
+    () =>
+      data.projects.filter((project) => project.hasUnviewedChanges === true)
+        .length,
     [data.projects],
   );
   const hiddenDoneTaskIds = useMemo(
@@ -2559,11 +2706,24 @@ function WorkspaceScreen({
                 </button>
                 <button
                   type="button"
-                  className={`ghost-button compact-button panel-toggle-button${panelState.personalTodo ? " is-active" : ""}`}
-                  aria-pressed={panelState.personalTodo}
-                  onClick={() => toggleWorkspacePanel("personalTodo")}
+                  className="ghost-button compact-button"
+                  disabled={
+                    unviewedProjectCount === 0 ||
+                    markAllProjectsViewedMutation.isPending
+                  }
+                  onClick={() => {
+                    const unviewedProjectIds = data.projects
+                      .filter((project) => project.hasUnviewedChanges === true)
+                      .map((project) => project.id);
+
+                    if (unviewedProjectIds.length > 0) {
+                      markAllProjectsViewedMutation.mutate(unviewedProjectIds);
+                    }
+                  }}
                 >
-                  Personal ToDo
+                  {markAllProjectsViewedMutation.isPending
+                    ? "Marking..."
+                    : "Mark all viewed"}
                 </button>
                 <button
                   type="button"
@@ -2610,6 +2770,7 @@ function WorkspaceScreen({
               fullWidth={fullWidth}
               isAdmin={data.currentUser.role === "admin"}
               isImportExportOpen={panelState.importExport}
+              isPersonalTodoOpen={panelState.personalTodo}
               isUserHistoryOpen={
                 auditTarget?.entityType === "auth" &&
                 auditTarget.entityId === data.currentUser.id
@@ -2623,6 +2784,9 @@ function WorkspaceScreen({
               onThemeChange={onThemeChange}
               onToggleImportExportPanel={() =>
                 toggleWorkspacePanel("importExport")
+              }
+              onTogglePersonalTodoPanel={() =>
+                toggleWorkspacePanel("personalTodo")
               }
               onToggleUserHistory={() => {
                 if (
@@ -3344,6 +3508,10 @@ function WorkspaceScreen({
                 const projectCardClassName = `project-card${
                   expanded ? " project-card--expanded" : ""
                 }${
+                  project.hasUnviewedChanges === true
+                    ? " project-card--unviewed"
+                    : ""
+                }${
                   expanded || editingProjectId === project.id || addTaskOpen
                     ? ""
                     : " project-card--collapsed"
@@ -3997,6 +4165,9 @@ function WorkspaceScreen({
                                   taskReorderDisabledReason ?? "Drag to reorder"
                                 }
                                 editRowRef={taskEditRowRef}
+                                hasUnviewedChanges={
+                                  task.hasUnviewedChanges === true
+                                }
                                 editingTaskId={editingTaskId}
                                 isSelected={selectedTasks[task.id] ?? false}
                                 isTaskDragging={
@@ -4211,6 +4382,7 @@ type TaskRowProps = {
   data: WorkspaceResponse;
   dragHandleTitle: string;
   editRowRef?: React.Ref<HTMLTableRowElement>;
+  hasUnviewedChanges: boolean;
   editingTaskId: string | null;
   isSelected: boolean;
   isTaskDragging: boolean;
@@ -4242,6 +4414,7 @@ function TaskRow({
   data,
   dragHandleTitle,
   editRowRef,
+  hasUnviewedChanges,
   editingTaskId,
   isSelected,
   isTaskDragging,
@@ -4446,6 +4619,7 @@ function TaskRow({
   }
 
   const rowClassName = [
+    hasUnviewedChanges ? "task-row--unviewed" : null,
     isTaskDragging ? "task-row--dragging" : null,
     reorderIndicator === "before" ? "task-row--drop-before" : null,
     reorderIndicator === "after" ? "task-row--drop-after" : null,
@@ -4583,6 +4757,7 @@ type ProfilePanelProps = {
   fullWidth: boolean;
   isAdmin: boolean;
   isImportExportOpen: boolean;
+  isPersonalTodoOpen: boolean;
   isUserHistoryOpen: boolean;
   onAutoCollapseChange: (autoCollapse: boolean) => void;
   onBulkActionsChange: (bulkActions: boolean) => void;
@@ -4592,6 +4767,7 @@ type ProfilePanelProps = {
   onNotice: (message: string) => void;
   onThemeChange: (theme: WorkspaceTheme) => void;
   onToggleImportExportPanel: () => void;
+  onTogglePersonalTodoPanel: () => void;
   onToggleUserHistory: () => void;
   theme: WorkspaceTheme;
 };
@@ -4603,6 +4779,7 @@ function ProfilePanel({
   fullWidth,
   isAdmin,
   isImportExportOpen,
+  isPersonalTodoOpen,
   isUserHistoryOpen,
   onAutoCollapseChange,
   onBulkActionsChange,
@@ -4612,6 +4789,7 @@ function ProfilePanel({
   onNotice,
   onThemeChange,
   onToggleImportExportPanel,
+  onTogglePersonalTodoPanel,
   onToggleUserHistory,
   theme,
 }: ProfilePanelProps) {
@@ -4975,6 +5153,20 @@ function ProfilePanel({
               )}
             </div>
           </form>
+        </div>
+
+        <div
+          aria-expanded={isPersonalTodoOpen}
+          className="settings-item settings-item-toggle"
+          {...settingsCardButtonProps(onTogglePersonalTodoPanel)}
+        >
+          <div className="settings-item-header">
+            <strong>Personal ToDo</strong>
+            <span>{isPersonalTodoOpen ? "Open" : "Closed"}</span>
+          </div>
+          <p className="toolbar-hint">
+            Open your private task list without changing the shared workspace.
+          </p>
         </div>
 
         <div className="settings-item">
@@ -7742,6 +7934,85 @@ function findProjectIdForTask(
   }
 
   return null;
+}
+
+function snapshotProjectDisplayStatuses(
+  projects: WorkspaceProject[],
+  projectIds: string[],
+) {
+  const targetProjectIds = new Set(projectIds);
+  const statuses = new Map<string, ProjectStatus>();
+
+  for (const project of projects) {
+    if (targetProjectIds.has(project.id)) {
+      statuses.set(project.id, project.displayStatus);
+    }
+  }
+
+  return statuses;
+}
+
+function snapshotProjectDisplayStatusesForTasks(
+  projects: WorkspaceProject[],
+  taskIds: string[],
+) {
+  const targetTaskIds = new Set(taskIds);
+  const statuses = new Map<string, ProjectStatus>();
+
+  for (const project of projects) {
+    if (project.tasks.some((task) => targetTaskIds.has(task.id))) {
+      statuses.set(project.id, project.displayStatus);
+    }
+  }
+
+  return statuses;
+}
+
+function findFirstRegroupedProjectId(
+  previousProjectStatuses: Map<string, ProjectStatus>,
+  projects: WorkspaceProject[],
+) {
+  for (const project of projects) {
+    if (
+      previousProjectStatuses.has(project.id) &&
+      previousProjectStatuses.get(project.id) !== project.displayStatus
+    ) {
+      return project.id;
+    }
+  }
+
+  return null;
+}
+
+function clearViewedChangesForProjects(
+  current: WorkspaceResponse | undefined,
+  projectIds: string[],
+  viewedAt: Date | string,
+) {
+  if (!current || projectIds.length === 0) {
+    return current;
+  }
+
+  const viewedProjectIds = new Set(projectIds);
+  const viewedAtValue =
+    viewedAt instanceof Date ? viewedAt.toISOString() : viewedAt;
+
+  return {
+    ...current,
+    projects: current.projects.map((project) =>
+      viewedProjectIds.has(project.id)
+        ? {
+            ...project,
+            hasUnviewedChanges: false,
+            lastViewedAt: viewedAtValue,
+            tasks: project.tasks.map((task) => ({
+              ...task,
+              hasUnviewedChanges: false,
+            })),
+          }
+        : project,
+    ),
+  };
 }
 
 function formatPriorityLabel(value: Priority) {

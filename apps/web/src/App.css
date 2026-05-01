@@ -1504,6 +1504,10 @@ button:disabled {
     var(--shadow-card);
 }
 
+.project-card--unviewed {
+  background: color-mix(in srgb, var(--card-bg) 88%, var(--brand-color) 12%);
+}
+
 .project-card--collapsed {
   margin-top: 8px;
   margin-bottom: 8px;
@@ -1869,6 +1873,10 @@ button:disabled {
 
 .task-row--dragging {
   opacity: 0.55;
+}
+
+.task-row--unviewed > td {
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--brand-color) 16%);
 }
 
 .task-row--drop-before > td {

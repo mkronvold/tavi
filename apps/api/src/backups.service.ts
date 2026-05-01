@@ -158,6 +158,15 @@ const backupSavedViewRecordSchema = z.object({
   userId: z.string().min(1),
 });
 
+const backupProjectViewStateRecordSchema = z.object({
+  createdAt: z.string().min(1),
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  updatedAt: z.string().min(1),
+  userId: z.string().min(1),
+  viewedAt: z.string().min(1),
+});
+
 const backupImportJobRecordSchema = z.object({
   completedAt: z.string().min(1).nullable(),
   createdAt: z.string().min(1),
@@ -299,6 +308,10 @@ const backupSnapshotSchema = z.object({
     ),
     notificationEvents: z.array(backupNotificationEventRecordSchema),
     projects: z.array(backupProjectRecordSchema),
+    projectViewStates: z
+      .array(backupProjectViewStateRecordSchema)
+      .optional()
+      .default([]),
     retentionSettings: backupRetentionSettingsRecordSchema.nullable(),
     roleAssignments: z.array(backupRoleAssignmentRecordSchema),
     savedViews: z.array(backupSavedViewRecordSchema),
@@ -512,6 +525,7 @@ function buildSnapshotCounts(snapshot: BackupSnapshot) {
       snapshot.data.notificationDeliveryAttempts.length,
     notificationEvents: snapshot.data.notificationEvents.length,
     projects: snapshot.data.projects.length,
+    projectViewStates: snapshot.data.projectViewStates.length,
     retentionSettings: snapshot.data.retentionSettings ? 1 : 0,
     roleAssignments: snapshot.data.roleAssignments.length,
     savedViews: snapshot.data.savedViews.length,
@@ -948,6 +962,7 @@ export class BackupsService {
       await tx.importRow.deleteMany({});
       await tx.importJob.deleteMany({});
       await tx.savedView.deleteMany({});
+      await tx.projectViewState.deleteMany({});
       await tx.auditEvent.deleteMany({});
       await tx.task.deleteMany({});
       await tx.project.deleteMany({});
@@ -1058,6 +1073,34 @@ export class BackupsService {
             updatedAt: new Date(savedView.updatedAt),
             userId: savedView.userId,
           },
+        });
+      }
+
+      for (const viewState of snapshot.data.projectViewStates) {
+        await tx.projectViewState.create({
+          data: {
+            createdAt: new Date(viewState.createdAt),
+            id: viewState.id,
+            projectId: viewState.projectId,
+            updatedAt: new Date(viewState.updatedAt),
+            userId: viewState.userId,
+            viewedAt: new Date(viewState.viewedAt),
+          },
+        });
+      }
+
+      if (snapshot.data.projectViewStates.length === 0) {
+        const viewedAt = new Date();
+
+        await tx.projectViewState.createMany({
+          data: snapshot.data.users.flatMap((user) =>
+            snapshot.data.projects.map((project) => ({
+              id: `project_view_restore_${user.id}_${project.id}`,
+              projectId: project.id,
+              userId: user.id,
+              viewedAt,
+            })),
+          ),
         });
       }
 
@@ -1732,6 +1775,7 @@ export class BackupsService {
       users,
       roleAssignments,
       projects,
+      projectViewStates,
       tasks,
       savedViews,
       importJobs,
@@ -1747,6 +1791,7 @@ export class BackupsService {
       this.prisma.user.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.roleAssignment.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.project.findMany({ orderBy: { createdAt: 'asc' } }),
+      this.prisma.projectViewState.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.task.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.savedView.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.importJob.findMany({ orderBy: { createdAt: 'asc' } }),
@@ -1905,6 +1950,14 @@ export class BackupsService {
           taskTotalCount: project.taskTotalCount,
           title: project.title,
           updatedAt: project.updatedAt.toISOString(),
+        })),
+        projectViewStates: projectViewStates.map((viewState) => ({
+          createdAt: viewState.createdAt.toISOString(),
+          id: viewState.id,
+          projectId: viewState.projectId,
+          updatedAt: viewState.updatedAt.toISOString(),
+          userId: viewState.userId,
+          viewedAt: viewState.viewedAt.toISOString(),
         })),
         retentionSettings,
         roleAssignments: roleAssignments.map((assignment) => ({

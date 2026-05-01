@@ -13,6 +13,7 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 | Secret template               | `secret.example.yaml`                                                              |
 | Backup storage                | `backup-pvc.yaml`                                                                  |
 | Backup post-process templates | `backup-post-process-pvc.example.yaml`, `backup-post-process-cronjob.example.yaml` |
+| Optional DB network policy    | `postgres-network-policy.example.yaml`                                             |
 | CloudNativePG cluster         | `postgres-cluster.yaml`                                                            |
 | API (3 replicas)              | `api-deployment.yaml`, `api-service.yaml`                                          |
 | Web (3 replicas)              | `web-deployment.yaml`, `web-service.yaml`                                          |
@@ -37,7 +38,8 @@ Use this path when the cluster should run the app at three replicas and PostgreS
 4. Adjust the storage size in `postgres-cluster.yaml` if `10Gi` is not appropriate.
 5. Update `backup-pvc.yaml` if your cluster needs a different storage class or size. The API and worker share this PVC across replica sets, so the storage class must support `ReadWriteMany`.
 6. If you need downstream archival or off-cluster replication, customize `backup-post-process-pvc.example.yaml` and `backup-post-process-cronjob.example.yaml`.
-7. The root `kustomization.yaml` intentionally excludes example secrets and optional backup post-process templates.
+7. If your cluster enforces or supports NetworkPolicy, customize `postgres-network-policy.example.yaml` to allow only the pods that should reach the CloudNativePG cluster before applying it.
+8. The root `kustomization.yaml` intentionally excludes example secrets, the optional Postgres NetworkPolicy, and optional backup post-process templates.
 
 ## Install
 
@@ -54,6 +56,12 @@ Apply the post-process templates only after customizing them:
 ```bash
 kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/backup-post-process-pvc.example.yaml
 kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/backup-post-process-cronjob.example.yaml
+```
+
+Apply the example Postgres NetworkPolicy only after confirming the allowed pod labels match your deployment and the CloudNativePG pod labels in your cluster:
+
+```bash
+kubectl apply -f infra/k8s/k8s-with-replicas-and-internal-ha-db/postgres-network-policy.example.yaml
 ```
 
 ## Verify
