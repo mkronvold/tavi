@@ -29,9 +29,12 @@ describe('WorkspaceService', () => {
     const findPersonalTodosMock = jest.fn();
     const findProjectViewStatesMock = jest.fn().mockResolvedValue([]);
     const upsertProjectViewStateMock = jest.fn();
+    const findTaskViewStatesMock = jest.fn().mockResolvedValue([]);
+    const upsertTaskViewStateMock = jest.fn();
     const findAuditEventsMock = jest.fn().mockResolvedValue([]);
     type WorkspaceTransactionClient = {
       projectViewState: { upsert: typeof upsertProjectViewStateMock };
+      taskViewState: { upsert: typeof upsertTaskViewStateMock };
       project: {
         count: typeof countProjectsMock;
         create: typeof createProjectMock;
@@ -60,6 +63,9 @@ describe('WorkspaceService', () => {
           input({
             projectViewState: {
               upsert: upsertProjectViewStateMock,
+            },
+            taskViewState: {
+              upsert: upsertTaskViewStateMock,
             },
             project: {
               count: countProjectsMock,
@@ -105,6 +111,10 @@ describe('WorkspaceService', () => {
         findMany: findProjectViewStatesMock,
         upsert: upsertProjectViewStateMock,
       },
+      taskViewState: {
+        findMany: findTaskViewStatesMock,
+        upsert: upsertTaskViewStateMock,
+      },
       auditEvent: {
         findMany: findAuditEventsMock,
       },
@@ -148,6 +158,7 @@ describe('WorkspaceService', () => {
         findPersonalTodosMock,
         findProjectViewStatesMock,
         findProjectsMock,
+        findTaskViewStatesMock,
         findCurrentUserMock,
         findUsersMock,
         hashPasswordMock,
@@ -160,6 +171,7 @@ describe('WorkspaceService', () => {
         requireAdminAccessMock,
         requireNonGuestAccessMock,
         upsertProjectViewStateMock,
+        upsertTaskViewStateMock,
         transactionMock,
       },
       service: new WorkspaceService(
@@ -334,49 +346,16 @@ describe('WorkspaceService', () => {
     mocks.findCurrentUserMock.mockResolvedValue({ userConfigJson: null });
     mocks.findPersonalTodosMock.mockResolvedValue([]);
     mocks.listSavedViewsMock.mockResolvedValue([]);
-    mocks.findProjectViewStatesMock.mockResolvedValue([
+    mocks.findTaskViewStatesMock.mockResolvedValue([
       {
-        projectId: 'project-1',
-        viewedAt,
-      },
-    ]);
-    mocks.findAuditEventsMock.mockResolvedValue([
-      {
-        entityType: 'task',
-        entityId: 'task-1',
-        createdAt: new Date('2026-04-03T11:00:00.000Z'),
-      },
-      {
-        entityType: 'task',
-        entityId: 'task-2',
-        createdAt: new Date('2026-04-03T11:30:00.000Z'),
-      },
-      {
-        entityType: 'project',
-        entityId: 'project-1',
-        createdAt: new Date('2026-04-03T09:30:00.000Z'),
+        taskId: 'task-1',
+        updatedAt: viewedAt,
       },
     ]);
 
     const result = await service.getWorkspace(currentUser);
 
-    const actorOrMatcher: unknown = expect.arrayContaining([
-      { actorUserId: null },
-      { actorUserId: { not: currentUser.id } },
-    ]);
-    const actorFilterMatcher: unknown = expect.objectContaining({
-      OR: actorOrMatcher,
-    });
-    const auditAndMatcher: unknown = expect.arrayContaining([
-      actorFilterMatcher,
-    ]);
-    const auditWhereMatcher: unknown = expect.objectContaining({
-      AND: auditAndMatcher,
-    });
-    const auditQueryMatcher: unknown = expect.objectContaining({
-      where: auditWhereMatcher,
-    });
-    expect(mocks.findAuditEventsMock).toHaveBeenCalledWith(auditQueryMatcher);
+    expect(mocks.findAuditEventsMock).not.toHaveBeenCalled();
     const project = result.projects[0];
 
     expect(project).toBeDefined();
@@ -386,12 +365,12 @@ describe('WorkspaceService', () => {
     expect(project).toEqual(
       expect.objectContaining({
         hasUnviewedChanges: true,
-        lastViewedAt: viewedAt,
+        lastViewedAt: null,
       }),
     );
     expect(project.tasks[0]).toEqual(
       expect.objectContaining({
-        hasUnviewedChanges: true,
+        hasUnviewedChanges: false,
       }),
     );
     expect(project.tasks[1]).toEqual(
@@ -404,8 +383,11 @@ describe('WorkspaceService', () => {
   it('marks a single active project viewed for the current user', async () => {
     const { mocks, service } = createService();
 
-    mocks.findActiveProjectMock.mockResolvedValue({ id: 'project-1' });
-    mocks.upsertProjectViewStateMock.mockResolvedValue({});
+    mocks.findActiveProjectMock.mockResolvedValue({
+      id: 'project-1',
+      tasks: [{ id: 'task-1' }, { id: 'task-2' }],
+    });
+    mocks.upsertTaskViewStateMock.mockResolvedValue({});
 
     const result = await service.markProjectViewed('project-1', currentUser);
 
@@ -415,25 +397,31 @@ describe('WorkspaceService', () => {
         archivedAt: null,
         id: 'project-1',
       },
-      select: { id: true },
+      select: {
+        id: true,
+        tasks: {
+          where: { archivedAt: null },
+          select: { id: true },
+        },
+      },
     });
     const viewedAtDateMatcher: unknown = expect.any(Date);
     const createViewStateMatcher: unknown = expect.objectContaining({
-      projectId: 'project-1',
+      taskId: 'task-1',
       userId: currentUser.id,
     });
     const updateViewStateMatcher: unknown = expect.objectContaining({
-      viewedAt: viewedAtDateMatcher,
-    });
-    const upsertViewStateMatcher: unknown = expect.objectContaining({
-      create: createViewStateMatcher,
-      update: updateViewStateMatcher,
+      updatedAt: viewedAtDateMatcher,
     });
 
-    expect(mocks.upsertProjectViewStateMock).toHaveBeenCalledWith(
-      upsertViewStateMatcher,
+    expect(mocks.upsertTaskViewStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: createViewStateMatcher,
+        update: updateViewStateMatcher,
+      }),
     );
     expect(result.projectId).toBe('project-1');
+    expect(result.viewedTaskCount).toBe(2);
     expect(typeof result.viewedAt).toBe('string');
   });
 

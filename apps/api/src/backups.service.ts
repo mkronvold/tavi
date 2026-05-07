@@ -167,6 +167,14 @@ const backupProjectViewStateRecordSchema = z.object({
   viewedAt: z.string().min(1),
 });
 
+const backupTaskViewStateRecordSchema = z.object({
+  createdAt: z.string().min(1),
+  id: z.string().min(1),
+  taskId: z.string().min(1),
+  updatedAt: z.string().min(1),
+  userId: z.string().min(1),
+});
+
 const backupImportJobRecordSchema = z.object({
   completedAt: z.string().min(1).nullable(),
   createdAt: z.string().min(1),
@@ -310,6 +318,10 @@ const backupSnapshotSchema = z.object({
     projects: z.array(backupProjectRecordSchema),
     projectViewStates: z
       .array(backupProjectViewStateRecordSchema)
+      .optional()
+      .default([]),
+    taskViewStates: z
+      .array(backupTaskViewStateRecordSchema)
       .optional()
       .default([]),
     retentionSettings: backupRetentionSettingsRecordSchema.nullable(),
@@ -526,6 +538,7 @@ function buildSnapshotCounts(snapshot: BackupSnapshot) {
     notificationEvents: snapshot.data.notificationEvents.length,
     projects: snapshot.data.projects.length,
     projectViewStates: snapshot.data.projectViewStates.length,
+    taskViewStates: snapshot.data.taskViewStates.length,
     retentionSettings: snapshot.data.retentionSettings ? 1 : 0,
     roleAssignments: snapshot.data.roleAssignments.length,
     savedViews: snapshot.data.savedViews.length,
@@ -962,6 +975,7 @@ export class BackupsService {
       await tx.importRow.deleteMany({});
       await tx.importJob.deleteMany({});
       await tx.savedView.deleteMany({});
+      await tx.taskViewState.deleteMany({});
       await tx.projectViewState.deleteMany({});
       await tx.auditEvent.deleteMany({});
       await tx.task.deleteMany({});
@@ -1101,6 +1115,43 @@ export class BackupsService {
               viewedAt,
             })),
           ),
+        });
+      }
+
+      for (const viewState of snapshot.data.taskViewStates) {
+        await tx.taskViewState.create({
+          data: {
+            createdAt: new Date(viewState.createdAt),
+            id: viewState.id,
+            taskId: viewState.taskId,
+            updatedAt: new Date(viewState.updatedAt),
+            userId: viewState.userId,
+          },
+        });
+      }
+
+      if (snapshot.data.taskViewStates.length === 0) {
+        const activeProjectIds = new Set(
+          snapshot.data.projects
+            .filter((project) => project.archivedAt === null)
+            .map((project) => project.id),
+        );
+
+        await tx.taskViewState.createMany({
+          data: snapshot.data.users.flatMap((user) =>
+            snapshot.data.tasks
+              .filter(
+                (task) =>
+                  task.archivedAt === null &&
+                  activeProjectIds.has(task.projectId),
+              )
+              .map((task) => ({
+                id: `task_view_restore_${user.id}_${task.id}`,
+                taskId: task.id,
+                userId: user.id,
+              })),
+          ),
+          skipDuplicates: true,
         });
       }
 
@@ -1776,6 +1827,7 @@ export class BackupsService {
       roleAssignments,
       projects,
       projectViewStates,
+      taskViewStates,
       tasks,
       savedViews,
       importJobs,
@@ -1792,6 +1844,7 @@ export class BackupsService {
       this.prisma.roleAssignment.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.project.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.projectViewState.findMany({ orderBy: { createdAt: 'asc' } }),
+      this.prisma.taskViewState.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.task.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.savedView.findMany({ orderBy: { createdAt: 'asc' } }),
       this.prisma.importJob.findMany({ orderBy: { createdAt: 'asc' } }),
@@ -1958,6 +2011,13 @@ export class BackupsService {
           updatedAt: viewState.updatedAt.toISOString(),
           userId: viewState.userId,
           viewedAt: viewState.viewedAt.toISOString(),
+        })),
+        taskViewStates: taskViewStates.map((viewState) => ({
+          createdAt: viewState.createdAt.toISOString(),
+          id: viewState.id,
+          taskId: viewState.taskId,
+          updatedAt: viewState.updatedAt.toISOString(),
+          userId: viewState.userId,
         })),
         retentionSettings,
         roleAssignments: roleAssignments.map((assignment) => ({

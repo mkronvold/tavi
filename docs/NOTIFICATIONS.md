@@ -56,6 +56,7 @@ They now include:
 2. A formatted change summary.
 3. Simulated code-fence `From:` and `To:` blocks so the before and after values are easy to compare.
 4. Project names in email bodies link to a prefilled workspace search for that project.
+5. An email-safe Tavi-branded HTML wrapper with a compact logo image, clear fallback text, and no dependency on stylized Unicode rendering.
 
 ## Daily digest behavior
 
@@ -106,3 +107,4 @@ Use the `Enable reminders` switch at the top of the `Personal ToDo` panel to tur
 3. If global email is disabled, neither immediate update emails nor daily digests are sent.
 4. Personal ToDo reminder emails also depend on the global email switch, but they are not batched into the daily digest.
 5. `Audit changes` intentionally excludes outbound email-delivery events so project/task changes and email timelines do not duplicate each other.
+6. Email copy uses `Tavi` for broad mail-client compatibility even when the web UI or docs use the stylized `ᴛᴀᴠi` display form.

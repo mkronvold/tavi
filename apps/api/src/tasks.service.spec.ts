@@ -59,6 +59,10 @@ describe('TasksService', () => {
     const updateTaskMock: jest.MockedFunction<
       (args: UpdateTaskCall) => Promise<unknown>
     > = jest.fn();
+    const upsertTaskViewStateMock = jest.fn(() => Promise.resolve({}));
+    const deleteManyTaskViewStatesMock = jest.fn(() =>
+      Promise.resolve({ count: 0 }),
+    );
     const updateSingleTaskMock = updateTaskMock;
     const tx = {
       project: {
@@ -68,6 +72,10 @@ describe('TasksService', () => {
         create: createTaskMock,
         findFirst: findFirstTaskMock,
         update: updateTaskMock,
+      },
+      taskViewState: {
+        deleteMany: deleteManyTaskViewStatesMock,
+        upsert: upsertTaskViewStateMock,
       },
     };
     const transactionMock = jest.fn(
@@ -82,6 +90,9 @@ describe('TasksService', () => {
       },
     );
     const recalculateProjectMock = jest.fn(() => Promise.resolve());
+    const cleanupEmptyUnassignedProjectMock = jest.fn(() =>
+      Promise.resolve(null),
+    );
     const prisma = {
       project: {
         findUnique: findUniqueProjectMock,
@@ -91,6 +102,10 @@ describe('TasksService', () => {
         findMany: findManyMock,
         findUnique: findUniqueTaskMock,
         update: updateTaskMock,
+      },
+      taskViewState: {
+        deleteMany: deleteManyTaskViewStatesMock,
+        upsert: upsertTaskViewStateMock,
       },
       $transaction: transactionMock,
     } as unknown as PrismaService;
@@ -102,6 +117,7 @@ describe('TasksService', () => {
       queueTaskChange: jest.fn(() => Promise.resolve()),
     } as unknown as NotificationEventsService;
     const projectsService = {
+      cleanupEmptyUnassignedProject: cleanupEmptyUnassignedProjectMock,
       recalculateProject: recalculateProjectMock,
     } as unknown as ProjectsService;
 
@@ -113,6 +129,8 @@ describe('TasksService', () => {
         findUniqueTaskMock,
         createProjectMock,
         createTaskMock,
+        cleanupEmptyUnassignedProjectMock,
+        deleteManyTaskViewStatesMock,
         recalculateProjectMock,
         recordAuditCalls,
         recordAuditMock,
@@ -121,6 +139,7 @@ describe('TasksService', () => {
         tx,
         updateSingleTaskMock,
         updateTaskMock,
+        upsertTaskViewStateMock,
       },
       service: new TasksService(
         prisma,
@@ -211,6 +230,26 @@ describe('TasksService', () => {
       mocks.tx,
     );
     expect(mocks.recordAuditMock).toHaveBeenCalledTimes(3);
+    expect(mocks.deleteManyTaskViewStatesMock).toHaveBeenCalledWith({
+      where: {
+        taskId: 'task-1',
+        userId: { not: actor.id },
+      },
+    });
+    const createViewStateMatcher: unknown = expect.objectContaining({
+      taskId: 'task-1',
+      userId: actor.id,
+    });
+    const viewedAtDateMatcher: unknown = expect.any(Date);
+    const updateViewStateMatcher: unknown = expect.objectContaining({
+      updatedAt: viewedAtDateMatcher,
+    });
+    expect(mocks.upsertTaskViewStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: createViewStateMatcher,
+        update: updateViewStateMatcher,
+      }),
+    );
 
     const firstAuditCall = mocks.recordAuditCalls[0];
     const firstAuditMetadata = firstAuditCall[4] ?? {};
@@ -1049,7 +1088,10 @@ describe('TasksService', () => {
       where: { id: 'task-1' },
     });
     expect(updateCall?.data['archivedAt']).toBeInstanceOf(Date);
-    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith('project-1');
+    expect(mocks.recalculateProjectMock).toHaveBeenCalledWith(
+      'project-1',
+      mocks.tx,
+    );
 
     const auditMetadata = mocks.recordAuditCalls[0]?.[4] ?? {};
     const changedFields = Array.isArray(auditMetadata['changedFields'])

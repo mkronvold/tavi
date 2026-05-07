@@ -106,7 +106,7 @@ Browser
 - Serves the React application
 - Reads session state from the API
 - Stores reusable workspace state in saved views and per-user config mirrored into browser-local Tavi storage
-- Stores panel toggle state, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, per-project Add Task expansion, and Personal ToDo `hide done` visibility in per-user config mirrored into browser-local Tavi storage
+- Stores panel toggle state, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, workspace filters including `Not viewed`, per-project Add Task expansion, per-project task `D` hide-done/cancelled visibility, and Personal ToDo `hide done` visibility in per-user config mirrored into browser-local Tavi storage
 - Reads deployment-specific browser entry URLs such as the temporary header home link from a small runtime config file so Docker and Kubernetes can override them without rebuilding the app
 
 ### API
@@ -132,7 +132,8 @@ Recommended primary tables:
 - `projects`
 - `tasks`
 - `personal_todos`
-- `project_view_states`
+- `task_view_states`
+- `project_view_states` for compatibility with older snapshots
 - `saved_views`
 - `imports`
 - `import_rows`
@@ -229,18 +230,19 @@ Migration note:
 - Existing task descriptions and blocked reasons should be preserved by merging them into `tasks.notes`.
 - Existing project override reasons should seed `projects.notes`.
 
-### project_view_states
+### task_view_states
 
 Important columns:
 
 - `id`
 - `user_id`
-- `project_id`
-- `viewed_at`
+- `task_id`
 - `created_at`
 - `updated_at`
 
-This table stores per-user viewed state for shared projects. Workspace responses compare actor-aware project and task audit events against `viewed_at`; changes made by the current user do not create unviewed highlights for that same user. Existing projects are baselined as viewed when the feature is introduced so older audit history does not light up the entire workspace.
+This table stores per-user viewed state for shared tasks. Workspace responses mark a task unviewed for a user when that active task does not have a current `task_view_states` row for that user. Project cards derive their unviewed state from their active tasks, so a project is highlighted when any visible task under it needs attention. Task writes mark the actor's row viewed and remove other users' rows for that task; collapsing a project and `Mark all viewed` upsert rows for active tasks.
+
+`project_view_states` may still be present in older databases or backup snapshots, but task-level state is the workspace source of truth for current unviewed highlights.
 
 ### saved_views
 
@@ -250,8 +252,10 @@ Store:
 - Owner scope for Milestone 4A
 - Search text
 - Grouping mode
-- Task-status filters
-- Task-assignee filters
+- Project-status filters
+- Project/task assignee filters
+- `Not viewed` filter state
+- Multi-field project sort order
 - Expanded/collapsed defaults for groups and projects
 
 ### users
@@ -325,6 +329,8 @@ Representative endpoints:
 - `PATCH /api/tasks/:taskId`
 - `POST /api/projects/:projectId/status-override`
 - `DELETE /api/projects/:projectId/status-override`
+- `POST /api/workspace/projects/:projectId/viewed`
+- `POST /api/workspace/projects/viewed`
 - `GET /api/views`
 - `POST /api/views`
 - `GET /api/auth/local-login-hint`
@@ -355,7 +361,7 @@ Shared schemas and typed client helpers keep the API contract explicit without r
 
 - Server state comes from TanStack Query.
 - Local state stores expanded rows, transient editing state, and active inline editors.
-- Server-backed per-user config, mirrored into browser-local Tavi storage after login, persists grouping, task filters, panel toggles, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, and other personal UI preferences.
+- Server-backed per-user config, mirrored into browser-local Tavi storage after login, persists grouping, project-status filters, project/task assignee filters, `Not viewed`, multi-field sort order, panel toggles, named theme selection, Auto Collapse, Bulk Actions visibility, Full Width, per-project task `D` visibility, and other personal UI preferences.
 - Saved views persist reusable workspace configurations.
 - Saved views intentionally do not persist per-user panel toggles or other personal UI preferences.
 
@@ -379,6 +385,7 @@ Recommended modules:
 - Keep primary interactions inline to minimize context switching.
 - Use optimistic updates where safe, but reconcile against server responses.
 - Preserve expansion state while filters or grouping change when practical.
+- Poll the workspace in the background for collaborative changes, using a short steady interval while healthy and backoff while the API is unavailable.
 
 ## 10. Backend Architecture
 

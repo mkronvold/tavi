@@ -10,7 +10,8 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 | Group by      | Regroups projects by `None`, `Owner`, `Status`, or `Priority`                                                                                            |
 | Sort by       | Orders projects by one or more fields including `Title`, `Progress`, `Priority`, `Due Date`, `Age`, and `Last Updated`                                   |
 | Status        | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects         |
-| Assignee      | Multi-select task filter for one or more assignees                                                                                                       |
+| Assignee      | Multi-select project/task people filter. Matching project owners or task assignees keep the whole project visible; `Unassigned` matches empty owners or assignees |
+| Not viewed    | Shows only projects with task changes you have not marked viewed                                                                                         |
 | View          | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state                    |
 | Mark all viewed | Clears the current user's unviewed-change highlights across the workspace                                                                                |
 | New Project   | Opens the inline project-creation panel                                                                                                                  |
@@ -24,9 +25,11 @@ The top search, grouping, filter, and bulk-action controls stay pinned while you
 
 Each project row shows the project title, notes, references, owner, due date, priority, status, and completion percentage. Expanded projects also get a highlighted border so the active discussion area is easier to track.
 
-If another user changes a project or one of its tasks after you last viewed that project, Tavi shades the project card. When you expand that project, task rows with unviewed changes are shaded too. Your own edits do not create unviewed highlights for you.
+The workspace refreshes in the background about every 15 seconds while you are signed in, so changes from other users appear without a full page reload. If the API is restarting or briefly unavailable, polling backs off and then resumes.
 
-Tavi marks a project's project and task changes viewed for you when you collapse that project manually or when `Auto Collapse` closes it because you moved focus to another project. Use `Mark all viewed` in the toolbar when you want to clear all current unviewed highlights at once.
+If another user creates or changes tasks in a project after you last marked those tasks viewed, Tavi shades the project card. When you expand that project, task rows with unviewed changes are shaded too. Your own edits do not create unviewed highlights for you.
+
+Tavi marks a project's active task changes viewed for you when you collapse that project manually or when `Auto Collapse` closes it because you moved focus to another project. Use `Mark all viewed` in the toolbar when you want to clear all current unviewed highlights at once. Use `Not viewed` when you want the workspace to show only projects that still need your attention.
 
 Project, task, and Personal ToDo notes render basic markdown in place. Tavi keeps line breaks, recognizes simple lists and emphasis, and turns plain URLs into clickable links.
 
@@ -56,6 +59,8 @@ Task rows stay directly under their parent project. Inline task editing lets edi
 
 Changing the `Project` field moves the task to a different project and recalculates both project rollups when you save. The last `Project` option, `Convert to Project`, turns the edited task into a new standalone project instead. The new project keeps the task title, notes, assignee as owner, due date, priority, and the closest matching project status. If you collapse a project while one of its tasks is being edited, Tavi cancels that task edit instead of keeping a hidden draft open.
 
+When you move a task from any other status into `Review`, Tavi opens the same project's `Add Task` row with a draft titled `review <original task title>`. The draft keeps the reviewed task's due date and priority so follow-up review work can be captured quickly without creating it automatically.
+
 Task and project status controls use the same visible order:
 
 1. `Not Started`
@@ -71,7 +76,7 @@ When you add several tasks to the same project in a row, Tavi keeps the last ass
 
 Use the compact `::` drag handle on the left side of each visible task row to save a manual task order for that project. Reordering is only enabled when the full task list for that project is visible, and admins can hide all drag handles globally from [`SETTINGS.md`](./SETTINGS.md).
 
-Expanded task tables include a compact `D` toggle beside the `Status` header so you can hide or show `done` rows without changing project rollups or task data.
+Expanded task tables include a compact `D` toggle beside the `Status` header so you can hide or show `done` and `cancelled` rows without changing project rollups or task data. Reordering is disabled while those rows are hidden so the saved manual order always represents the full project task list.
 
 Use `History` on a task row when you need to confirm who changed status, assignment, or dates.
 
@@ -116,8 +121,8 @@ Once enabled:
 ## Non-obvious behavior
 
 1. A project can show both a manual override and the task-derived status. The override changes the display status, but the underlying derived rollup is still tracked.
-2. `Status` filters whole projects by project display status. `Assignee` filters decide which projects remain visible, but matching projects still show their complete task list.
-3. `Group by`, `Sort by`, `Status`, and `Assignee` selections are stored in per-user synced config and can also be captured in a saved view.
+2. `Status` filters whole projects by project display status. `Assignee` filters decide which projects remain visible based on project owner or task assignee matches, but matching projects still show their complete task list.
+3. `Group by`, `Sort by`, `Status`, `Assignee`, and `Not viewed` selections are stored in per-user synced config and can also be captured in a saved view.
 4. `Add Task` visibility is stored in per-user synced config, not in a saved view.
 5. Auto-collapse behavior is controlled from [`SETTINGS.md`](./SETTINGS.md), not from the workspace row actions.
 6. Viewer users can browse and search the workspace, cannot edit shared projects or tasks, and can still use `Personal ToDo`.
@@ -127,7 +132,7 @@ Once enabled:
 10. [`IMPORT_EXPORT.md`](./IMPORT_EXPORT.md) and [`BACKUPS.md`](./BACKUPS.md) are opened from [`SETTINGS.md`](./SETTINGS.md), not from the top workspace toolbar.
 11. When auto-collapse switches from one expanded project to another, Tavi scrolls the newly expanded project back into view so the screen focus stays on the open project.
 12. The `Personal ToDo` panel is private to the signed-in user, and its `hide done` toggle is stored only in that browser's local Tavi storage.
-13. Unviewed-change tracking is per user. Collapsing a project or using `Mark all viewed` affects only your viewed state.
+13. Unviewed-change tracking is per user and task-level. Collapsing a project or using `Mark all viewed` affects only your viewed state for active tasks.
 
 ## Derived project status
 

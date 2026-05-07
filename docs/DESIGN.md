@@ -75,8 +75,10 @@ A saved view stores a named combination of:
 
 - Search text
 - Grouping mode
-- Task-status filters
-- Task-assignee filters
+- Project-status filters
+- Project/task assignee filters
+- `Not viewed` filter state
+- Multi-field sort order
 - Expanded/collapsed defaults for the grouped workspace
 
 Milestone 4A scope:
@@ -245,12 +247,17 @@ Rollup details shown in the UI should include:
 - The default workspace is a dense grouped list/table.
 - The workspace must display both project rows and task rows.
 - Expand/collapse must work at both group and project levels.
+- The workspace must visually highlight projects and tasks that contain task changes the signed-in user has not marked viewed.
+- The workspace must offer a `Not viewed` filter that narrows to projects with unviewed task changes.
+- The workspace should poll for collaborative changes while signed in and back off when the API is unavailable.
 - Settings must allow Auto Collapse so opening one project can collapse the others when the user wants a single-project focus mode.
 - Settings must allow Bulk Actions to be shown or hidden so task-selection checkboxes can stay out of the way when multi-select editing is not needed.
 - Settings must allow Full Width so the workspace can expand past the default centered reading width on large screens.
-- Search, grouping, task-status, and assignee controls should float left without a framed card.
+- Search, grouping, sort, project-status, assignee, and `Not viewed` controls should float left without a framed card.
+- Project `Status` filters hide whole projects by display status. `Assignee` filters should keep projects visible when either the project owner or a task assignee matches, including an `Unassigned` option for empty owners or assignees.
 - Compact toggle buttons for View, Personal ToDo, New Project, and Settings should float to the right on the same row when space allows.
 - Per-project Add Task UI should stay hidden behind a lightweight toggle until needed.
+- Expanded task tables should provide a compact per-project `D` toggle that hides `done` and `canceled` task rows without mutating data.
 - The Personal ToDo panel should support compact create, edit, reorder, delete, import, and export actions without showing project ownership fields.
 
 ### FR-05 Inline Editing
@@ -258,6 +265,7 @@ Rollup details shown in the UI should include:
 - Core project and task fields must be editable inline without navigating away.
 - Inline edits should preserve context and avoid full-page reloads.
 - New-task and inline-task editing controls should align to the visible task-table columns.
+- Moving a task into `review` should open a prefilled follow-up task draft under the same project rather than creating review work automatically.
 - Edit and History row actions should stay compact and right-justified.
 - New-task notes must support multiline entry from the inline add-task row.
 - Projects must support optional References metadata that accepts one newline-delimited reference per line, with each line allowing either a URL or plain reference text.

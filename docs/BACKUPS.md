@@ -52,7 +52,7 @@ Visible backup timestamps such as `Last success`, `Last failure`, stored-backup 
 | Projects and tasks only | Restores selected projects plus their tasks without replacing user records |
 | Users only | Restores selected users and role assignments without replacing projects or tasks |
 
-Full backups include per-user project viewed state, so unviewed-change highlights survive a full restore. Older backups that predate viewed-state data are restored with projects treated as already viewed to avoid flooding users with old highlights.
+Full backups include per-user task viewed state, so task-level unviewed-change highlights survive a full restore. Older backups that predate task viewed-state data are restored with existing active tasks treated as already viewed to avoid flooding users with old highlights. Legacy project viewed-state records may also be present in snapshots for compatibility, but current workspace highlighting is derived from task viewed state.
 
 ## Download and delete
 

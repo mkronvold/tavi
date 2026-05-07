@@ -36,7 +36,10 @@ type TaskMutationRecord = {
   status: CreateTaskInput['status'];
   completedAt: Date | null;
 };
-type TaskMutationClient = Pick<PrismaService, 'project' | 'task'>;
+type TaskMutationClient = Pick<
+  PrismaService,
+  'project' | 'task' | 'taskViewState'
+>;
 
 @Injectable()
 export class TasksService {
@@ -71,6 +74,7 @@ export class TasksService {
         },
       });
 
+      await markTaskViewedForActor(tx, task.id, actor.id);
       await this.projectsService.recalculateProject(projectId, tx);
       await this.authService.recordAudit(
         actor,
@@ -136,6 +140,7 @@ export class TasksService {
 
         archivedTaskIds.push(task.id);
         recalculatedProjectIds.add(task.projectId);
+        await markTaskChangedForActor(tx, task.id, actor.id);
 
         await this.authService.recordAudit(
           actor,
@@ -159,9 +164,13 @@ export class TasksService {
       }
 
       await Promise.all(
-        [...recalculatedProjectIds].map((projectId) =>
-          this.projectsService.recalculateProject(projectId, tx),
-        ),
+        [...recalculatedProjectIds].map(async (projectId) => {
+          await this.projectsService.recalculateProject(projectId, tx);
+          await this.projectsService.cleanupEmptyUnassignedProject(
+            projectId,
+            tx,
+          );
+        }),
       );
     });
 
@@ -247,6 +256,7 @@ export class TasksService {
         const copiedTask = toTaskMutationRecord(task);
 
         copiedTaskIds.push(task.id);
+        await markTaskViewedForActor(tx, task.id, actor.id);
 
         await this.authService.recordAudit(
           actor,
@@ -353,6 +363,7 @@ export class TasksService {
           where: { id: changedTask.existing.id },
           data: { sortOrder: changedTask.nextSortOrder },
         });
+        await markTaskChangedForActor(tx, task.id, actor.id);
 
         await this.authService.recordAudit(
           actor,
@@ -444,6 +455,7 @@ export class TasksService {
 
         updatedTaskIds.push(task.id);
         recalculatedProjectIds.add(task.projectId);
+        await markTaskChangedForActor(tx, task.id, actor.id);
 
         await this.authService.recordAudit(
           actor,
@@ -548,11 +560,20 @@ export class TasksService {
         },
       });
 
+      const changedFields = getChangedTaskFields(existing, task);
+
+      if (changedFields.length > 0) {
+        await markTaskChangedForActor(tx, task.id, actor.id);
+      }
+
       await this.projectsService.recalculateProject(existing.projectId, tx);
       if (nextProjectId !== existing.projectId) {
         await this.projectsService.recalculateProject(nextProjectId, tx);
+        await this.projectsService.cleanupEmptyUnassignedProject(
+          existing.projectId,
+          tx,
+        );
       }
-      const changedFields = getChangedTaskFields(existing, task);
 
       await this.authService.recordAudit(
         actor,
@@ -658,7 +679,12 @@ export class TasksService {
         },
       });
 
+      await markTaskChangedForActor(tx, archivedTask.id, actor.id);
       await this.projectsService.recalculateProject(existing.projectId, tx);
+      await this.projectsService.cleanupEmptyUnassignedProject(
+        existing.projectId,
+        tx,
+      );
       await this.authService.recordAudit(
         actor,
         'project',
@@ -713,35 +739,82 @@ export class TasksService {
       throw new NotFoundException('Task not found');
     }
 
-    const task = await this.prisma.task.update({
-      where: { id: taskId },
-      data: { archivedAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.task.update({
+        where: { id: taskId },
+        data: { archivedAt: new Date() },
+      });
+
+      await markTaskChangedForActor(tx, task.id, actor.id);
+      await this.projectsService.recalculateProject(task.projectId, tx);
+      await this.projectsService.cleanupEmptyUnassignedProject(
+        task.projectId,
+        tx,
+      );
+      await this.authService.recordAudit(
+        actor,
+        'task',
+        task.id,
+        'delete',
+        buildTaskAuditMetadata(task, ['archivedAt'], {
+          archivedAt: toAuditDate(task.archivedAt),
+          changes: buildTaskAuditChanges(
+            toTaskMutationRecord(existing),
+            toTaskMutationRecord(task),
+            ['archivedAt'],
+            {
+              nextArchivedAt: task.archivedAt,
+            },
+          ),
+        }),
+        tx,
+      );
+
+      return {
+        id: task.id,
+        projectId: task.projectId,
+      };
     });
-
-    await this.projectsService.recalculateProject(task.projectId);
-    await this.authService.recordAudit(
-      actor,
-      'task',
-      task.id,
-      'delete',
-      buildTaskAuditMetadata(task, ['archivedAt'], {
-        archivedAt: toAuditDate(task.archivedAt),
-        changes: buildTaskAuditChanges(
-          toTaskMutationRecord(existing),
-          toTaskMutationRecord(task),
-          ['archivedAt'],
-          {
-            nextArchivedAt: task.archivedAt,
-          },
-        ),
-      }),
-    );
-
-    return {
-      id: task.id,
-      projectId: task.projectId,
-    };
   }
+}
+
+async function markTaskViewedForActor(
+  prisma: Pick<TaskMutationClient, 'taskViewState'>,
+  taskId: string,
+  userId: string,
+) {
+  const viewedAt = new Date();
+
+  await prisma.taskViewState.upsert({
+    create: {
+      taskId,
+      userId,
+      updatedAt: viewedAt,
+    },
+    update: {
+      updatedAt: viewedAt,
+    },
+    where: {
+      userId_taskId: {
+        taskId,
+        userId,
+      },
+    },
+  });
+}
+
+async function markTaskChangedForActor(
+  prisma: Pick<TaskMutationClient, 'taskViewState'>,
+  taskId: string,
+  userId: string,
+) {
+  await prisma.taskViewState.deleteMany({
+    where: {
+      taskId,
+      userId: { not: userId },
+    },
+  });
+  await markTaskViewedForActor(prisma, taskId, userId);
 }
 
 function normalizeOptionalNotes(value?: string | null) {

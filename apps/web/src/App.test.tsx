@@ -222,6 +222,7 @@ const createWorkspacePayload = (): WorkspaceResponse => ({
     filters: {
       assigneeUserIds: [],
       groupBy: "owner",
+      notViewedOnly: false,
       sortBy: [],
       statusFilters: [],
     },
@@ -1198,6 +1199,27 @@ describe("App", () => {
     });
   });
 
+  it("shows the full project task list when search matches a task", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+    window.history.replaceState({}, "", "/?search=Kickoff");
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+    });
+  });
+
   it("keeps the workspace search query param in sync with the search box", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1423,6 +1445,49 @@ describe("App", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Assignee: All" }));
+
+    const assigneeMenu = screen.getByRole("dialog", { name: "Assignee" });
+    fireEvent.click(
+      within(assigneeMenu).getByRole("checkbox", { name: "Tavi Viewer" }),
+    );
+    fireEvent.click(
+      within(assigneeMenu).getByRole("button", { name: "Apply assignee" }),
+    );
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Review plan")).toBeInTheDocument();
+    });
+  });
+
+  it("includes projects whose owner matches the assignee filter", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      ownerUserId: "user-2",
+      ownerName: "Tavi Viewer",
+      tasks: workspacePayload.projects[0].tasks.map((task) => ({
+        ...task,
+        assigneeUserId: "user-1",
+        assigneeName: "Tavi Editor",
+      })),
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
     );
 
     renderApp();
@@ -4653,6 +4718,162 @@ describe("App", () => {
     ).toHaveTextContent("X");
   });
 
+  it("opens a prefilled follow-up draft when a task moves into review", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let patchBody: string | null = null;
+
+    workspacePayload.projects[0]!.tasks[0] = {
+      ...workspacePayload.projects[0]!.tasks[0]!,
+      dueDate: "2026-04-20T00:00:00.000Z",
+      priority: "high",
+    };
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/task-1") && init?.method === "PATCH") {
+          patchBody = typeof init.body === "string" ? init.body : null;
+          workspacePayload.projects[0]!.tasks[0] = {
+            ...workspacePayload.projects[0]!.tasks[0]!,
+            status: "review",
+          };
+
+          return createResponse(workspacePayload.projects[0]!.tasks[0]);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(projectCard).getByDisplayValue("Not Started"), {
+      target: { value: "review" },
+    });
+    fireEvent.click(within(projectCard).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(patchBody).toContain('"status":"review"');
+      expect(
+        within(projectCard).getByDisplayValue("review Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    const reviewDraftRow = within(projectCard)
+      .getByDisplayValue("review Kickoff")
+      .closest("tr");
+
+    expect(reviewDraftRow).not.toBeNull();
+    expect(
+      within(reviewDraftRow!).getByDisplayValue("High"),
+    ).toBeInTheDocument();
+    expect(
+      within(reviewDraftRow!).getByDisplayValue("2026-04-20"),
+    ).toBeInTheDocument();
+    expect(
+      within(reviewDraftRow!).getByRole("button", { name: "Add" }),
+    ).toBeEnabled();
+
+    fireEvent.click(
+      within(reviewDraftRow!).getByRole("button", { name: "Cancel" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        within(projectCard).queryByDisplayValue("review Kickoff"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not open a duplicate review draft when a review task is saved", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let patchCount = 0;
+
+    workspacePayload.projects[0]!.tasks[0] = {
+      ...workspacePayload.projects[0]!.tasks[0]!,
+      status: "review",
+    };
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/tasks/task-1") && init?.method === "PATCH") {
+          patchCount += 1;
+          return createResponse(workspacePayload.projects[0]!.tasks[0]);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    const kickoffRow = screen.getByText("Kickoff").closest("tr");
+
+    expect(kickoffRow).not.toBeNull();
+    fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(
+        within(projectCard).getByDisplayValue("Kickoff"),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(projectCard).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(patchCount).toBe(1);
+      expect(
+        within(projectCard).queryByDisplayValue("review Kickoff"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("persists the project note editor height in local storage", async () => {
     vi.stubGlobal(
       "fetch",
@@ -6782,6 +7003,146 @@ describe("App", () => {
     );
   });
 
+  it("filters not viewed projects before status grouping", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.userConfig.filters.groupBy = "status";
+    workspacePayload.projects[0] = {
+      ...workspacePayload.projects[0],
+      hasUnviewedChanges: false,
+      tasks: workspacePayload.projects[0].tasks.map((task, index) => ({
+        ...task,
+        hasUnviewedChanges: index === 0,
+      })),
+    };
+    workspacePayload.projects.push({
+      id: "project-2",
+      title: "Beta rollout",
+      notes: null,
+      references: null,
+      ownerUserId: "user-2",
+      ownerName: "Tavi Viewer",
+      dueDate: null,
+      priority: "high",
+      derivedStatus: "in_progress",
+      displayStatus: "in_progress",
+      manualStatus: null,
+      taskTotalCount: 1,
+      taskTodoCount: 0,
+      taskInProgressCount: 1,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+      tasks: [
+        {
+          id: "task-3",
+          projectId: "project-2",
+          title: "Draft brief",
+          notes: null,
+          assigneeUserId: "user-2",
+          assigneeName: "Tavi Viewer",
+          dueDate: null,
+          priority: "high",
+          status: "in_progress",
+          sortOrder: 0,
+          completedAt: null,
+          hasUnviewedChanges: false,
+        },
+      ],
+    });
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/user-config") && init?.method === "PUT") {
+          return createResponse({
+            ...workspacePayload.userConfig,
+            filters: {
+              ...workspacePayload.userConfig.filters,
+              notViewedOnly: true,
+            },
+          });
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+      expect(screen.getByText("Beta rollout")).toBeInTheDocument();
+      expect(screen.getByLabelText("Group by")).toHaveValue("status");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Not viewed" }));
+
+    await waitFor(() => {
+      expect(getVisibleProjectTitles()).toEqual(["Roadmap refresh"]);
+    });
+  });
+
+  it("refreshes the signed-in workspace until other-user changes are highlighted", async () => {
+    vi.useFakeTimers();
+    const initialWorkspacePayload = createWorkspacePayload();
+    const refreshedWorkspacePayload = createWorkspacePayload();
+    let workspaceRequests = 0;
+
+    refreshedWorkspacePayload.projects[0] = {
+      ...refreshedWorkspacePayload.projects[0],
+      hasUnviewedChanges: true,
+      tasks: refreshedWorkspacePayload.projects[0].tasks.map((task, index) => ({
+        ...task,
+        hasUnviewedChanges: index === 0,
+      })),
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (!url.endsWith("/workspace")) {
+          throw new Error(`Unexpected request: ${url}`);
+        }
+
+        workspaceRequests += 1;
+        return createResponse(
+          workspaceRequests === 1
+            ? initialWorkspacePayload
+            : refreshedWorkspacePayload,
+        );
+      }),
+    );
+
+    renderApp();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toHaveClass("project-card--unviewed");
+    expect(workspaceRequests).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersToNextTimerAsync();
+    });
+
+    expect(workspaceRequests).toBeGreaterThanOrEqual(2);
+    expect(projectCard).toHaveClass("project-card--unviewed");
+  });
+
   it("marks a project viewed when it is collapsed", async () => {
     const workspacePayload = createWorkspacePayload();
     const fetchMock = vi.fn(
@@ -6809,6 +7170,7 @@ describe("App", () => {
           return createResponse({
             projectId: "project-1",
             viewedAt: "2026-04-03T12:00:00.000Z",
+            viewedTaskCount: 2,
           });
         }
 
@@ -6881,6 +7243,7 @@ describe("App", () => {
           return createResponse({
             viewedAt: "2026-04-03T12:00:00.000Z",
             viewedProjectCount: 1,
+            viewedTaskCount: 2,
           });
         }
 
@@ -6952,7 +7315,7 @@ describe("App", () => {
     });
   });
 
-  it("toggles done tasks inside an expanded project without keeping hidden selections", async () => {
+  it("toggles done and canceled tasks inside an expanded project without keeping hidden selections", async () => {
     const workspacePayload = createWorkspacePayload();
 
     workspacePayload.projects[0]?.tasks.push({
@@ -6970,8 +7333,24 @@ describe("App", () => {
       createdAt: "2026-04-03T09:00:00.000Z",
       updatedAt: "2026-04-03T10:00:00.000Z",
     });
-    workspacePayload.projects[0]!.taskTotalCount = 3;
+    workspacePayload.projects[0]?.tasks.push({
+      id: "task-4",
+      projectId: "project-1",
+      title: "Cut stale scope",
+      notes: "Canceled work",
+      assigneeUserId: "user-2",
+      assigneeName: "Tavi Viewer",
+      dueDate: null,
+      priority: "low",
+      status: "canceled",
+      sortOrder: 3,
+      completedAt: "2026-04-03T11:00:00.000Z",
+      createdAt: "2026-04-03T09:30:00.000Z",
+      updatedAt: "2026-04-03T11:00:00.000Z",
+    });
+    workspacePayload.projects[0]!.taskTotalCount = 4;
     workspacePayload.projects[0]!.taskDoneCount = 1;
+    workspacePayload.projects[0]!.taskCanceledCount = 1;
 
     vi.stubGlobal(
       "fetch",
@@ -6990,23 +7369,28 @@ describe("App", () => {
       expect(screen.getByText("Kickoff")).toBeInTheDocument();
       expect(screen.getByText("Review plan")).toBeInTheDocument();
       expect(screen.getByText("Ship recap")).toBeInTheDocument();
+      expect(screen.getByText("Cut stale scope")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByLabelText("Select task Ship recap"));
+    fireEvent.click(screen.getByLabelText("Select task Cut stale scope"));
 
     await waitFor(() => {
-      expect(screen.getByText("1 selected task")).toBeInTheDocument();
+      expect(screen.getByText("2 selected tasks")).toBeInTheDocument();
     });
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Hide done tasks in Roadmap refresh",
-      }),
-    );
+    const doneFilterButton = screen.getByRole("button", {
+      name: "Hide done and canceled tasks in Roadmap refresh",
+    });
+
+    expect(doneFilterButton).not.toBeDisabled();
+
+    fireEvent.click(doneFilterButton);
 
     await waitFor(() => {
       expect(screen.queryByText("Ship recap")).not.toBeInTheDocument();
-      expect(screen.queryByText("1 selected task")).not.toBeInTheDocument();
+      expect(screen.queryByText("Cut stale scope")).not.toBeInTheDocument();
+      expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
     });
 
     expect(
@@ -7027,12 +7411,13 @@ describe("App", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Show done tasks in Roadmap refresh",
+        name: "Show done and canceled tasks in Roadmap refresh",
       }),
     );
 
     await waitFor(() => {
       expect(screen.getByText("Ship recap")).toBeInTheDocument();
+      expect(screen.getByText("Cut stale scope")).toBeInTheDocument();
     });
 
     expect(localStorage.getItem("tavi.workspace.hideDoneTasks")).toBeNull();
@@ -7040,6 +7425,9 @@ describe("App", () => {
     expect(screen.getByLabelText("Select task Kickoff")).toBeChecked();
     expect(screen.getByLabelText("Select task Review plan")).toBeChecked();
     expect(screen.getByLabelText("Select task Ship recap")).not.toBeChecked();
+    expect(
+      screen.getByLabelText("Select task Cut stale scope"),
+    ).not.toBeChecked();
   });
 
   it("clears selected tasks for a collapsed project without affecting other open projects", async () => {

@@ -59,6 +59,7 @@ export const DEFAULT_WORKSPACE_USER_CONFIG: WorkspaceUserConfig = {
   filters: {
     assigneeUserIds: [],
     groupBy: 'owner',
+    notViewedOnly: false,
     sortBy: [],
     statusFilters: [],
   },
@@ -88,6 +89,7 @@ export function createDefaultWorkspaceUserConfig(): WorkspaceUserConfig {
     filters: {
       ...DEFAULT_WORKSPACE_USER_CONFIG.filters,
       assigneeUserIds: [],
+      notViewedOnly: false,
       sortBy: [],
       statusFilters: [],
     },
@@ -214,6 +216,7 @@ function normalizeWorkspaceFilterState(
       ),
     ),
     groupBy: isGroupBy(value?.groupBy) ? value.groupBy : 'owner',
+    notViewedOnly: value?.notViewedOnly === true,
     sortBy: uniqueStringArray(
       (value?.sortBy ?? []).filter(isProjectSortField),
     ) as ProjectSortField[],

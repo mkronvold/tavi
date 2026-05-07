@@ -22,6 +22,27 @@
   --error-text: #b91c1c;
   --warning-bg: #fef3c7;
   --warning-text: #92400e;
+  --unviewed-border: color-mix(
+    in srgb,
+    var(--warning-text) 72%,
+    var(--border-strong) 28%
+  );
+  --unviewed-project-bg: color-mix(
+    in srgb,
+    var(--card-bg) 74%,
+    var(--warning-bg) 26%
+  );
+  --unviewed-task-bg: color-mix(
+    in srgb,
+    var(--card-bg) 68%,
+    var(--warning-bg) 32%
+  );
+  --unviewed-ring: color-mix(
+    in srgb,
+    var(--warning-text) 34%,
+    transparent
+  );
+  --unviewed-text: var(--warning-text);
   --notice-bg: #f0fdf4;
   --notice-border: #bbf7d0;
   --notice-text: #166534;

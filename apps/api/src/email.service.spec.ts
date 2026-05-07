@@ -253,6 +253,13 @@ describe('EmailService', () => {
     expect(sendMailCall.to).toBe('viewer@tavi.local');
     expect(sendMailCall.subject).toBe('Your Tavi one-time password');
     expect(sendMailCall.html).toContain('ABCD-1234');
+    expect(sendMailCall.html).not.toContain(['data', 'image'].join(':'));
+    expect(sendMailCall.html).not.toContain(['base', '64'].join(''));
+    expect(sendMailCall.html).not.toContain('<img');
+    expect(sendMailCall.html).toContain('aria-label="Tavi home"');
+    expect(sendMailCall.html).toMatch(
+      /aria-label="Tavi home"[\s\S]*>\s*Tavi\s*<\/a>/,
+    );
   });
 
   it('still sends password reset emails when delivery is disabled', async () => {

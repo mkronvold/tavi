@@ -157,6 +157,11 @@ const TASK_STATUS_OPTIONS: Array<{
   value: value as TaskStatus,
 }));
 
+const DONE_FILTER_HIDDEN_TASK_STATUSES = new Set<TaskStatus>([
+  "done",
+  "canceled",
+]);
+
 const STATUS_LABELS: Record<ProjectStatus | TaskStatus | "todo", string> = {
   todo: "Not Started",
   not_started: "Not Started",
@@ -264,8 +269,16 @@ type WorkspaceTheme = (typeof WORKSPACE_THEMES)[number];
 type WorkspaceFilterState = {
   assigneeUserIds: string[];
   groupBy: GroupBy;
+  notViewedOnly: boolean;
   sortBy: ProjectSortField[];
   statusFilters: ProjectStatus[];
+};
+
+type WorkspaceUserConfigWithFilters = Omit<WorkspaceUserConfig, "filters"> & {
+  filters: WorkspaceFilterState;
+};
+type WorkspaceUserConfigInput = Partial<Omit<WorkspaceUserConfig, "filters">> & {
+  filters?: Partial<WorkspaceFilterState> | null;
 };
 
 type WorkspaceCollapsedGroups = Partial<
@@ -395,6 +408,7 @@ const NO_PROJECT_OWNER_GROUP = "No owner";
 const FIBONACCI_BACKOFF_MS = [
   1_000, 1_000, 2_000, 3_000, 5_000, 8_000, 13_000, 21_000, 34_000, 55_000,
 ] as const;
+const WORKSPACE_REFETCH_INTERVAL_MS = 15_000;
 
 function getFibonacciBackoffMs(attempt: number) {
   if (attempt <= 1) {
@@ -406,13 +420,14 @@ function getFibonacciBackoffMs(attempt: number) {
   ];
 }
 
-function createDefaultWorkspaceUserConfig(): WorkspaceUserConfig {
+function createDefaultWorkspaceUserConfig(): WorkspaceUserConfigWithFilters {
   return {
     addTaskPanels: {},
     collapsedGroups: {},
     filters: {
       assigneeUserIds: [],
       groupBy: "owner",
+      notViewedOnly: false,
       sortBy: [],
       statusFilters: [],
     },
@@ -483,10 +498,15 @@ function App() {
   const workspaceQuery = useQuery({
     queryKey: ["workspace"],
     queryFn: getWorkspace,
-    refetchInterval: (query) =>
-      isApiUnavailableError(query.state.error)
-        ? getFibonacciBackoffMs(query.state.fetchFailureCount)
-        : false,
+    refetchInterval: (query) => {
+      if (isApiUnavailableError(query.state.error)) {
+        return getFibonacciBackoffMs(query.state.fetchFailureCount);
+      }
+
+      return query.state.data?.currentUser
+        ? WORKSPACE_REFETCH_INTERVAL_MS
+        : false;
+    },
     refetchIntervalInBackground: true,
     retry: false,
   });
@@ -1027,6 +1047,7 @@ function WorkspaceScreen({
   const {
     assigneeUserIds: assigneeFilterUserIds,
     groupBy,
+    notViewedOnly,
     sortBy,
     statusFilters,
   } = workspaceFilters;
@@ -1220,6 +1241,16 @@ function WorkspaceScreen({
           },
     );
   };
+  const setNotViewedOnly = (nextNotViewedOnly: boolean) => {
+    setWorkspaceFilters((current) =>
+      current.notViewedOnly === nextNotViewedOnly
+        ? current
+        : {
+            ...current,
+            notViewedOnly: nextNotViewedOnly,
+          },
+    );
+  };
   const setAssigneeFilterUserIds = (nextAssigneeUserIds: string[]) => {
     setWorkspaceFilters((current) =>
       sameStringArray(current.assigneeUserIds, nextAssigneeUserIds)
@@ -1309,6 +1340,7 @@ function WorkspaceScreen({
   useEffect(() => {
     if (
       groupBy === "owner" &&
+      !notViewedOnly &&
       sortBy.length === 0 &&
       statusFilters.length === 0 &&
       effectiveAssigneeFilterUserIds.length === 0
@@ -1324,6 +1356,7 @@ function WorkspaceScreen({
   }, [
     effectiveAssigneeFilterUserIds,
     groupBy,
+    notViewedOnly,
     sortBy,
     statusFilters,
     workspaceFilters,
@@ -1609,7 +1642,7 @@ function WorkspaceScreen({
 
     const unviewedProjectIds = new Set(
       data.projects
-        .filter((project) => project.hasUnviewedChanges === true)
+        .filter(projectHasUnviewedChanges)
         .map((project) => project.id),
     );
 
@@ -1871,6 +1904,7 @@ function WorkspaceScreen({
       taskId,
       payload,
     }: {
+      task: WorkspaceTask;
       taskId: string;
       payload: UpdateTaskPayload;
     }) => updateTask(taskId, payload),
@@ -1886,6 +1920,22 @@ function WorkspaceScreen({
       setEditingTaskId(null);
       if (variables.payload.projectId) {
         setProjectExpanded(variables.payload.projectId, true);
+      }
+      if (shouldOpenReviewTaskDraft(variables.task, variables.payload)) {
+        const projectId =
+          variables.payload.projectId ?? variables.task.projectId;
+
+        setNewTaskByProject((current) => ({
+          ...current,
+          [projectId]: buildReviewTaskDraft(
+            data.currentUser.id,
+            variables.task,
+          ),
+        }));
+        setAddTaskPanels((current) => ({
+          ...current,
+          [projectId]: true,
+        }));
       }
       await revealRegroupedStatusProject(previousProjectStatuses);
     },
@@ -2226,11 +2276,18 @@ function WorkspaceScreen({
     () =>
       filterProjects({
         assigneeUserIds: effectiveAssigneeFilterUserIds,
+        notViewedOnly,
         projects: data.projects,
         search,
         statusFilters,
       }),
-    [data.projects, effectiveAssigneeFilterUserIds, search, statusFilters],
+    [
+      data.projects,
+      effectiveAssigneeFilterUserIds,
+      notViewedOnly,
+      search,
+      statusFilters,
+    ],
   );
   const groupedProjects = useMemo(
     () => groupProjects(filteredProjects, groupBy, sortBy),
@@ -2255,9 +2312,7 @@ function WorkspaceScreen({
     [data.projects],
   );
   const unviewedProjectCount = useMemo(
-    () =>
-      data.projects.filter((project) => project.hasUnviewedChanges === true)
-        .length,
+    () => data.projects.filter(projectHasUnviewedChanges).length,
     [data.projects],
   );
   const hiddenDoneTaskIds = useMemo(
@@ -2266,7 +2321,7 @@ function WorkspaceScreen({
         filteredProjects.flatMap((project) =>
           hideDoneTasksByProject[project.id]
             ? project.tasks
-                .filter((task) => task.status === "done")
+                .filter((task) => isDoneFilterHiddenTask(task))
                 .map((task) => task.id)
             : [],
         ),
@@ -2277,7 +2332,7 @@ function WorkspaceScreen({
     () =>
       filteredProjects.flatMap((project) =>
         hideDoneTasksByProject[project.id]
-          ? project.tasks.filter((task) => task.status !== "done")
+          ? project.tasks.filter((task) => !isDoneFilterHiddenTask(task))
           : project.tasks,
       ),
     [filteredProjects, hideDoneTasksByProject],
@@ -2691,6 +2746,22 @@ function WorkspaceScreen({
               selectedValues={sortBy}
               onChange={setSortBy}
             />
+
+            <div className="workspace-filter">
+              <button
+                type="button"
+                className={`workspace-filter-toggle${notViewedOnly ? " is-active" : ""}`}
+                aria-pressed={notViewedOnly}
+                onClick={() => setNotViewedOnly(!notViewedOnly)}
+                title={
+                  unviewedProjectCount === 1
+                    ? "Show the 1 project with unviewed task changes"
+                    : `Show ${unviewedProjectCount.toString()} projects with unviewed task changes`
+                }
+              >
+                Not viewed
+              </button>
+            </div>
           </div>
 
           <div className="workspace-panel-toggles">
@@ -2713,7 +2784,7 @@ function WorkspaceScreen({
                   }
                   onClick={() => {
                     const unviewedProjectIds = data.projects
-                      .filter((project) => project.hasUnviewedChanges === true)
+                      .filter(projectHasUnviewedChanges)
                       .map((project) => project.id);
 
                     if (unviewedProjectIds.length > 0) {
@@ -3463,13 +3534,15 @@ function WorkspaceScreen({
                 const taskDraftValue =
                   newTaskByProject[project.id] ??
                   defaultTaskPayload(data.currentUser.id);
-                const doneProjectTaskIds = project.tasks
-                  .filter((task) => task.status === "done")
+                const doneFilterProjectTaskIds = project.tasks
+                  .filter((task) => isDoneFilterHiddenTask(task))
                   .map((task) => task.id);
                 const tasksAreFiltered =
                   fullProject.tasks.length !== project.tasks.length;
                 const visibleProjectTasks = hideDoneTasks
-                  ? project.tasks.filter((task) => task.status !== "done")
+                  ? project.tasks.filter(
+                      (task) => !isDoneFilterHiddenTask(task),
+                    )
                   : project.tasks;
                 const projectTaskIds = visibleProjectTasks.map(
                   (task) => task.id,
@@ -3488,7 +3561,7 @@ function WorkspaceScreen({
                     : tasksAreFiltered
                       ? "Clear task filters to reorder tasks."
                       : hideDoneTasks
-                        ? "Show done tasks to reorder tasks."
+                        ? "Show done and canceled tasks to reorder tasks."
                         : fullProject.tasks.length < 2
                           ? "At least two tasks are required to reorder."
                           : null;
@@ -3941,11 +4014,13 @@ function WorkspaceScreen({
                                     className="ghost-button compact-button task-done-toggle"
                                     aria-label={
                                       showDoneTasks
-                                        ? `Hide done tasks in ${project.title}`
-                                        : `Show done tasks in ${project.title}`
+                                        ? `Hide done and canceled tasks in ${project.title}`
+                                        : `Show done and canceled tasks in ${project.title}`
                                     }
                                     aria-pressed={showDoneTasks}
-                                    disabled={doneProjectTaskIds.length === 0}
+                                    disabled={
+                                      doneFilterProjectTaskIds.length === 0
+                                    }
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       setHideDoneTasksByProject((current) => {
@@ -3961,11 +4036,11 @@ function WorkspaceScreen({
                                       });
                                     }}
                                     title={
-                                      doneProjectTaskIds.length === 0
-                                        ? "No done tasks"
+                                      doneFilterProjectTaskIds.length === 0
+                                        ? "No done or canceled tasks"
                                         : showDoneTasks
-                                          ? "Hide done tasks"
-                                          : "Show done tasks"
+                                          ? "Hide done and canceled tasks"
+                                          : "Show done and canceled tasks"
                                     }
                                   >
                                     D
@@ -4210,6 +4285,7 @@ function WorkspaceScreen({
                                   }
 
                                   updateTaskMutation.mutate({
+                                    task,
                                     taskId: task.id,
                                     payload: normalizedPayload,
                                   });
@@ -4342,7 +4418,8 @@ function WorkspaceScreen({
                             visibleProjectTasks.length === 0 ? (
                               <tr className="task-empty-row">
                                 <td colSpan={taskTableColumnCount}>
-                                  Done tasks are hidden. Use D to show them.
+                                  Done and canceled tasks are hidden. Use D to
+                                  show them.
                                 </td>
                               </tr>
                             ) : null}
@@ -6519,8 +6596,8 @@ function normalizeWorkspacePreferences(
 }
 
 function normalizeWorkspaceUserConfig(
-  value: Partial<WorkspaceUserConfig> | null | undefined,
-): WorkspaceUserConfig {
+  value: WorkspaceUserConfigInput | null | undefined,
+): WorkspaceUserConfigWithFilters {
   const defaultUserConfig = createDefaultWorkspaceUserConfig();
 
   return {
@@ -7382,11 +7459,13 @@ function formatUserReference(
 
 function filterProjects({
   assigneeUserIds,
+  notViewedOnly,
   projects,
   search,
   statusFilters,
 }: {
   assigneeUserIds: string[];
+  notViewedOnly: boolean;
   projects: WorkspaceProject[];
   search: string;
   statusFilters: ProjectStatus[];
@@ -7395,6 +7474,10 @@ function filterProjects({
   const hasAssigneeFilter = assigneeUserIds.length > 0;
 
   return projects.flatMap((project) => {
+    if (notViewedOnly && !projectHasUnviewedChanges(project)) {
+      return [];
+    }
+
     if (
       statusFilters.length > 0 &&
       !statusFilters.includes(project.displayStatus)
@@ -7402,47 +7485,64 @@ function filterProjects({
       return [];
     }
 
-    const hasMatchingAssigneeTask = project.tasks.some((task) => {
-      const matchesAssignee =
-        assigneeUserIds.length === 0 ||
-        (task.assigneeUserId === null
-          ? assigneeUserIds.includes(UNASSIGNED_FILTER_VALUE)
-          : assigneeUserIds.includes(task.assigneeUserId));
+    const projectMatchesAssignee = matchesNullableUserFilter(
+      project.ownerUserId,
+      assigneeUserIds,
+    );
+    const hasMatchingAssigneeTask = project.tasks.some((task) =>
+      matchesNullableUserFilter(task.assigneeUserId, assigneeUserIds),
+    );
 
-      return matchesAssignee;
-    });
-
-    if (hasAssigneeFilter && !hasMatchingAssigneeTask) {
+    if (
+      hasAssigneeFilter &&
+      !projectMatchesAssignee &&
+      !hasMatchingAssigneeTask
+    ) {
       return [];
     }
 
-    const candidateTasks = project.tasks;
-
     if (!normalizedSearch) {
-      return [{ ...project, tasks: candidateTasks }];
+      return [{ ...project, tasks: project.tasks }];
     }
 
     const projectMatchesSearch =
       project.title.toLowerCase().includes(normalizedSearch) ||
       (project.references ?? "").toLowerCase().includes(normalizedSearch) ||
       (project.notes ?? "").toLowerCase().includes(normalizedSearch);
-    const matchingTasks = candidateTasks.filter(
+    const hasMatchingSearchTask = project.tasks.some(
       (task) =>
         task.title.toLowerCase().includes(normalizedSearch) ||
         (task.notes ?? "").toLowerCase().includes(normalizedSearch),
     );
 
-    if (!projectMatchesSearch && matchingTasks.length === 0) {
+    if (!projectMatchesSearch && !hasMatchingSearchTask) {
       return [];
     }
 
     return [
       {
         ...project,
-        tasks: projectMatchesSearch ? candidateTasks : matchingTasks,
+        tasks: project.tasks,
       },
     ];
   });
+}
+
+function projectHasUnviewedChanges(project: WorkspaceProject) {
+  return (
+    project.hasUnviewedChanges === true ||
+    project.tasks.some((task) => task.hasUnviewedChanges === true)
+  );
+}
+
+function isDoneFilterHiddenTask(task: WorkspaceTask) {
+  return DONE_FILTER_HIDDEN_TASK_STATUSES.has(task.status);
+}
+
+function matchesNullableUserFilter(userId: string | null, userIds: string[]) {
+  return userId === null
+    ? userIds.includes(UNASSIGNED_FILTER_VALUE)
+    : userIds.includes(userId);
 }
 
 function groupProjects(
@@ -7620,6 +7720,18 @@ function defaultTaskPayload(currentUserId: string): CreateTaskPayload {
   };
 }
 
+function buildReviewTaskDraft(
+  currentUserId: string,
+  task: WorkspaceTask,
+): CreateTaskPayload {
+  return {
+    ...defaultTaskPayload(currentUserId),
+    dueDate: toDateInput(task.dueDate),
+    priority: task.priority,
+    title: `review ${task.title}`,
+  };
+}
+
 function nextTaskPayload(
   currentUserId: string,
   previousPayload: CreateTaskPayload,
@@ -7631,6 +7743,13 @@ function nextTaskPayload(
     assigneeUserId: previousPayload.assigneeUserId,
     priority: previousPayload.priority ?? nextPayload.priority,
   };
+}
+
+function shouldOpenReviewTaskDraft(
+  task: WorkspaceTask,
+  payload: UpdateTaskPayload,
+) {
+  return task.status !== "review" && payload.status === "review";
 }
 
 function reorderWorkspaceProjectTasks(
@@ -8083,6 +8202,7 @@ function normalizeWorkspaceFilterState(
   return {
     assigneeUserIds: uniqueStringArray(value.assigneeUserIds ?? []),
     groupBy: isGroupBy(value.groupBy) ? value.groupBy : "owner",
+    notViewedOnly: value.notViewedOnly === true,
     sortBy: normalizeProjectSortBy(value.sortBy ?? []),
     statusFilters: uniqueStringArray(
       (value.statusFilters ?? []).filter(isProjectStatus),
@@ -8341,7 +8461,9 @@ function sameBooleanSelection(
   return sameStringArray(activeSelectionKeys(left), activeSelectionKeys(right));
 }
 
-function serializeWorkspaceUserConfig(value: WorkspaceUserConfig) {
+function serializeWorkspaceUserConfig(
+  value: WorkspaceUserConfig | WorkspaceUserConfigWithFilters,
+) {
   const normalized = normalizeWorkspaceUserConfig(value);
 
   return JSON.stringify({
@@ -8350,6 +8472,7 @@ function serializeWorkspaceUserConfig(value: WorkspaceUserConfig) {
     filters: {
       assigneeUserIds: [...normalized.filters.assigneeUserIds],
       groupBy: normalized.filters.groupBy,
+      notViewedOnly: normalized.filters.notViewedOnly,
       sortBy: [...normalized.filters.sortBy],
       statusFilters: [...normalized.filters.statusFilters],
     },

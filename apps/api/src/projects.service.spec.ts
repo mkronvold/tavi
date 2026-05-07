@@ -59,6 +59,7 @@ describe('ProjectsService', () => {
     const updateManyTasksMock: jest.MockedFunction<
       (args: UpdateManyTasksCall) => Promise<{ count: number }>
     > = jest.fn();
+    const upsertTaskViewStateMock = jest.fn(() => Promise.resolve({}));
     const tx = {
       project: {
         create: createProjectMock,
@@ -70,6 +71,9 @@ describe('ProjectsService', () => {
         create: createTaskMock,
         findFirst: findFirstTaskMock,
         updateMany: updateManyTasksMock,
+      },
+      taskViewState: {
+        upsert: upsertTaskViewStateMock,
       },
     };
     const transactionMock = jest.fn(
@@ -96,6 +100,9 @@ describe('ProjectsService', () => {
         findFirst: findFirstTaskMock,
         updateMany: updateManyTasksMock,
       },
+      taskViewState: {
+        upsert: upsertTaskViewStateMock,
+      },
     } as unknown as PrismaService;
     const authService = {
       requireEditAccess: requireEditAccessMock,
@@ -119,6 +126,7 @@ describe('ProjectsService', () => {
         tx,
         updateProjectMock,
         updateManyTasksMock,
+        upsertTaskViewStateMock,
       },
       service: new ProjectsService(
         prisma,
@@ -156,6 +164,42 @@ describe('ProjectsService', () => {
       expect(actual[5]).toBe(tx);
     }
   };
+
+  it('archives an active exact-title Unassigned project after it becomes empty', async () => {
+    const { mocks, service } = createService();
+    const archivedProject = {
+      id: 'project-unassigned',
+      title: 'Unassigned',
+      archivedAt: new Date('2026-02-04T09:00:00.000Z'),
+    };
+
+    mocks.findUniqueMock.mockResolvedValue({
+      id: 'project-unassigned',
+      title: 'Unassigned',
+      archivedAt: null,
+      tasks: [],
+    });
+    mocks.updateProjectMock.mockResolvedValue(archivedProject);
+
+    const result =
+      await service.cleanupEmptyUnassignedProject('project-unassigned');
+
+    expect(mocks.findUniqueMock).toHaveBeenCalledWith({
+      where: { id: 'project-unassigned' },
+      include: {
+        tasks: {
+          where: { archivedAt: null },
+          select: { id: true },
+        },
+      },
+    });
+    const archivedAtMatcher: unknown = expect.any(Date);
+    expect(mocks.updateProjectMock).toHaveBeenCalledWith({
+      where: { id: 'project-unassigned' },
+      data: { archivedAt: archivedAtMatcher },
+    });
+    expect(result).toBe(archivedProject);
+  });
 
   it('creates projects with normalized tracker links and audit metadata', async () => {
     const { mocks, service } = createService();

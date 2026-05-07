@@ -160,6 +160,7 @@ model User {
   auditEvents                  AuditEvent[]                @relation("AuditActor")
   notifications                NotificationEvent[]         @relation("NotificationRecipient")
   projectViewStates            ProjectViewState[]
+  taskViewStates               TaskViewState[]
   createdAt                    DateTime                    @default(now())
   updatedAt                    DateTime                    @updatedAt
 }
@@ -221,28 +222,42 @@ model ProjectViewState {
 }
 
 model Task {
-  id               String     @id @default(cuid())
+  id               String          @id @default(cuid())
   projectId        String
-  project          Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   title            String
   notes            String?
   assigneeUserId   String?
-  assignee         User?      @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  assignee         User?           @relation("TaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
   dueDate          DateTime?
-  priority         Priority   @default(medium)
-  status           TaskStatus @default(not_started)
-  sortOrder        Int        @default(0)
+  priority         Priority        @default(medium)
+  status           TaskStatus      @default(not_started)
+  sortOrder        Int             @default(0)
   sourceSystem     String?
   sourceExternalId String?
   archivedAt       DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
   completedAt      DateTime?
+  viewStates       TaskViewState[]
 
   @@unique([sourceSystem, sourceExternalId])
   @@index([projectId, sortOrder])
   @@index([assigneeUserId])
   @@index([status])
+}
+
+model TaskViewState {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, taskId])
+  @@index([taskId])
 }
 
 model PersonalTodo {

@@ -47,6 +47,7 @@ describe('AuthController', () => {
           filters: {
             assigneeUserIds: [],
             groupBy: 'owner',
+            notViewedOnly: false,
             sortBy: [],
             statusFilters: [],
           },

@@ -785,6 +785,7 @@ describe('AuthService', () => {
         filters: {
           assigneeUserIds: ['user-2'],
           groupBy: 'status',
+          notViewedOnly: true,
           sortBy: ['priority'],
           statusFilters: ['blocked'],
         },
@@ -822,6 +823,7 @@ describe('AuthService', () => {
       filters: {
         assigneeUserIds: ['user-2'],
         groupBy: 'status',
+        notViewedOnly: true,
         sortBy: ['priority'],
         statusFilters: ['blocked'],
       },
@@ -873,6 +875,7 @@ describe('AuthService', () => {
         filters: {
           assigneeUserIds: [],
           groupBy: 'owner',
+          notViewedOnly: false,
           sortBy: [],
           statusFilters: [],
         },
@@ -906,6 +909,7 @@ describe('AuthService', () => {
       filters: {
         assigneeUserIds: [],
         groupBy: 'owner',
+        notViewedOnly: false,
         sortBy: [],
         statusFilters: [],
       },
@@ -943,6 +947,7 @@ describe('AuthService', () => {
           filters: {
             assigneeUserIds: [],
             groupBy: 'owner',
+            notViewedOnly: false,
             sortBy: [],
             statusFilters: [],
           },
@@ -998,6 +1003,7 @@ describe('AuthService', () => {
         filters: {
           assigneeUserIds: [],
           groupBy: 'owner',
+          notViewedOnly: false,
           sortBy: [],
           statusFilters: [],
         },

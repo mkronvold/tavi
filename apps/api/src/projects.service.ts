@@ -386,6 +386,7 @@ export class ProjectsService {
           completedAt: taskCompletedAt,
         },
       });
+      await markTaskViewedForActor(tx, task.id, actor.id);
       const project = await tx.project.update({
         where: { id: projectId },
         data: {
@@ -552,6 +553,60 @@ export class ProjectsService {
       data: rollup,
     });
   }
+
+  async cleanupEmptyUnassignedProject(
+    projectId: string,
+    prisma: ProjectRollupClient = this.prisma,
+  ) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        tasks: {
+          where: { archivedAt: null },
+          select: { id: true },
+        },
+      },
+    });
+
+    if (
+      !project ||
+      project.archivedAt ||
+      project.title !== UNASSIGNED_PROJECT_TITLE ||
+      project.tasks.length > 0
+    ) {
+      return null;
+    }
+
+    return prisma.project.update({
+      where: { id: project.id },
+      data: { archivedAt: new Date() },
+    });
+  }
+}
+
+async function markTaskViewedForActor(
+  prisma: Pick<Prisma.TransactionClient, 'taskViewState'>,
+  taskId: string,
+  userId: string,
+) {
+  const viewedAt = new Date();
+
+  await prisma.taskViewState.upsert({
+    create: {
+      taskId,
+      userId,
+      updatedAt: viewedAt,
+    },
+    update: {
+      updatedAt: viewedAt,
+    },
+    where: {
+      userId_taskId: {
+        taskId,
+        userId,
+      },
+    },
+  });
 }
 
 function isUnassignedProjectTitle(value: string) {

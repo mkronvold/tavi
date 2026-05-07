@@ -20,7 +20,7 @@ The import card follows the same flow described in the UI: import from CSV, appl
 
 ## Export the current workspace
 
-Exports always follow the current search text, grouping choice, task `Status` filters, and task `Assignee` filters. You only get the data visible to your current role.
+Exports always follow the current search text, grouping choice, project `Status` filters, project/task `Assignee` filters, `Not viewed` filter, and sort order. You only get the data visible to your current role.
 
 Available export buttons:
 
@@ -122,3 +122,4 @@ Blank checklist cells keep the project row in preview and import it without crea
 4. Removing an import clears its history entry; it does not undo any completed import changes.
 5. The export and import cards share the same workspace panel toggle, so closing either header closes the full `Import/Export` workspace area.
 6. `Preview` and `Commit results` are separate subsections inside the selected import detail view, not separate panels.
+7. Per-project `D` hide-done/cancelled toggles affect only the workspace display and bulk-selection surface; exports use the filtered project set rather than dropping those hidden task rows.

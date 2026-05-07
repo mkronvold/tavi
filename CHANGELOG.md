@@ -4,6 +4,13 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.14 - 2026-05-07
+
+- Added task-level viewed-state behavior, including the `Not viewed` workspace filter, live polling for collaborative updates, and clearer project/task highlight colors.
+- Updated workspace filtering and density behavior so project `Status` filters remain project-level, `Assignee` filters include project owners and unassigned work, and the per-project `D` toggle hides both done and cancelled tasks.
+- Cleaned up task/project flow details for empty `Unassigned` projects and opened a review follow-up draft when a task moves into `Review`.
+- Refreshed notification branding so outbound emails use an email-safe Tavi HTML wrapper and logo.
+
 ## 0.9.13 - 2026-05-01
 
 - Fixed local-account delete dependency checks so archived projects/tasks no longer make accounts look blocked by invisible assignments.

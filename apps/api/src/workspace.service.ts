@@ -19,8 +19,6 @@ type ProjectViewChangeState = {
   lastViewedAt: Date | null;
   taskIdsWithUnviewedChanges: Set<string>;
 };
-
-const NEVER_VIEWED_AT = new Date(0);
 const LOCAL_AUTH_MODE = 'local';
 
 @Injectable()
@@ -181,7 +179,13 @@ export class WorkspaceService {
         archivedAt: null,
         id: projectId,
       },
-      select: { id: true },
+      select: {
+        id: true,
+        tasks: {
+          where: { archivedAt: null },
+          select: { id: true },
+        },
+      },
     });
 
     if (!project) {
@@ -190,52 +194,60 @@ export class WorkspaceService {
 
     const viewedAt = new Date();
 
-    await this.prisma.projectViewState.upsert({
-      create: {
-        projectId,
-        userId: currentUser.id,
-        viewedAt,
-      },
-      update: {
-        viewedAt,
-      },
-      where: {
-        userId_projectId: {
-          projectId,
-          userId: currentUser.id,
-        },
-      },
-    });
+    await this.prisma.$transaction(
+      project.tasks.map((task) =>
+        this.prisma.taskViewState.upsert({
+          create: {
+            taskId: task.id,
+            userId: currentUser.id,
+            updatedAt: viewedAt,
+          },
+          update: {
+            updatedAt: viewedAt,
+          },
+          where: {
+            userId_taskId: {
+              taskId: task.id,
+              userId: currentUser.id,
+            },
+          },
+        }),
+      ),
+    );
 
     return {
       projectId,
       viewedAt: viewedAt.toISOString(),
+      viewedTaskCount: project.tasks.length,
     };
   }
 
   async markAllProjectsViewed(currentUser: SessionUser) {
     this.authService.requireNonGuestAccess(currentUser);
 
-    const projects = await this.prisma.project.findMany({
-      where: { archivedAt: null },
-      select: { id: true },
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        archivedAt: null,
+        project: { archivedAt: null },
+      },
+      select: { id: true, projectId: true },
     });
     const viewedAt = new Date();
 
     await this.prisma.$transaction(
-      projects.map((project) =>
-        this.prisma.projectViewState.upsert({
+      tasks.map((task) =>
+        this.prisma.taskViewState.upsert({
           create: {
-            projectId: project.id,
+            taskId: task.id,
             userId: currentUser.id,
-            viewedAt,
+            updatedAt: viewedAt,
           },
           update: {
-            viewedAt,
+            updatedAt: viewedAt,
           },
           where: {
-            userId_projectId: {
-              projectId: project.id,
+            userId_taskId: {
+              taskId: task.id,
               userId: currentUser.id,
             },
           },
@@ -245,7 +257,8 @@ export class WorkspaceService {
 
     return {
       viewedAt: viewedAt.toISOString(),
-      viewedProjectCount: projects.length,
+      viewedProjectCount: new Set(tasks.map((task) => task.projectId)).size,
+      viewedTaskCount: tasks.length,
     };
   }
 
@@ -256,100 +269,70 @@ export class WorkspaceService {
       tasks: Array<{ id: string }>;
     }>,
   ) {
-    const projectIds = projects.map((project) => project.id);
-
-    if (projectIds.length === 0) {
-      return new Map<string, ProjectViewChangeState>();
-    }
-
     const taskProjectIdByTaskId = new Map(
       projects.flatMap((project) =>
         project.tasks.map((task) => [task.id, project.id] as const),
       ),
     );
     const taskIds = [...taskProjectIdByTaskId.keys()];
-    const viewStates = await this.prisma.projectViewState.findMany({
+
+    if (taskIds.length === 0) {
+      return new Map<string, ProjectViewChangeState>(
+        projects.map((project) => [
+          project.id,
+          {
+            hasUnviewedChanges: false,
+            lastViewedAt: null,
+            taskIdsWithUnviewedChanges: new Set<string>(),
+          },
+        ]),
+      );
+    }
+
+    const viewStates = await this.prisma.taskViewState.findMany({
       where: {
-        projectId: { in: projectIds },
+        taskId: { in: taskIds },
         userId: currentUser.id,
       },
+      select: {
+        taskId: true,
+        updatedAt: true,
+      },
     });
-    const viewedAtByProjectId = new Map(
+    const viewedAtByTaskId = new Map(
       viewStates.map(
-        (viewState) => [viewState.projectId, viewState.viewedAt] as const,
+        (viewState) => [viewState.taskId, viewState.updatedAt] as const,
       ),
     );
-    const allProjectsHaveViewState = viewStates.length === projectIds.length;
-    const earliestViewedAt = allProjectsHaveViewState
-      ? viewStates.reduce<Date | null>(
-          (earliest, viewState) =>
-            earliest === null || viewState.viewedAt < earliest
-              ? viewState.viewedAt
-              : earliest,
-          null,
-        )
-      : null;
-    const auditEvents = await this.prisma.auditEvent.findMany({
-      where: {
-        AND: [
-          {
-            OR: [
-              { entityId: { in: projectIds }, entityType: 'project' },
-              { entityId: { in: taskIds }, entityType: 'task' },
-            ],
-          },
-          {
-            OR: [
-              { actorUserId: null },
-              { actorUserId: { not: currentUser.id } },
-            ],
-          },
-          ...(earliestViewedAt
-            ? [{ createdAt: { gt: earliestViewedAt } }]
-            : []),
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        createdAt: true,
-        entityId: true,
-        entityType: true,
-      },
-    });
     const viewStateByProjectId = new Map<string, ProjectViewChangeState>(
-      projects.map((project) => [
-        project.id,
-        {
-          hasUnviewedChanges: false,
-          lastViewedAt: viewedAtByProjectId.get(project.id) ?? null,
-          taskIdsWithUnviewedChanges: new Set<string>(),
-        },
-      ]),
+      projects.map((project) => {
+        const taskIdsWithUnviewedChanges = new Set(
+          project.tasks
+            .filter((task) => !viewedAtByTaskId.has(task.id))
+            .map((task) => task.id),
+        );
+        const viewedTaskDates = project.tasks.flatMap((task) => {
+          const viewedAt = viewedAtByTaskId.get(task.id);
+          return viewedAt ? [viewedAt] : [];
+        });
+        const lastViewedAt =
+          viewedTaskDates.length === project.tasks.length &&
+          viewedTaskDates.length > 0
+            ? viewedTaskDates.reduce((earliest, viewedAt) =>
+                viewedAt < earliest ? viewedAt : earliest,
+              )
+            : null;
+
+        return [
+          project.id,
+          {
+            hasUnviewedChanges: taskIdsWithUnviewedChanges.size > 0,
+            lastViewedAt,
+            taskIdsWithUnviewedChanges,
+          },
+        ];
+      }),
     );
-
-    for (const event of auditEvents) {
-      const projectId =
-        event.entityType === 'project'
-          ? event.entityId
-          : taskProjectIdByTaskId.get(event.entityId);
-
-      if (!projectId) {
-        continue;
-      }
-
-      const state = viewStateByProjectId.get(projectId);
-      const viewedAt = viewedAtByProjectId.get(projectId) ?? NEVER_VIEWED_AT;
-
-      if (!state || event.createdAt <= viewedAt) {
-        continue;
-      }
-
-      state.hasUnviewedChanges = true;
-
-      if (event.entityType === 'task') {
-        state.taskIdsWithUnviewedChanges.add(event.entityId);
-      }
-    }
 
     return viewStateByProjectId;
   }

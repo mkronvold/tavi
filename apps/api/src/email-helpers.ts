@@ -1,6 +1,3 @@
-const TAVI_LOGO_SVG_BASE64 =
-  'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiB2aWV3Qm94PSIwIDAgMjAwIDIwMCI+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjIwMCIgaGVpZ2h0PSIyMDAiIHJ4PSI0MCIgcnk9IjQwIiBmaWxsPSIjMjIyMjIyIi8+PGcgZmlsbD0iI0ZGRkZGRiIgZm9udC1mYW1pbHk9InN5c3RlbS11aSwgLWFwcGxlLXN5c3RlbSwgQmxpbmtNYWNTeXN0ZW1Gb250LCAnU2Vnb2UgVUknLCBzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iNzAwIj48dGV4dCB4PSIyOCIgeT0iOTQiIGZvbnQtc2l6ZT0iODgiPlQ8L3RleHQ+PHRleHQgeD0iODQiIHk9Ijk0IiBmb250LXNpemU9IjcyIj7ktIA8L3RleHQ+PHRleHQgeD0iMTQ4IiB5PSI5NCIgZm9udC1zaXplPSI3MiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+LjwvdGV4dD48dGV4dCB4PSI4NCIgeT0iMTU0IiBmb250LXNpemU9IjcyIj7htKA8L3RleHQ+PHRleHQgeD0iMTQ4IiB5PSIxNTQiIGZvbnQtc2l6ZT0iNzIiIHRleHQtYW5jaG9yPSJtaWRkbGUiPsmoPC90ZXh0PjwvZz48L3N2Zz4=';
-
 export function parseSmtpUrl(url: string): {
   host: string;
   port: number;
@@ -36,8 +33,8 @@ export function buildEmailHtml(
     <tr><td align="center" style="padding:32px 16px;">
       <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#0f172a;border-radius:16px;border:1px solid #243247;max-width:520px;width:100%;">
         <tr><td align="center" style="padding:28px 24px 16px;">
-          <a href="${homeUrl}" style="text-decoration:none;">
-            <img src="data:image/svg+xml;base64,${TAVI_LOGO_SVG_BASE64}" alt="Tavi" width="48" height="48" style="border-radius:10px;" />
+          <a href="${homeUrl}" aria-label="Tavi home" style="display:inline-block;padding:10px 14px;border-radius:10px;background-color:#222222;color:#ffffff;font-size:20px;font-weight:700;letter-spacing:0.02em;line-height:1;text-decoration:none;">
+            Tavi
           </a>
         </td></tr>
         <tr><td style="padding:0 32px 8px;color:#e2e8f0;font-size:18px;font-weight:600;">

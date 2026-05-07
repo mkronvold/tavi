@@ -446,6 +446,7 @@ export type ResetWorkspaceExamplesResponse = z.infer<
 export const markProjectViewedResponseSchema = z.object({
   projectId: z.string().min(1),
   viewedAt: z.string().min(1),
+  viewedTaskCount: z.number().int().nonnegative(),
 });
 export type MarkProjectViewedResponse = z.infer<
   typeof markProjectViewedResponseSchema
@@ -454,6 +455,7 @@ export type MarkProjectViewedResponse = z.infer<
 export const markAllProjectsViewedResponseSchema = z.object({
   viewedAt: z.string().min(1),
   viewedProjectCount: z.number().int().nonnegative(),
+  viewedTaskCount: z.number().int().nonnegative(),
 });
 export type MarkAllProjectsViewedResponse = z.infer<
   typeof markAllProjectsViewedResponseSchema
@@ -2413,6 +2415,7 @@ export type WorkspacePreferences = z.infer<typeof workspacePreferencesSchema>;
 export const workspaceFilterStateSchema = z.object({
   assigneeUserIds: z.array(z.string().min(1)),
   groupBy: groupBySchema,
+  notViewedOnly: z.boolean().default(false),
   sortBy: z.array(projectSortFieldSchema),
   statusFilters: z.array(projectStatusSchema),
 });
