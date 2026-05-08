@@ -4,6 +4,10 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.16 - 2026-05-08
+
+- Ordered priority groups as `high`, `medium`, `low`, then `none` instead of relying on alphabetical or data insertion order.
+
 ## 0.9.15 - 2026-05-08
 
 - Moved `Not viewed` and `Mark all viewed` into the `View` panel so the top workspace controls stay focused on search, grouping, and core actions.

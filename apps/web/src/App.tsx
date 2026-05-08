@@ -7618,6 +7618,13 @@ function groupProjects(
     );
   }
 
+  if (groupBy === "priority") {
+    return groupedEntries.sort(
+      (left, right) =>
+        priorityGroupSortRank(left.key) - priorityGroupSortRank(right.key),
+    );
+  }
+
   if (groupBy !== "progress") {
     return groupedEntries;
   }
@@ -7719,6 +7726,21 @@ function prioritySortRank(value: Priority) {
       return 1;
     case "low":
       return 2;
+  }
+}
+
+function priorityGroupSortRank(value: string) {
+  switch (value.toLowerCase()) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+    case "none":
+      return 3;
+    default:
+      return 4;
   }
 }
 

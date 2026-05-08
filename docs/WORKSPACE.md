@@ -17,6 +17,8 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 
 When `Group by` is set to `Status`, Tavi keeps groups in this fixed order: `Not Started`, `In Progress`, `Demo`, `Review`, `Done`, `Blocked`, `On Hold`, `Cancelled`.
 
+When `Group by` is set to `Priority`, Tavi keeps groups in this fixed order: `high`, `medium`, `low`, `none`.
+
 ## Working with project rows
 
 The top search, grouping, filter, and bulk-action controls stay pinned while you scroll so review controls remain visible during long discussions. After you scroll down, a floating `To top` button appears in the lower-right corner of the browser frame so you can jump back to the top quickly.

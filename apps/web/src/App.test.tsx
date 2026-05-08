@@ -16,8 +16,10 @@ import { maskSmtpPassword } from "./redact-secrets";
 import type {
   AuditHistoryEvent,
   EmailAuditEvent,
+  Priority,
   RetentionStatus,
   UpdateRetentionSettingsPayload,
+  WorkspaceProject,
   WorkspaceResponse,
 } from "./types";
 
@@ -586,6 +588,11 @@ describe("App", () => {
 
   const getVisibleProjectTitles = () =>
     Array.from(document.querySelectorAll(".project-card .project-main strong"))
+      .map((element) => element.textContent?.trim())
+      .filter((value): value is string => Boolean(value));
+
+  const getVisibleGroupTitles = () =>
+    Array.from(document.querySelectorAll(".group-card .group-header h2"))
       .map((element) => element.textContent?.trim())
       .filter((value): value is string => Boolean(value));
 
@@ -1580,6 +1587,56 @@ describe("App", () => {
       "Beta rollout",
       "Roadmap refresh",
     ]);
+  });
+
+  it("orders priority groups from high to medium to low to none", async () => {
+    const workspacePayload = createSortedWorkspacePayload();
+    const noPriorityProject: WorkspaceProject = {
+      ...workspacePayload.projects[0],
+      id: "project-4",
+      title: "Inbox triage",
+      priority: "none" as Priority,
+      tasks: [],
+      taskTotalCount: 0,
+      taskTodoCount: 0,
+      taskInProgressCount: 0,
+      taskBlockedCount: 0,
+      taskDoneCount: 0,
+      taskCanceledCount: 0,
+      taskOverdueCount: 0,
+    };
+
+    workspacePayload.projects = [
+      workspacePayload.projects[2],
+      noPriorityProject,
+      workspacePayload.projects[0],
+      workspacePayload.projects[1],
+    ];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Alpha planning")).toBeInTheDocument();
+      expect(screen.getByText("Inbox triage")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Group by"), {
+      target: { value: "priority" },
+    });
+
+    await waitFor(() => {
+      expect(getVisibleGroupTitles()).toEqual([
+        "high",
+        "medium",
+        "low",
+        "none",
+      ]);
+    });
   });
 
   it("sorts projects by age using project creation time", async () => {
