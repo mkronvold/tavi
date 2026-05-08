@@ -4,6 +4,11 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.15 - 2026-05-08
+
+- Moved `Not viewed` and `Mark all viewed` into the `View` panel so the top workspace controls stay focused on search, grouping, and core actions.
+- Scrolled project and task history panels into view automatically when their `History` actions are selected.
+
 ## 0.9.14 - 2026-05-07
 
 - Added task-level viewed-state behavior, including the `Not viewed` workspace filter, live polling for collaborative updates, and clearer project/task highlight colors.

@@ -6906,7 +6906,7 @@ describe("App", () => {
     });
   });
 
-  it("moves Personal ToDo into profile and replaces the toolbar action", async () => {
+  it("moves Personal ToDo into profile and keeps viewed actions in the View panel", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -6919,11 +6919,20 @@ describe("App", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Mark all viewed" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Mark all viewed" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Personal ToDo" }),
     ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Viewed changes")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Mark all viewed" }),
+      ).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Tavi Editor" }));
 
@@ -7082,6 +7091,12 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
       expect(screen.getByText("Beta rollout")).toBeInTheDocument();
       expect(screen.getByLabelText("Group by")).toHaveValue("status");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Viewed changes")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Not viewed" }));
@@ -7272,6 +7287,12 @@ describe("App", () => {
     const projectCard = screen.getByText("Roadmap refresh").closest("article");
 
     expect(projectCard).toHaveClass("project-card--unviewed");
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Viewed changes")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Mark all viewed" }));
 
@@ -7636,6 +7657,7 @@ describe("App", () => {
 
   it("shows audit history and applies bulk task updates", async () => {
     const workspacePayload = createWorkspacePayload();
+    const scrollIntoViewMock = vi.fn();
     let auditEvents: AuditHistoryEvent[] = [
       {
         id: "event-1",
@@ -7720,6 +7742,10 @@ describe("App", () => {
       },
     );
 
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     renderApp();
@@ -7752,6 +7778,10 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("Task history · Kickoff")).toBeInTheDocument();
       expect(screen.getByText("Status In Progress")).toBeInTheDocument();
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({
+        block: "start",
+        inline: "nearest",
+      });
     });
 
     fireEvent.click(screen.getByLabelText("Select task Kickoff"));
@@ -7769,6 +7799,74 @@ describe("App", () => {
       expect(screen.queryByText("2 selected tasks")).not.toBeInTheDocument();
       expect(screen.getByText("2 tasks selected")).toBeInTheDocument();
       expect(screen.getByText("Status Done")).toBeInTheDocument();
+    });
+  });
+
+  it("scrolls project history into view when selected", async () => {
+    const workspacePayload = createWorkspacePayload();
+    const scrollIntoViewMock = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.endsWith("/workspace")) {
+        return createResponse(workspacePayload);
+      }
+
+      if (url.includes("/audit/project/project-1")) {
+        return createResponse([
+          {
+            id: "event-1",
+            entityType: "project",
+            entityId: "project-1",
+            action: "update",
+            metadata: {
+              changedFields: ["title"],
+              title: "Roadmap refresh",
+            },
+            createdAt: "2026-02-01T12:00:00.000Z",
+            actor: {
+              id: "user-1",
+              email: "editor@tavi.local",
+              name: "Tavi Editor",
+              role: "editor",
+            },
+          },
+        ]);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    const projectCard = screen.getByText("Roadmap refresh").closest("article");
+
+    expect(projectCard).not.toBeNull();
+    fireEvent.click(
+      within(projectCard!).getByRole("button", { name: "History" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", {
+          name: "Project history · Roadmap refresh",
+        }),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Changed title")).toBeInTheDocument();
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({
+        block: "start",
+        inline: "nearest",
+      });
     });
   });
 

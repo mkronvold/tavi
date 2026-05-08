@@ -1140,6 +1140,7 @@ function WorkspaceScreen({
   );
   const [bulkTaskError, setBulkTaskError] = useState<string | null>(null);
   const [auditTarget, setAuditTarget] = useState<AuditTarget | null>(null);
+  const auditHistoryPanelRef = useRef<HTMLDivElement | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [taskDragState, setTaskDragState] = useState<TaskDragState | null>(
     null,
@@ -2272,6 +2273,16 @@ function WorkspaceScreen({
     },
   });
 
+  const handleMarkAllViewed = () => {
+    const unviewedProjectIds = data.projects
+      .filter(projectHasUnviewedChanges)
+      .map((project) => project.id);
+
+    if (unviewedProjectIds.length > 0) {
+      markAllProjectsViewedMutation.mutate(unviewedProjectIds);
+    }
+  };
+
   const filteredProjects = useMemo(
     () =>
       filterProjects({
@@ -2421,6 +2432,20 @@ function WorkspaceScreen({
     },
     enabled: auditTarget !== null,
   });
+
+  useEffect(() => {
+    if (
+      auditTarget?.entityType !== "project" &&
+      auditTarget?.entityType !== "task"
+    ) {
+      return;
+    }
+
+    auditHistoryPanelRef.current?.scrollIntoView({
+      block: "start",
+      inline: "nearest",
+    });
+  }, [auditTarget]);
 
   const applySavedView = (savedView: SavedView) => {
     setGroupBy(savedView.groupBy);
@@ -2746,22 +2771,6 @@ function WorkspaceScreen({
               selectedValues={sortBy}
               onChange={setSortBy}
             />
-
-            <div className="workspace-filter">
-              <button
-                type="button"
-                className={`workspace-filter-toggle${notViewedOnly ? " is-active" : ""}`}
-                aria-pressed={notViewedOnly}
-                onClick={() => setNotViewedOnly(!notViewedOnly)}
-                title={
-                  unviewedProjectCount === 1
-                    ? "Show the 1 project with unviewed task changes"
-                    : `Show ${unviewedProjectCount.toString()} projects with unviewed task changes`
-                }
-              >
-                Not viewed
-              </button>
-            </div>
           </div>
 
           <div className="workspace-panel-toggles">
@@ -2774,27 +2783,6 @@ function WorkspaceScreen({
                   onClick={() => toggleWorkspacePanel("view")}
                 >
                   View
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button compact-button"
-                  disabled={
-                    unviewedProjectCount === 0 ||
-                    markAllProjectsViewedMutation.isPending
-                  }
-                  onClick={() => {
-                    const unviewedProjectIds = data.projects
-                      .filter(projectHasUnviewedChanges)
-                      .map((project) => project.id);
-
-                    if (unviewedProjectIds.length > 0) {
-                      markAllProjectsViewedMutation.mutate(unviewedProjectIds);
-                    }
-                  }}
-                >
-                  {markAllProjectsViewedMutation.isPending
-                    ? "Marking..."
-                    : "Mark all viewed"}
                 </button>
                 <button
                   type="button"
@@ -2931,6 +2919,47 @@ function WorkspaceScreen({
                     placeholder="Sprint review"
                   />
                 </label>
+              </div>
+
+              <div className="saved-view-panel view-panel-controls">
+                <header className="panel-header">
+                  <div>
+                    <strong>Viewed changes</strong>
+                    <span>
+                      Focus on projects with unviewed task changes or clear
+                      them when the workspace is caught up.
+                    </span>
+                  </div>
+                </header>
+
+                <div className="view-panel-actions">
+                  <button
+                    type="button"
+                    className={`workspace-filter-toggle${notViewedOnly ? " is-active" : ""}`}
+                    aria-pressed={notViewedOnly}
+                    onClick={() => setNotViewedOnly(!notViewedOnly)}
+                    title={
+                      unviewedProjectCount === 1
+                        ? "Show the 1 project with unviewed task changes"
+                        : `Show ${unviewedProjectCount.toString()} projects with unviewed task changes`
+                    }
+                  >
+                    Not viewed
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={
+                      unviewedProjectCount === 0 ||
+                      markAllProjectsViewedMutation.isPending
+                    }
+                    onClick={handleMarkAllViewed}
+                  >
+                    {markAllProjectsViewedMutation.isPending
+                      ? "Marking..."
+                      : "Mark all viewed"}
+                  </button>
+                </div>
               </div>
 
               <div className="saved-view-actions">
@@ -3464,22 +3493,24 @@ function WorkspaceScreen({
       ) : null}
 
       {auditTarget ? (
-        <AuditHistoryPanel
-          currentUser={data.currentUser}
-          emptyMessage={auditTarget.emptyMessage}
-          errorMessage={
-            auditHistoryQuery.error instanceof Error
-              ? auditHistoryQuery.error.message
-              : null
-          }
-          events={auditHistoryQuery.data ?? []}
-          isError={auditHistoryQuery.isError}
-          isLoading={auditHistoryQuery.isLoading}
-          onClose={() => setAuditTarget(null)}
-          subtitle={auditTarget.subtitle}
-          title={auditTarget.title}
-          users={userLookup}
-        />
+        <div ref={auditHistoryPanelRef}>
+          <AuditHistoryPanel
+            currentUser={data.currentUser}
+            emptyMessage={auditTarget.emptyMessage}
+            errorMessage={
+              auditHistoryQuery.error instanceof Error
+                ? auditHistoryQuery.error.message
+                : null
+            }
+            events={auditHistoryQuery.data ?? []}
+            isError={auditHistoryQuery.isError}
+            isLoading={auditHistoryQuery.isLoading}
+            onClose={() => setAuditTarget(null)}
+            subtitle={auditTarget.subtitle}
+            title={auditTarget.title}
+            users={userLookup}
+          />
+        </div>
       ) : null}
 
       {groupedProjects.map((group) => (

@@ -11,9 +11,7 @@ The workspace is the main operating surface in tavi. It is built for dense revie
 | Sort by       | Orders projects by one or more fields including `Title`, `Progress`, `Priority`, `Due Date`, `Age`, and `Last Updated`                                   |
 | Status        | Multi-select project-status filter. It hides whole projects by their current display status and does not trim task rows inside matching projects         |
 | Assignee      | Multi-select project/task people filter. Matching project owners or task assignees keep the whole project visible; `Unassigned` matches empty owners or assignees |
-| Not viewed    | Shows only projects with task changes you have not marked viewed                                                                                         |
-| View          | Opens saved-view controls for the current search, grouping, project status filters, assignee filters, sort order, and expansion state                    |
-| Mark all viewed | Clears the current user's unviewed-change highlights across the workspace                                                                                |
+| View          | Opens saved-view controls plus the `Not viewed` and `Mark all viewed` controls for unviewed task changes                                                |
 | New Project   | Opens the inline project-creation panel                                                                                                                  |
 | Settings      | Opens per-user synced preferences, daily-digest controls, auth history, local-account entry points, and launcher cards for `Import/Export` and `Backups` |
 
@@ -29,7 +27,7 @@ The workspace refreshes in the background about every 15 seconds while you are s
 
 If another user creates or changes tasks in a project after you last marked those tasks viewed, Tavi shades the project card. When you expand that project, task rows with unviewed changes are shaded too. Your own edits do not create unviewed highlights for you.
 
-Tavi marks a project's active task changes viewed for you when you collapse that project manually or when `Auto Collapse` closes it because you moved focus to another project. Use `Mark all viewed` in the toolbar when you want to clear all current unviewed highlights at once. Use `Not viewed` when you want the workspace to show only projects that still need your attention.
+Tavi marks a project's active task changes viewed for you when you collapse that project manually or when `Auto Collapse` closes it because you moved focus to another project. Open the `View` panel and use `Mark all viewed` when you want to clear all current unviewed highlights at once. Use `Not viewed` in the same panel when you want the workspace to show only projects that still need your attention.
 
 Project, task, and Personal ToDo notes render basic markdown in place. Tavi keeps line breaks, recognizes simple lists and emphasis, and turns plain URLs into clickable links.
 
