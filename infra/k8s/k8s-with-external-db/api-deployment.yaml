@@ -22,7 +22,7 @@ spec:
       initContainers:
         - name: migrate
           image: ghcr.io/mkronvold/tavi-api:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           securityContext:
             seccompProfile:
               type: RuntimeDefault
@@ -68,7 +68,7 @@ spec:
       containers:
         - name: api
           image: ghcr.io/mkronvold/tavi-api:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           securityContext:
             seccompProfile:
               type: RuntimeDefault

@@ -1,0 +1,44 @@
+# GitHub Setup
+
+This page lists repository settings that support Tavi's lifecycle automation.
+
+## Required repository features
+
+1. Enable GitHub Actions.
+2. Enable GitHub Packages access for `GITHUB_TOKEN` so workflows can publish GHCR images.
+3. Enable Dependabot alerts and Dependabot security updates.
+4. Enable Dependabot version updates from `.github/dependabot.yml`.
+5. Enable auto-merge for the repository if patch/minor Dependabot PRs should merge automatically after required checks pass.
+
+## Workflow permissions
+
+The image workflows use `GITHUB_TOKEN` with:
+
+- `contents: read`
+- `packages: write`
+
+The Dependabot auto-merge workflow uses `pull_request_target` and does not check out PR code. It needs:
+
+- `contents: write`
+- `pull-requests: write`
+
+Repository settings must allow GitHub Actions to create and approve pull requests for the approval step to work.
+
+## Branch protection
+
+Use branch protection on `main` so auto-merge waits for required checks. Recommended required checks:
+
+1. `Validate workspace`
+2. container image build jobs from `Publish container images`
+
+Keep major dependency updates manual even when auto-merge is enabled.
+
+## GHCR package visibility
+
+If the repository or packages are private, deployment hosts need permission to pull:
+
+- `ghcr.io/mkronvold/tavi-api`
+- `ghcr.io/mkronvold/tavi-web`
+- `ghcr.io/mkronvold/tavi-worker`
+
+Use `docker login ghcr.io` for Docker hosts or an image pull secret for Kubernetes clusters.

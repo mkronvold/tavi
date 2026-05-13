@@ -84,6 +84,30 @@ containers:
 
 Keep that override out of steady-state production deployments.
 
+## Image lifecycle and refreshed `latest` tags
+
+Tavi's lifecycle workflow refreshes `ghcr.io/mkronvold/tavi-api`,
+`ghcr.io/mkronvold/tavi-web`, and `ghcr.io/mkronvold/tavi-worker` weekly with
+fresh base layers. The raw manifests use `:latest` for those app images and set
+their app container `imagePullPolicy` values to `Always`, so a rollout restart
+will pull the refreshed tag instead of reusing a cached node image.
+
+After a refresh, replace running app pods with:
+
+```bash
+kubectl rollout restart deployment/tavi-api -n tavi
+kubectl rollout restart deployment/tavi-web -n tavi
+kubectl rollout restart deployment/tavi-worker -n tavi
+kubectl rollout status deployment/tavi-api -n tavi
+kubectl rollout status deployment/tavi-web -n tavi
+kubectl rollout status deployment/tavi-worker -n tavi
+```
+
+Raw Kubernetes-only pins such as the CloudNativePG operator bundle,
+`postgres:16-alpine`, and backup post-processing `alpine:3.22` examples remain
+manual lifecycle review items for now. See [`LCM.md`](./LCM.md) for the full
+container lifecycle policy.
+
 ## Backups and restore
 
 Each deployment path now mounts a shared backup directory into both the API and worker at `/var/tavi/backups`.
@@ -141,12 +165,12 @@ kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi
 
 ## Troubleshooting
 
-| Symptom                                       | Likely cause                                                                               | What to inspect                                                                                                                        |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| API pod stuck in `Init`                       | Migration failure or bad database secret                                                   | `kubectl logs -n tavi deployment/tavi-api -c migrate --tail=200`                                                                       |
-| Web loads but API requests fail               | `VITE_API_BASE_URL`, ingress, or `CORS_ORIGIN` mismatch                                    | The chosen folder's `configmap.yaml`, `ingress.yaml`, and browser network tab                                                          |
-| Imports or notifications never finish         | Worker unavailable or cannot reach the database                                            | `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                                                                     |
-| Backups never appear in the UI                | Backup PVC not mounted, not `ReadWriteMany`, or worker cannot write to `/var/tavi/backups` | `kubectl describe pvc -n tavi tavi-backups`, `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                        |
-| Single-instance Postgres never becomes ready  | Bad DB secret values, PVC binding issue, or storage-class problem                          | `kubectl get pvc -n tavi`, `kubectl describe pod -n tavi tavi-postgres-0`, `kubectl logs -n tavi statefulset/tavi-postgres --tail=200` |
-| CloudNativePG cluster does not become healthy | Missing operator/CRDs, bad bootstrap secrets, or storage issue                             | `kubectl get deployment -n cnpg-system cnpg-controller-manager`, `kubectl get crd | rg 'postgresql.cnpg.io'`, `kubectl get cluster.postgresql.cnpg.io -n tavi`, `kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi`, operator logs |
-| Ingress host does not respond                 | DNS or ingress-controller issue                                                            | `kubectl get ingress -n tavi`, ingress-controller logs                                                                                 |
+| Symptom                                       | Likely cause                                                                               | What to inspect                                                                                                                                                                                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API pod stuck in `Init`                       | Migration failure or bad database secret                                                   | `kubectl logs -n tavi deployment/tavi-api -c migrate --tail=200`                                                                                                                                                                                    |
+| Web loads but API requests fail               | `VITE_API_BASE_URL`, ingress, or `CORS_ORIGIN` mismatch                                    | The chosen folder's `configmap.yaml`, `ingress.yaml`, and browser network tab                                                                                                                                                                       |
+| Imports or notifications never finish         | Worker unavailable or cannot reach the database                                            | `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                                                                                                                                                                                  |
+| Backups never appear in the UI                | Backup PVC not mounted, not `ReadWriteMany`, or worker cannot write to `/var/tavi/backups` | `kubectl describe pvc -n tavi tavi-backups`, `kubectl logs -n tavi deployment/tavi-worker -c worker --tail=200`                                                                                                                                     |
+| Single-instance Postgres never becomes ready  | Bad DB secret values, PVC binding issue, or storage-class problem                          | `kubectl get pvc -n tavi`, `kubectl describe pod -n tavi tavi-postgres-0`, `kubectl logs -n tavi statefulset/tavi-postgres --tail=200`                                                                                                              |
+| CloudNativePG cluster does not become healthy | Missing operator/CRDs, bad bootstrap secrets, or storage issue                             | `kubectl get deployment -n cnpg-system cnpg-controller-manager`, `kubectl get crd \| rg 'postgresql.cnpg.io'`, `kubectl get cluster.postgresql.cnpg.io -n tavi`, `kubectl describe cluster.postgresql.cnpg.io/tavi-postgres -n tavi`, operator logs |
+| Ingress host does not respond                 | DNS or ingress-controller issue                                                            | `kubectl get ingress -n tavi`, ingress-controller logs                                                                                                                                                                                              |

@@ -16,7 +16,7 @@ spec:
       containers:
         - name: web
           image: ghcr.io/mkronvold/tavi-web:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           securityContext:
             seccompProfile:
               type: RuntimeDefault

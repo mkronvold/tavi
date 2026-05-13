@@ -4,6 +4,10 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.17 - 2026-05-13
+
+- Added Revu-style lifecycle automation for Tavi container images, including Dependabot configuration, safe patch/minor dependency auto-merge, weekly GHCR image refreshes, Kubernetes pull-policy updates for refreshed `latest` images, and lifecycle documentation.
+
 ## 0.9.16 - 2026-05-08
 
 - Ordered priority groups as `high`, `medium`, `low`, then `none` instead of relying on alphabetical or data insertion order.

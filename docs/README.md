@@ -26,22 +26,24 @@ Use this folder as the main entry point for product usage, local setup, and Kube
 
 ## Setup and operations
 
-| Guide                              | Covers                                                                                                                   |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [`QUICKSTART.md`](./QUICKSTART.md) | Which runtime path to use for source builds, published Docker images, or Kubernetes                                      |
-| [`BUILD.md`](./BUILD.md)           | Source-based Docker Compose startup, seeded users, and local troubleshooting                                             |
-| [`DOCKER.md`](./DOCKER.md)         | Prebuilt GHCR image startup, one-shot migration and seed steps, and local troubleshooting                                |
-| [`KUBERNETES.md`](./KUBERNETES.md) | Raw-manifest deployment, config and secret setup, optional in-cluster PostgreSQL, rollouts, scaling, and troubleshooting |
+| Guide                                  | Covers                                                                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [`QUICKSTART.md`](./QUICKSTART.md)     | Which runtime path to use for source builds, published Docker images, or Kubernetes                                      |
+| [`BUILD.md`](./BUILD.md)               | Source-based Docker Compose startup, seeded users, and local troubleshooting                                             |
+| [`DOCKER.md`](./DOCKER.md)             | Prebuilt GHCR image startup, one-shot migration and seed steps, and local troubleshooting                                |
+| [`KUBERNETES.md`](./KUBERNETES.md)     | Raw-manifest deployment, config and secret setup, optional in-cluster PostgreSQL, rollouts, scaling, and troubleshooting |
+| [`LCM.md`](./LCM.md)                   | Container image refreshes, dependency update automation, and manual lifecycle review items                               |
+| [`GITHUB-SETUP.md`](./GITHUB-SETUP.md) | Repository settings for image publishing, Dependabot, auto-merge, and GHCR access                                        |
 
 ## Technical references
 
-| Guide                                      | Covers                                                                   |
-| ------------------------------------------ | ------------------------------------------------------------------------ |
-| [`DESIGN.md`](./DESIGN.md)                 | Product goals, scope, UX expectations, and data model                    |
-| [`ARCHITECTURE.md`](./ARCHITECTURE.md)     | Stack, runtime topology, API and worker boundaries, and deployment model |
-| [`DEVGUIDE.md`](./DEVGUIDE.md) | AI-oriented lessons learned, validation commands, and common debugging traps |
-| [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md) | CSV import field mapping, checklist splitting, and overlap behavior      |
-| [`BRANDING.md`](./BRANDING.md)             | Canonical naming and branding rules                                      |
+| Guide                                      | Covers                                                                       |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| [`DESIGN.md`](./DESIGN.md)                 | Product goals, scope, UX expectations, and data model                        |
+| [`ARCHITECTURE.md`](./ARCHITECTURE.md)     | Stack, runtime topology, API and worker boundaries, and deployment model     |
+| [`DEVGUIDE.md`](./DEVGUIDE.md)             | AI-oriented lessons learned, validation commands, and common debugging traps |
+| [`IMPORT-MAPPING.md`](./IMPORT-MAPPING.md) | CSV import field mapping, checklist splitting, and overlap behavior          |
+| [`BRANDING.md`](./BRANDING.md)             | Canonical naming and branding rules                                          |
 
 ## Screenshots and reference material
 

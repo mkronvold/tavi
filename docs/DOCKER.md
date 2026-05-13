@@ -32,18 +32,18 @@ Edit `infra/docker/compose-prod.env` and set a real `TAVI_COOKIE_SECRET` and
 
 Important variables:
 
-| Variable | What it controls | Default in the example |
-| --- | --- | --- |
-| `TAVI_TAG` | GHCR image tag for API, web, and worker | `latest` |
-| `TAVI_COOKIE_SECRET` | Required API session secret | `replace-with-a-long-random-secret` |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Internal Postgres container credentials | `tavi`, `tavi`, `replace-me` |
-| `TAVI_DATABASE_URL` | Optional override for API/worker DB connection | unset |
-| `TAVI_WEB_HOST_PORT`, `TAVI_API_HOST_PORT`, `TAVI_WORKER_HOST_PORT`, `TAVI_POSTGRES_HOST_PORT` | Host ports published by the compose stack | `5173`, `4000`, `4100`, `5432` |
-| `TAVI_HOME_URL` | Header home link and web runtime app URL | `http://localhost:5173` |
-| `TAVI_API_BASE_URL` | Browser-facing API base URL used by the web container | `http://localhost:4000/api` |
-| `TAVI_CORS_ORIGIN` | Allowed browser origin for the API | `http://localhost:5173` |
-| `TAVI_BACKUP_DIRECTORY` | Shared backup path inside API and worker containers | `/var/tavi/backups` |
-| `SMTP_URL`, `SMTP_FROM` | Optional outbound email settings (`SMTP_URL` includes protocol, host, port, and any required credentials) | example/local defaults |
+| Variable                                                                                       | What it controls                                                                                          | Default in the example              |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `TAVI_TAG`                                                                                     | GHCR image tag for API, web, and worker                                                                   | `latest`                            |
+| `TAVI_COOKIE_SECRET`                                                                           | Required API session secret                                                                               | `replace-with-a-long-random-secret` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`                                            | Internal Postgres container credentials                                                                   | `tavi`, `tavi`, `replace-me`        |
+| `TAVI_DATABASE_URL`                                                                            | Optional override for API/worker DB connection                                                            | unset                               |
+| `TAVI_WEB_HOST_PORT`, `TAVI_API_HOST_PORT`, `TAVI_WORKER_HOST_PORT`, `TAVI_POSTGRES_HOST_PORT` | Host ports published by the compose stack                                                                 | `5173`, `4000`, `4100`, `5432`      |
+| `TAVI_HOME_URL`                                                                                | Header home link and web runtime app URL                                                                  | `http://localhost:5173`             |
+| `TAVI_API_BASE_URL`                                                                            | Browser-facing API base URL used by the web container                                                     | `http://localhost:4000/api`         |
+| `TAVI_CORS_ORIGIN`                                                                             | Allowed browser origin for the API                                                                        | `http://localhost:5173`             |
+| `TAVI_BACKUP_DIRECTORY`                                                                        | Shared backup path inside API and worker containers                                                       | `/var/tavi/backups`                 |
+| `SMTP_URL`, `SMTP_FROM`                                                                        | Optional outbound email settings (`SMTP_URL` includes protocol, host, port, and any required credentials) | example/local defaults              |
 
 Notes:
 
@@ -124,6 +124,26 @@ docker pull ghcr.io/mkronvold/tavi-api:${TAVI_TAG}
 docker pull ghcr.io/mkronvold/tavi-web:${TAVI_TAG}
 docker pull ghcr.io/mkronvold/tavi-worker:${TAVI_TAG}
 ```
+
+The `latest` tag is refreshed by the scheduled container lifecycle workflow. To
+pick up a refreshed `latest` image in the compose runtime, pull and restart the
+stack:
+
+```bash
+docker compose \
+  --env-file infra/docker/compose-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  pull
+
+docker compose \
+  --env-file infra/docker/compose-prod.env \
+  -f infra/docker/compose-prod.yaml \
+  up -d
+```
+
+If you want to pin a specific refreshed build, set `TAVI_TAG` to the
+`refresh-YYYYMMDD-HHMMSS` tag documented in [`LCM.md`](./LCM.md), then run the
+same pull and up commands.
 
 ## Create local Docker state
 
