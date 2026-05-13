@@ -44,6 +44,9 @@ jobs:
       - name: Install dependencies
         run: corepack pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: corepack pnpm --filter @tavi/api prisma:generate
+
       - name: Lint
         run: corepack pnpm lint
 

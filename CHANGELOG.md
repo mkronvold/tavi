@@ -4,6 +4,8 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+- Fixed container image workflow validation so clean GitHub runners generate the Prisma client before API lint and typecheck.
+
 ## 0.9.17 - 2026-05-13
 
 - Added Revu-style lifecycle automation for Tavi container images, including Dependabot configuration, safe patch/minor dependency auto-merge, weekly GHCR image refreshes, Kubernetes pull-policy updates for refreshed `latest` images, and lifecycle documentation.
