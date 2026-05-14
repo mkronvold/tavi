@@ -4,8 +4,9 @@ import {
   DEFAULT_LOCAL_USERS,
   DEFAULT_LOCAL_USER_PASSWORD,
 } from '../src/default-local-users';
+import { createPrismaClientOptions } from '../src/prisma-client';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient(createPrismaClientOptions());
 
 async function main() {
   const passwordHash = await bcrypt.hash(DEFAULT_LOCAL_USER_PASSWORD, 10);
