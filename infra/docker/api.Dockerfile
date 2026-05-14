@@ -1,4 +1,4 @@
-FROM node:24-bookworm AS builder
+FROM node:26-bookworm AS builder
 
 WORKDIR /app
 ARG PNPM_VERSION=10.33.0
