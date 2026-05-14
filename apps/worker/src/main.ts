@@ -3,9 +3,10 @@ import { PrismaClient } from "@prisma/client";
 import { BackupWorker } from "./backup-worker.js";
 import { LoopImportWorker } from "./loop-import-worker.js";
 import { NotificationWorker } from "./notification-worker.js";
+import { createPrismaClientOptions } from "./prisma-client.js";
 import { WorkerObservability } from "./worker-observability.js";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient(createPrismaClientOptions());
 const port = Number(process.env.PORT ?? defaultPorts.worker);
 const controller = new AbortController();
 const observability = new WorkerObservability(port);

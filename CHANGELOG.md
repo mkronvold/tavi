@@ -4,6 +4,7 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+- Updated Prisma to 7.x with CLI datasource configuration in `prisma.config.ts` and PostgreSQL driver-adapter client initialization for the API and worker.
 - Cleaned up lint issues surfaced by dependency refreshes so clean workspaces pass the current API and web lint configurations.
 - Updated the Dockerfiles to install the pinned pnpm version directly and relink workspace dependencies after source copies so Node base images without Corepack still build.
 - Fixed container image workflow validation so clean GitHub runners build shared package artifacts and generate the Prisma client before API lint and typecheck.

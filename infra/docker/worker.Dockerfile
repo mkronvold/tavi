@@ -13,6 +13,7 @@ COPY packages/schemas/package.json packages/schemas/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY apps/api/prisma apps/api/prisma
+COPY apps/api/prisma.config.ts apps/api/prisma.config.ts
 COPY apps/worker apps/worker
 COPY packages/config packages/config
 COPY packages/schemas packages/schemas
