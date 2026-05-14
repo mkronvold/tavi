@@ -1,7 +1,8 @@
 FROM node:24-bookworm AS builder
 
 WORKDIR /app
-RUN corepack enable
+ARG PNPM_VERSION=10.33.0
+RUN npm install --global "pnpm@${PNPM_VERSION}"
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -15,6 +16,8 @@ COPY apps/api/prisma apps/api/prisma
 COPY apps/worker apps/worker
 COPY packages/config packages/config
 COPY packages/schemas packages/schemas
+
+RUN pnpm install --frozen-lockfile --offline
 
 RUN pnpm --filter @tavi/config build \
   && pnpm --filter @tavi/schemas build \

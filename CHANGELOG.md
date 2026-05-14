@@ -4,6 +4,7 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+- Updated the Dockerfiles to install the pinned pnpm version directly and relink workspace dependencies after source copies so Node base images without Corepack still build.
 - Fixed container image workflow validation so clean GitHub runners build shared package artifacts and generate the Prisma client before API lint and typecheck.
 
 ## 0.9.17 - 2026-05-13
