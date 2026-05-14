@@ -3,7 +3,6 @@ import {
   ServiceUnavailableException,
   type OnModuleInit,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { createTransport, type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
@@ -578,7 +577,7 @@ export class EmailService implements OnModuleInit {
           status,
           stepTitle: title,
           subject,
-        } as Prisma.InputJsonValue,
+        },
       },
     });
   }

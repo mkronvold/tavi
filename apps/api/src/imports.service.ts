@@ -287,7 +287,7 @@ export class ImportsService {
       await tx.importJob.update({
         where: { id: importId },
         data: {
-          mapping: mapping as Prisma.InputJsonValue,
+          mapping: mapping,
           totalRowCount: stagedRows.length,
         },
       });
@@ -1117,7 +1117,7 @@ function parseRawRow(value: Prisma.JsonValue): Record<string, unknown> {
     return {};
   }
 
-  return value as Record<string, unknown>;
+  return value;
 }
 
 function readValidationErrors(value: Prisma.JsonValue | null) {

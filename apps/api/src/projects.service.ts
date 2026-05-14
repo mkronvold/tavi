@@ -167,11 +167,9 @@ export class ProjectsService {
     };
 
     if (input.manualStatus !== undefined) {
-      projectUpdateData.manualStatus =
-        nextManualStatus as Prisma.ProjectUncheckedUpdateInput['manualStatus'];
+      projectUpdateData.manualStatus = nextManualStatus;
       if (!clearingManualStatus) {
-        projectUpdateData.displayStatus =
-          nextDisplayStatus as Prisma.ProjectUncheckedUpdateInput['displayStatus'];
+        projectUpdateData.displayStatus = nextDisplayStatus;
       }
     }
 
@@ -396,10 +394,8 @@ export class ProjectsService {
           ownerUserId: nextOwnerUserId,
           dueDate: nextDueDate,
           priority: nextPriority,
-          manualStatus:
-            nextManualStatus as Prisma.ProjectUncheckedUpdateInput['manualStatus'],
-          displayStatus:
-            nextDisplayStatus as Prisma.ProjectUncheckedUpdateInput['displayStatus'],
+          manualStatus: nextManualStatus,
+          displayStatus: nextDisplayStatus,
           archivedAt,
         },
       });

@@ -28,7 +28,7 @@ const projectSortFields = new Set([
   'lastUpdated',
 ]);
 const isProjectSortField = (value: string): value is ProjectSortField =>
-  projectSortFields.has(value as ProjectSortField);
+  projectSortFields.has(value);
 const isProjectStatus = (value: string): value is ProjectStatus =>
   value === 'not_started' ||
   value === 'in_progress' ||

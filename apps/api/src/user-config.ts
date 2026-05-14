@@ -248,7 +248,7 @@ function normalizeCollapsedGroupsByGroup(
         ? []
         : [[groupBy, normalizedSelection]];
     }),
-  ) as WorkspaceCollapsedGroups;
+  );
 }
 
 function normalizeNoteEditorHeights(

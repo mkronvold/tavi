@@ -277,7 +277,9 @@ type WorkspaceFilterState = {
 type WorkspaceUserConfigWithFilters = Omit<WorkspaceUserConfig, "filters"> & {
   filters: WorkspaceFilterState;
 };
-type WorkspaceUserConfigInput = Partial<Omit<WorkspaceUserConfig, "filters">> & {
+type WorkspaceUserConfigInput = Partial<
+  Omit<WorkspaceUserConfig, "filters">
+> & {
   filters?: Partial<WorkspaceFilterState> | null;
 };
 
@@ -526,7 +528,6 @@ function App() {
     }
 
     hasCachedWorkspacePreferencesRef.current = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setWorkspacePreferences((current) =>
       sameWorkspacePreferences(current, serverWorkspacePreferences)
         ? current
@@ -1006,14 +1007,16 @@ function WorkspaceScreen({
     () => normalizeWorkspaceUserConfig(data.userConfig),
     [data.userConfig],
   );
-  const hasCachedWorkspaceUserConfigRef = useRef(
+  const hasInitialCachedWorkspaceUserConfig =
     hasTaviStorage(PANEL_STORAGE_KEY) ||
-      hasTaviStorage(FILTER_STORAGE_KEY) ||
-      hasTaviStorage(COLLAPSED_GROUPS_STORAGE_KEY) ||
-      hasTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY) ||
-      hasTaviStorage(ADD_TASK_PANEL_STORAGE_KEY) ||
-      hasTaviStorage(HIDE_DONE_TASKS_STORAGE_KEY) ||
-      hasTaviStorage(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY),
+    hasTaviStorage(FILTER_STORAGE_KEY) ||
+    hasTaviStorage(COLLAPSED_GROUPS_STORAGE_KEY) ||
+    hasTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY) ||
+    hasTaviStorage(ADD_TASK_PANEL_STORAGE_KEY) ||
+    hasTaviStorage(HIDE_DONE_TASKS_STORAGE_KEY) ||
+    hasTaviStorage(HIDE_DONE_PERSONAL_TODOS_STORAGE_KEY);
+  const hasCachedWorkspaceUserConfigRef = useRef(
+    hasInitialCachedWorkspaceUserConfig,
   );
   const [panelState, setPanelState] = useState<WorkspacePanelState>(() =>
     normalizeWorkspacePanelState(
@@ -1178,7 +1181,7 @@ function WorkspaceScreen({
     serializeWorkspaceUserConfig(initialUserConfig),
   );
   const skipNextUserConfigSyncRef = useRef(
-    !hasCachedWorkspaceUserConfigRef.current,
+    !hasInitialCachedWorkspaceUserConfig,
   );
   const { autoCollapse, bulkActions, fullWidth, theme } = preferences;
   const canSelectTasks = canEditWorkspace && bulkActions;
@@ -2926,8 +2929,8 @@ function WorkspaceScreen({
                   <div>
                     <strong>Viewed changes</strong>
                     <span>
-                      Focus on projects with unviewed task changes or clear
-                      them when the workspace is caught up.
+                      Focus on projects with unviewed task changes or clear them
+                      when the workspace is caught up.
                     </span>
                   </div>
                 </header>

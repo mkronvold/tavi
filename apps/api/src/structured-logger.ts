@@ -183,8 +183,5 @@ function resolveLogLevel(level?: string): StructuredLogLevel {
 }
 
 function isStructuredLogLevel(value: unknown): value is StructuredLogLevel {
-  return (
-    typeof value === 'string' &&
-    Object.hasOwn(levelSeverity, value as StructuredLogLevel)
-  );
+  return typeof value === 'string' && Object.hasOwn(levelSeverity, value);
 }

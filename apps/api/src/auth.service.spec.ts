@@ -437,8 +437,7 @@ describe('AuthService', () => {
         entityId: 'user-1',
       },
     );
-    const [firstAuditCall] = auditEventCreateMock.mock
-      .calls as unknown as AuditEventCreateCall[];
+    const [firstAuditCall] = auditEventCreateMock.mock.calls;
 
     expect(firstAuditCall?.[0].data.action).toBe('password_reset_requested');
     expect(firstAuditCall?.[0].data.entityId).toBe('user-1');
