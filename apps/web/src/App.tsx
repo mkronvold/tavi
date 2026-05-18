@@ -5,6 +5,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -310,6 +311,7 @@ type WorkspacePreferences = {
 };
 
 type NotificationRate = "daily" | "hourly";
+type ProjectPickerSortField = "alpha" | "date" | "status" | "assignee";
 
 type BulkTaskDraft = {
   assigneeMode: "keep" | "set" | "clear";
@@ -407,6 +409,20 @@ const CONVERT_TASK_TO_PROJECT_VALUE = "__convert-task-to-project__";
 const NO_TASK_ASSIGNEE_LABEL = "None";
 const NO_PROJECT_OWNER_LABEL = "None";
 const NO_PROJECT_OWNER_GROUP = "No owner";
+const PROJECT_PICKER_HIDDEN_PROJECT_STATUSES = new Set<ProjectStatus>([
+  "done",
+  "on_hold",
+  "canceled",
+]);
+const PROJECT_PICKER_SORT_OPTIONS: Array<{
+  label: string;
+  value: ProjectPickerSortField;
+}> = [
+  { label: "Alpha", value: "alpha" },
+  { label: "Date", value: "date" },
+  { label: "Status", value: "status" },
+  { label: "Project assignee", value: "assignee" },
+];
 const FIBONACCI_BACKOFF_MS = [
   1_000, 1_000, 2_000, 3_000, 5_000, 8_000, 13_000, 21_000, 34_000, 55_000,
 ] as const;
@@ -3447,26 +3463,23 @@ function WorkspaceScreen({
               </select>
             </label>
 
-            <label>
-              Copy to project
-              <select
-                value={bulkTaskDraft.copyTargetProjectId}
-                onChange={(event) => {
+            <div className="project-picker-field">
+              <span>Copy to project</span>
+              <ProjectPickerControl
+                currentUser={data.currentUser}
+                label="Copy to project"
+                onChange={(projectId) => {
                   setBulkTaskDraft((current) => ({
                     ...current,
-                    copyTargetProjectId: event.target.value,
+                    copyTargetProjectId: projectId,
                   }));
                   setBulkTaskError(null);
                 }}
-              >
-                <option value="">Select project</option>
-                {data.projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+                projects={data.projects}
+                selectedProjectId={bulkTaskDraft.copyTargetProjectId}
+                users={userLookup}
+              />
+            </div>
 
             <div className="bulk-date-actions">
               <button
@@ -4438,6 +4451,7 @@ function WorkspaceScreen({
                                 taskDraft={taskDraft}
                                 taskEditError={taskEditError}
                                 taskNoteEditorHeight={noteEditorHeights.task}
+                                userLookup={userLookup}
                                 onTaskNotesPointerDown={(textarea) =>
                                   rememberNoteEditorHeight("task", textarea)
                                 }
@@ -4515,6 +4529,7 @@ type TaskRowProps = {
   taskDraft: UpdateTaskPayload;
   taskEditError: string | null;
   taskNoteEditorHeight: number | null;
+  userLookup: Record<string, WorkspaceUser>;
   setTaskDraft: React.Dispatch<React.SetStateAction<UpdateTaskPayload>>;
 };
 
@@ -4547,6 +4562,7 @@ function TaskRow({
   taskDraft,
   taskEditError,
   taskNoteEditorHeight,
+  userLookup,
   setTaskDraft,
 }: TaskRowProps) {
   if (editingTaskId === task.id) {
@@ -4594,26 +4610,20 @@ function TaskRow({
               rows={2}
               style={toTextareaStyle(taskNoteEditorHeight)}
             />
-            <select
-              aria-label="Project"
-              form={taskEditFormId}
-              value={selectedProjectId}
-              onChange={(event) =>
+            <ProjectPickerControl
+              currentUser={data.currentUser}
+              includeConvertToProject
+              label="Project"
+              onChange={(projectId) =>
                 setTaskDraft((current) => ({
                   ...current,
-                  projectId: event.target.value,
+                  projectId,
                 }))
               }
-            >
-              {data.projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title}
-                </option>
-              ))}
-              <option value={CONVERT_TASK_TO_PROJECT_VALUE}>
-                Convert to Project
-              </option>
-            </select>
+              projects={data.projects}
+              selectedProjectId={selectedProjectId}
+              users={userLookup}
+            />
           </div>
         </td>
         <td>
@@ -8583,6 +8593,290 @@ type WorkspaceMenuOption<Value extends string> = {
   label: string;
   value: Value;
 };
+
+type ProjectPickerControlProps = {
+  currentUser: WorkspaceUser;
+  includeConvertToProject?: boolean;
+  label: string;
+  onChange: (projectId: string) => void;
+  projects: WorkspaceProject[];
+  selectedProjectId: string;
+  users: Record<string, WorkspaceUser>;
+};
+
+function ProjectPickerControl({
+  currentUser,
+  includeConvertToProject = false,
+  label,
+  onChange,
+  projects,
+  selectedProjectId,
+  users,
+}: ProjectPickerControlProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
+  const [sortField, setSortField] =
+    useState<ProjectPickerSortField>("alpha");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchInputId = useId();
+  const selectedProject = projects.find(
+    (project) => project.id === selectedProjectId,
+  );
+  const selectedLabel =
+    selectedProjectId === CONVERT_TASK_TO_PROJECT_VALUE
+      ? "Convert to Project"
+      : (selectedProject?.title ?? "Select project");
+  const sortedProjects = useMemo(
+    () =>
+      getProjectPickerProjects({
+        currentUser,
+        projects,
+        query,
+        showHidden,
+        sortField,
+        users,
+      }),
+    [currentUser, projects, query, showHidden, sortField, users],
+  );
+
+  const closePicker = useCallback(() => {
+    setIsOpen(false);
+  }, []);
+  const selectProject = (projectId: string) => {
+    onChange(projectId);
+    setQuery("");
+    closePicker();
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        closePicker();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closePicker();
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closePicker, isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="workspace-filter workspace-filter--popup project-picker"
+    >
+      <button
+        type="button"
+        className={`workspace-filter-trigger project-picker-trigger${isOpen ? " is-open" : ""}`}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => {
+          if (isOpen) {
+            closePicker();
+            return;
+          }
+
+          setQuery("");
+          setIsOpen(true);
+        }}
+      >
+        <span className="project-picker-trigger-label">
+          {label}: {selectedLabel}
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div
+          className="workspace-multi-filter-menu project-picker-menu"
+          role="dialog"
+          aria-label={label}
+        >
+          <label className="project-picker-search" htmlFor={searchInputId}>
+            Search projects
+          </label>
+          <input
+            id={searchInputId}
+            ref={searchInputRef}
+            aria-label={`${label} search`}
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Type a project name"
+          />
+
+          <label className="project-picker-hidden-toggle">
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(event) => setShowHidden(event.target.checked)}
+            />
+            <span>Show hidden</span>
+          </label>
+
+          <div className="project-picker-sort-buttons" aria-label="Sort projects">
+            {PROJECT_PICKER_SORT_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`ghost-button compact-button project-picker-sort-button${sortField === option.value ? " is-active" : ""}`}
+                aria-pressed={sortField === option.value}
+                onClick={() => setSortField(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="project-picker-results">
+            {sortedProjects.length > 0 ? (
+              sortedProjects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className={`project-picker-option${project.id === selectedProjectId ? " is-selected" : ""}`}
+                  aria-label={`Select project ${project.title}`}
+                  onClick={() => selectProject(project.id)}
+                >
+                  <span className="project-picker-option-title">
+                    {project.title}
+                  </span>
+                  <span className="project-picker-option-meta">
+                    {formatStatusLabel(project.displayStatus)} ·{" "}
+                    {formatProjectPickerOwner(project, users, currentUser)} ·{" "}
+                    {formatDate(latestProjectActivity(project))}
+                  </span>
+                </button>
+              ))
+            ) : (
+              <p className="project-picker-empty">No matching projects</p>
+            )}
+          </div>
+
+          {includeConvertToProject ? (
+            <button
+              type="button"
+              className={`ghost-button compact-button project-picker-convert${selectedProjectId === CONVERT_TASK_TO_PROJECT_VALUE ? " is-active" : ""}`}
+              aria-pressed={selectedProjectId === CONVERT_TASK_TO_PROJECT_VALUE}
+              onClick={() => selectProject(CONVERT_TASK_TO_PROJECT_VALUE)}
+            >
+              Convert to Project
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getProjectPickerProjects({
+  currentUser,
+  projects,
+  query,
+  showHidden,
+  sortField,
+  users,
+}: {
+  currentUser: WorkspaceUser;
+  projects: WorkspaceProject[];
+  query: string;
+  showHidden: boolean;
+  sortField: ProjectPickerSortField;
+  users: Record<string, WorkspaceUser>;
+}) {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  return projects
+    .filter(
+      (project) =>
+        (showHidden || !isProjectPickerHiddenProject(project)) &&
+        (!normalizedQuery ||
+          project.title.toLowerCase().includes(normalizedQuery)),
+    )
+    .map((project, index) => ({ index, project }))
+    .sort((left, right) => {
+      const result = compareProjectPickerProjects(
+        left.project,
+        right.project,
+        sortField,
+        users,
+        currentUser,
+      );
+
+      return result === 0 ? left.index - right.index : result;
+    })
+    .map(({ project }) => project);
+}
+
+function compareProjectPickerProjects(
+  left: WorkspaceProject,
+  right: WorkspaceProject,
+  sortField: ProjectPickerSortField,
+  users: Record<string, WorkspaceUser>,
+  currentUser: WorkspaceUser,
+) {
+  switch (sortField) {
+    case "date":
+      return compareNullableDateValues(
+        latestProjectActivity(right),
+        latestProjectActivity(left),
+      );
+    case "status":
+      return (
+        statusLabelSortRank(formatStatusLabel(left.displayStatus)) -
+        statusLabelSortRank(formatStatusLabel(right.displayStatus))
+      );
+    case "assignee":
+      return formatProjectPickerOwner(left, users, currentUser).localeCompare(
+        formatProjectPickerOwner(right, users, currentUser),
+        undefined,
+        { sensitivity: "base" },
+      );
+    case "alpha":
+      return left.title.localeCompare(right.title, undefined, {
+        sensitivity: "base",
+      });
+  }
+}
+
+function isProjectPickerHiddenProject(project: WorkspaceProject) {
+  return PROJECT_PICKER_HIDDEN_PROJECT_STATUSES.has(project.displayStatus);
+}
+
+function formatProjectPickerOwner(
+  project: WorkspaceProject,
+  users: Record<string, WorkspaceUser>,
+  currentUser: WorkspaceUser,
+) {
+  if (project.ownerUserId) {
+    return formatUserReference(project.ownerUserId, users, currentUser);
+  }
+
+  return project.ownerName ?? NO_PROJECT_OWNER_GROUP;
+}
 
 type MultiSelectFilterProps = {
   label: string;

@@ -5289,11 +5289,13 @@ describe("App", () => {
       ).toBeInTheDocument();
     });
 
-    fireEvent.change(
-      within(sourceProject).getByRole("combobox", { name: "Project" }),
-      {
-        target: { value: "project-2" },
-      },
+    fireEvent.click(
+      within(sourceProject).getByRole("button", { name: /^Project:/ }),
+    );
+    fireEvent.click(
+      within(sourceProject).getByRole("button", {
+        name: "Select project Beta rollout",
+      }),
     );
     fireEvent.click(
       within(sourceProject).getByRole("button", { name: "Save" }),
@@ -5581,15 +5583,16 @@ describe("App", () => {
       target: { value: "Kickoff project" },
     });
 
-    const projectSelect = within(sourceProject).getByRole("combobox", {
-      name: "Project",
-    }) as HTMLSelectElement;
-    const lastOption = projectSelect.options[projectSelect.options.length - 1];
-
-    expect(lastOption.textContent).toBe("Convert to Project");
-    fireEvent.change(projectSelect, {
-      target: { value: lastOption.value },
+    const projectPickerButton = within(sourceProject).getByRole("button", {
+      name: /^Project:/,
     });
+
+    fireEvent.click(projectPickerButton);
+    fireEvent.click(
+      within(sourceProject).getByRole("button", {
+        name: "Convert to Project",
+      }),
+    );
     fireEvent.click(
       within(sourceProject).getByRole("button", { name: "Convert" }),
     );
@@ -8066,6 +8069,98 @@ describe("App", () => {
     expect(screen.getAllByText("None").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("filters and sorts project picker targets while hiding completed projects", async () => {
+    const workspacePayload = createSortedWorkspacePayload();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+      expect(screen.getByText("Beta rollout")).toBeInTheDocument();
+    });
+
+    if (!screen.queryByText("Kickoff")) {
+      toggleProjectByTitle("Roadmap refresh");
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText("Select task Kickoff"));
+
+    const bulkCard = screen.getByText("1 selected task").closest("section");
+
+    expect(bulkCard).not.toBeNull();
+    fireEvent.click(
+      within(bulkCard!).getByRole("button", { name: /^Copy to project:/ }),
+    );
+
+    const picker = screen.getByRole("dialog", { name: "Copy to project" });
+    const getProjectOptionLabels = () =>
+      within(picker)
+        .getAllByRole("button", { name: /^Select project / })
+        .map((button) => button.textContent ?? "");
+
+    expect(
+      within(picker).getByRole("button", {
+        name: "Select project Beta rollout",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(picker).queryByRole("button", {
+        name: "Select project Alpha planning",
+      }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(within(picker).getByLabelText("Copy to project search"), {
+      target: { value: "road" },
+    });
+
+    expect(
+      within(picker).getByRole("button", {
+        name: "Select project Roadmap refresh",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(picker).queryByRole("button", {
+        name: "Select project Beta rollout",
+      }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(within(picker).getByLabelText("Copy to project search"), {
+      target: { value: "" },
+    });
+    fireEvent.click(within(picker).getByRole("button", { name: "Date" }));
+
+    expect(getProjectOptionLabels()[0]).toContain("Roadmap refresh");
+
+    fireEvent.click(within(picker).getByRole("button", { name: "Alpha" }));
+
+    expect(getProjectOptionLabels()[0]).toContain("Beta rollout");
+
+    fireEvent.click(within(picker).getByLabelText("Show hidden"));
+
+    expect(
+      within(picker).getByRole("button", {
+        name: "Select project Alpha planning",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("copies selected tasks to another project through bulk task actions", async () => {
     const workspacePayload = createWorkspacePayload();
 
@@ -8171,9 +8266,15 @@ describe("App", () => {
     const bulkCard = screen.getByText("2 selected tasks").closest("section");
 
     expect(bulkCard).not.toBeNull();
-    fireEvent.change(within(bulkCard!).getByLabelText("Copy to project"), {
-      target: { value: "project-2" },
-    });
+    fireEvent.click(
+      within(bulkCard!).getByRole("button", { name: /^Copy to project:/ }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Copy to project" })).getByRole(
+        "button",
+        { name: "Select project Operations uplift" },
+      ),
+    );
     fireEvent.click(within(bulkCard!).getByRole("button", { name: "Copy" }));
 
     await waitFor(() => {
