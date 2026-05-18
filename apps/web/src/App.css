@@ -2106,6 +2106,17 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.personal-todo-sort-button {
+  padding: 3px 7px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.personal-todo-sort-button.is-active {
+  border-color: var(--brand-color);
+  color: var(--brand-color);
+}
+
 .personal-todo-table .personal-todo-complete-column {
   width: 70px;
   text-align: center;

@@ -3607,11 +3607,9 @@ function WorkspaceScreen({
                     ? "Saving task order..."
                     : tasksAreFiltered
                       ? "Clear task filters to reorder tasks."
-                      : hideDoneTasks
-                        ? "Show done and canceled tasks to reorder tasks."
-                        : fullProject.tasks.length < 2
-                          ? "At least two tasks are required to reorder."
-                          : null;
+                      : fullProject.tasks.length < 2
+                        ? "At least two tasks are required to reorder."
+                        : null;
                 const canReorderProjectTasks =
                   taskReorderDisabledReason === null;
                 const activeTaskDragState =

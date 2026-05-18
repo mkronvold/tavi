@@ -591,6 +591,11 @@ describe("App", () => {
       .map((element) => element.textContent?.trim())
       .filter((value): value is string => Boolean(value));
 
+  const getVisiblePersonalTodoTitles = () =>
+    Array.from(document.querySelectorAll(".personal-todo-title-cell strong"))
+      .map((element) => element.textContent?.trim())
+      .filter((value): value is string => Boolean(value));
+
   const getVisibleGroupTitles = () =>
     Array.from(document.querySelectorAll(".group-card .group-header h2"))
       .map((element) => element.textContent?.trim())
@@ -2714,6 +2719,61 @@ describe("App", () => {
       );
       expect(screen.getByText("confirm checklist")).toBeInTheDocument();
     });
+  });
+
+  it("sorts Personal ToDo items from column headers and hides drag handles while sorted", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    await openPersonalTodoFromProfile();
+
+    expect(getVisiblePersonalTodoTitles()).toEqual([
+      "Private draft",
+      "Closed loop",
+    ]);
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder Private draft" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Task: no sort" }));
+
+    expect(getVisiblePersonalTodoTitles()).toEqual([
+      "Closed loop",
+      "Private draft",
+    ]);
+    expect(
+      screen.queryByRole("button", { name: "Drag to reorder Closed loop" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Task: forward sort" }));
+
+    expect(getVisiblePersonalTodoTitles()).toEqual([
+      "Private draft",
+      "Closed loop",
+    ]);
+    expect(
+      screen.queryByRole("button", { name: "Drag to reorder Private draft" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Task: reverse sort" }));
+
+    expect(getVisiblePersonalTodoTitles()).toEqual([
+      "Private draft",
+      "Closed loop",
+    ]);
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder Private draft" }),
+    ).toBeInTheDocument();
   });
 
   it("defaults new Personal ToDo due dates to tomorrow", async () => {
@@ -7509,6 +7569,63 @@ describe("App", () => {
     expect(
       screen.getByLabelText("Select task Cut stale scope"),
     ).not.toBeChecked();
+  });
+
+  it("keeps active task drag handles enabled while done tasks are hidden", async () => {
+    const workspacePayload = createWorkspacePayload();
+
+    workspacePayload.projects[0]?.tasks.push({
+      id: "task-3",
+      projectId: "project-1",
+      title: "Ship recap",
+      notes: "Already wrapped",
+      assigneeUserId: "user-1",
+      assigneeName: "Tavi Editor",
+      dueDate: null,
+      priority: "low",
+      status: "done",
+      sortOrder: 2,
+      completedAt: "2026-04-03T10:00:00.000Z",
+      createdAt: "2026-04-03T09:00:00.000Z",
+      updatedAt: "2026-04-03T10:00:00.000Z",
+    });
+    workspacePayload.projects[0]!.taskTotalCount = 3;
+    workspacePayload.projects[0]!.taskDoneCount = 1;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createResponse(workspacePayload)),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    toggleProjectByTitle("Roadmap refresh");
+
+    await waitFor(() => {
+      expect(screen.getByText("Kickoff")).toBeInTheDocument();
+      expect(screen.getByText("Ship recap")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Hide done and canceled tasks in Roadmap refresh",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Ship recap")).not.toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder Kickoff" }),
+    ).not.toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Drag to reorder Review plan" }),
+    ).not.toBeDisabled();
   });
 
   it("clears selected tasks for a collapsed project without affecting other open projects", async () => {

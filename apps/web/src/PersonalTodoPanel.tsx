@@ -1,6 +1,8 @@
 import {
+  type Dispatch,
   type DragEvent as ReactDragEvent,
   type FormEvent,
+  type SetStateAction,
   useEffect,
   useMemo,
   useRef,
@@ -49,6 +51,13 @@ type PersonalTodoDragState = {
   overTodoId: string;
 };
 
+type PersonalTodoSortField = "dueDate" | "status" | "title";
+type PersonalTodoSortDirection = "asc" | "desc";
+type PersonalTodoSortState = {
+  direction: PersonalTodoSortDirection;
+  field: PersonalTodoSortField;
+} | null;
+
 const createEmptyPersonalTodoDraft = (): PersonalTodoDraft => ({
   dueDate: getTomorrowDateInput(),
   notes: "",
@@ -79,15 +88,20 @@ export function PersonalTodoPanel({
     null,
   );
   const [isDragGuardActive, setIsDragGuardActive] = useState(false);
+  const [sortState, setSortState] = useState<PersonalTodoSortState>(null);
   const doneTodoCount = personalTodos.filter(
     (todo) => todo.status === "done",
   ).length;
+  const showReorderHandles = sortState === null;
   const visibleTodos = useMemo(
     () =>
-      hideDoneTodos
-        ? personalTodos.filter((todo) => todo.status !== "done")
-        : personalTodos,
-    [hideDoneTodos, personalTodos],
+      sortPersonalTodos(
+        hideDoneTodos
+          ? personalTodos.filter((todo) => todo.status !== "done")
+          : personalTodos,
+        sortState,
+      ),
+    [hideDoneTodos, personalTodos, sortState],
   );
 
   const invalidateWorkspace = () =>
@@ -313,6 +327,7 @@ export function PersonalTodoPanel({
     doneTodoCount,
     hideDoneTodos,
     isPending: reorderPersonalTodosMutation.isPending,
+    isSorted: sortState !== null,
     totalCount: personalTodos.length,
   });
   const canReorderTodos = reorderDisabledReason === null;
@@ -539,28 +554,52 @@ export function PersonalTodoPanel({
         <table className="task-table personal-todo-table">
           <thead>
             <tr>
-              <th className="task-reorder-cell" />
-              <th>Task</th>
-              <th>Due date</th>
+              {showReorderHandles ? (
+                <th className="task-reorder-cell" />
+              ) : null}
+              <th>
+                <PersonalTodoSortHeader
+                  field="title"
+                  label="Task"
+                  onChange={setSortState}
+                  sortState={sortState}
+                />
+              </th>
+              <th>
+                <PersonalTodoSortHeader
+                  field="dueDate"
+                  label="Due date"
+                  onChange={setSortState}
+                  sortState={sortState}
+                />
+              </th>
               <th className="personal-todo-complete-column">
-                <button
-                  type="button"
-                  className={`ghost-button compact-button task-done-toggle${hideDoneTodos ? " is-active" : ""}`}
-                  aria-label={
-                    hideDoneTodos
-                      ? "Show done personal to dos"
-                      : "Hide done personal to dos"
-                  }
-                  aria-pressed={hideDoneTodos}
-                  onClick={() => onHideDoneChange(!hideDoneTodos)}
-                  title={
-                    hideDoneTodos
-                      ? "Show done personal to dos"
-                      : "Hide done personal to dos"
-                  }
-                >
-                  D
-                </button>
+                <span className="task-status-heading">
+                  <PersonalTodoSortHeader
+                    field="status"
+                    label="Done"
+                    onChange={setSortState}
+                    sortState={sortState}
+                  />
+                  <button
+                    type="button"
+                    className={`ghost-button compact-button task-done-toggle${hideDoneTodos ? " is-active" : ""}`}
+                    aria-label={
+                      hideDoneTodos
+                        ? "Show done personal to dos"
+                        : "Hide done personal to dos"
+                    }
+                    aria-pressed={hideDoneTodos}
+                    onClick={() => onHideDoneChange(!hideDoneTodos)}
+                    title={
+                      hideDoneTodos
+                        ? "Show done personal to dos"
+                        : "Hide done personal to dos"
+                    }
+                  >
+                    D
+                  </button>
+                </span>
               </th>
               <th className="task-action-cell">Actions</th>
             </tr>
@@ -568,7 +607,10 @@ export function PersonalTodoPanel({
           <tbody>
             {visibleTodos.length === 0 ? (
               <tr>
-                <td className="personal-todo-empty-state" colSpan={5}>
+                <td
+                  className="personal-todo-empty-state"
+                  colSpan={showReorderHandles ? 5 : 4}
+                >
                   {personalTodos.length === 0
                     ? "No personal ToDo items yet."
                     : "All done personal to dos are hidden."}
@@ -584,7 +626,9 @@ export function PersonalTodoPanel({
                 if (isEditing) {
                   return (
                     <tr key={todo.id}>
-                      <td className="task-reorder-cell" />
+                      {showReorderHandles ? (
+                        <td className="task-reorder-cell" />
+                      ) : null}
                       <td>
                         <input
                           value={editDraft.title}
@@ -764,45 +808,47 @@ export function PersonalTodoPanel({
                       });
                     }}
                   >
-                    <td className="task-reorder-cell">
-                      <button
-                        type="button"
-                        className={`ghost-button compact-button task-reorder-handle${
-                          isDragging ? " is-active" : ""
-                        }`}
-                        aria-label={`Drag to reorder ${todo.title}`}
-                        title={reorderDisabledReason ?? "Drag to reorder"}
-                        disabled={!canReorderTodos}
-                        draggable={canReorderTodos}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onDragStart={(event) => {
-                          if (!canReorderTodos) {
-                            return;
-                          }
+                    {showReorderHandles ? (
+                      <td className="task-reorder-cell">
+                        <button
+                          type="button"
+                          className={`ghost-button compact-button task-reorder-handle${
+                            isDragging ? " is-active" : ""
+                          }`}
+                          aria-label={`Drag to reorder ${todo.title}`}
+                          title={reorderDisabledReason ?? "Drag to reorder"}
+                          disabled={!canReorderTodos}
+                          draggable={canReorderTodos}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onDragStart={(event) => {
+                            if (!canReorderTodos) {
+                              return;
+                            }
 
-                          event.stopPropagation();
-                          clearPendingDragCleanup();
-                          activeDraggedTodoIdRef.current = todo.id;
-                          setIsDragGuardActive(true);
-                          event.dataTransfer.effectAllowed = "move";
-                          event.dataTransfer.setData("text/plain", todo.id);
-                          setDragState({
-                            todoId: todo.id,
-                            overTodoId: todo.id,
-                            position: "before",
-                          });
-                        }}
-                        onDragEnd={(event) => {
-                          event.stopPropagation();
-                          scheduleActiveDragSessionCleanup();
-                        }}
-                      >
-                        ::
-                      </button>
-                    </td>
+                            event.stopPropagation();
+                            clearPendingDragCleanup();
+                            activeDraggedTodoIdRef.current = todo.id;
+                            setIsDragGuardActive(true);
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", todo.id);
+                            setDragState({
+                              todoId: todo.id,
+                              overTodoId: todo.id,
+                              position: "before",
+                            });
+                          }}
+                          onDragEnd={(event) => {
+                            event.stopPropagation();
+                            scheduleActiveDragSessionCleanup();
+                          }}
+                        >
+                          ::
+                        </button>
+                      </td>
+                    ) : null}
                     <td className="personal-todo-title-cell">
                       <strong>{todo.title}</strong>
                       <NotesMarkdown
@@ -861,6 +907,61 @@ export function PersonalTodoPanel({
       </div>
     </section>
   );
+}
+
+type PersonalTodoSortHeaderProps = {
+  field: PersonalTodoSortField;
+  label: string;
+  onChange: Dispatch<SetStateAction<PersonalTodoSortState>>;
+  sortState: PersonalTodoSortState;
+};
+
+function PersonalTodoSortHeader({
+  field,
+  label,
+  onChange,
+  sortState,
+}: PersonalTodoSortHeaderProps) {
+  const active = sortState?.field === field ? sortState.direction : null;
+  const suffix = active === "asc" ? " ↑" : active === "desc" ? " ↓" : "";
+  const ariaState =
+    active === "asc"
+      ? "forward sort"
+      : active === "desc"
+        ? "reverse sort"
+        : "no sort";
+
+  return (
+    <button
+      type="button"
+      className={`ghost-button compact-button personal-todo-sort-button${
+        active ? " is-active" : ""
+      }`}
+      aria-label={`${label}: ${ariaState}`}
+      aria-pressed={active !== null}
+      onClick={() =>
+        onChange((current) => nextPersonalTodoSort(current, field))
+      }
+    >
+      {label}
+      {suffix}
+    </button>
+  );
+}
+
+function nextPersonalTodoSort(
+  current: PersonalTodoSortState,
+  field: PersonalTodoSortField,
+): PersonalTodoSortState {
+  if (current?.field !== field) {
+    return { field, direction: "asc" };
+  }
+
+  if (current.direction === "asc") {
+    return { field, direction: "desc" };
+  }
+
+  return null;
 }
 
 function normalizeCreatePersonalTodoPayload(
@@ -982,10 +1083,15 @@ function reorderReason(input: {
   doneTodoCount: number;
   hideDoneTodos: boolean;
   isPending: boolean;
+  isSorted: boolean;
   totalCount: number;
 }) {
   if (input.isPending) {
     return "Saving personal to do order...";
+  }
+
+  if (input.isSorted) {
+    return "Clear sort to reorder personal to dos.";
   }
 
   if (input.hideDoneTodos && input.doneTodoCount > 0) {
@@ -997,6 +1103,73 @@ function reorderReason(input: {
   }
 
   return null;
+}
+
+function sortPersonalTodos(
+  personalTodos: WorkspacePersonalTodo[],
+  sortState: PersonalTodoSortState,
+) {
+  if (!sortState) {
+    return personalTodos;
+  }
+
+  return personalTodos
+    .map((todo, index) => ({ index, todo }))
+    .sort((left, right) => {
+      const sortedResult = comparePersonalTodosByField(
+        left.todo,
+        right.todo,
+        sortState.field,
+      );
+      const directionalResult =
+        sortState.direction === "asc" ? sortedResult : -sortedResult;
+
+      if (directionalResult !== 0) {
+        return directionalResult;
+      }
+
+      return (
+        left.todo.sortOrder - right.todo.sortOrder || left.index - right.index
+      );
+    })
+    .map(({ todo }) => todo);
+}
+
+function comparePersonalTodosByField(
+  left: WorkspacePersonalTodo,
+  right: WorkspacePersonalTodo,
+  field: PersonalTodoSortField,
+) {
+  switch (field) {
+    case "dueDate":
+      return compareNullableDateValues(left.dueDate, right.dueDate);
+    case "status":
+      return personalTodoStatusRank(left) - personalTodoStatusRank(right);
+    case "title":
+      return left.title.localeCompare(right.title, undefined, {
+        sensitivity: "base",
+      });
+  }
+}
+
+function personalTodoStatusRank(todo: WorkspacePersonalTodo) {
+  return todo.status === "done" ? 1 : 0;
+}
+
+function compareNullableDateValues(left: string | null, right: string | null) {
+  if (!left && !right) {
+    return 0;
+  }
+
+  if (!left) {
+    return 1;
+  }
+
+  if (!right) {
+    return -1;
+  }
+
+  return left.localeCompare(right);
 }
 
 function getTomorrowDateInput() {
