@@ -1,6 +1,6 @@
 {
   "name": "@tavi/schemas",
-  "version": "0.9.17",
+  "version": "0.9.18",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
