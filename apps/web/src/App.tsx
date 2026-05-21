@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { appName, appRepositoryUrl, appVersion } from "@tavi/config";
+import { appName, appRepositoryUrl } from "@tavi/config";
 import type {
   AuditEntityType,
   Priority,
@@ -63,6 +63,7 @@ import {
 } from "./api";
 import { maskSmtpPassword } from "./redact-secrets";
 import { BackupSettingsCard } from "./BackupSettingsCard";
+import { buildShaLabel, formatBuildDate } from "./build-info";
 import { ExportPanel } from "./ExportPanel";
 import { downloadCsvFile } from "./export-utils";
 import { ImportPanel } from "./ImportPanel";
@@ -5734,7 +5735,7 @@ function SettingsPanel({
         </div>
         <div className="settings-version">
           <div className="settings-version-row">
-            <span>{`${appName} v${appVersion}`}</span>
+            <span>{`${appName} ${buildShaLabel}`}</span>
             <a
               className="settings-link"
               href={appRepositoryUrl}
@@ -5744,6 +5745,9 @@ function SettingsPanel({
               github
             </a>
           </div>
+          <span className="settings-version-detail">
+            {`built ${formatBuildDate()}`}
+          </span>
           {isAdmin && smtpServer ? (
             <span className="settings-version-detail">{smtpServer}</span>
           ) : null}

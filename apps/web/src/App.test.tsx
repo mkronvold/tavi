@@ -3822,6 +3822,8 @@ describe("App", () => {
       "href",
       appRepositoryUrl,
     );
+    expect(screen.getByText("tavi local build")).toBeInTheDocument();
+    expect(screen.getByText("built local build")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("smtp://10.120.64.99:25")).toBeInTheDocument();
       expect(screen.getByText("noreply@tavi.local")).toBeInTheDocument();

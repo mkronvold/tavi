@@ -2,6 +2,10 @@ FROM node:26-bookworm AS builder
 
 WORKDIR /app
 ARG PNPM_VERSION=10.33.0
+ARG TAVI_BUILD_SHA=local
+ARG TAVI_BUILD_DATE=local
+ENV VITE_TAVI_BUILD_SHA=${TAVI_BUILD_SHA}
+ENV VITE_TAVI_BUILD_DATE=${TAVI_BUILD_DATE}
 RUN npm install --global "pnpm@${PNPM_VERSION}"
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml turbo.json tsconfig.base.json ./
