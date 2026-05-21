@@ -4,9 +4,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    labels:
-      - dependencies
-      - lifecycle
     ignore:
       - dependency-name: "@eslint/js"
         update-types:
@@ -26,9 +23,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    labels:
-      - dependencies
-      - lifecycle
     groups:
       actions-minor-patch:
         patterns:
@@ -41,9 +35,6 @@ updates:
     directory: /infra/docker
     schedule:
       interval: weekly
-    labels:
-      - dependencies
-      - lifecycle
     groups:
       docker-minor-patch:
         patterns:
