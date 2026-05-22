@@ -13,6 +13,7 @@ import {
   setMyPassword,
   updateLocalAccount,
 } from "./api";
+import { Modal } from "./Modal";
 import { generateAlphanumericPassword } from "./password-generator";
 import type {
   CreateLocalAccountPayload,
@@ -937,16 +938,15 @@ export function LocalAccountsPanel({
           </p>
 
           {mode?.kind === "clearAll" ? (
-            <form
-              ref={(element) => {
-                if (element) {
-                  activeModeRef.current = element;
-                }
+            <ClearLocalAccountsModal
+              error={error}
+              isClearing={clearAllAccountsMutation.isPending}
+              onCancel={() => {
+                setMode(null);
+                resetClearAllDraft();
+                setError(null);
               }}
-              tabIndex={-1}
-              className="inline-form local-account-form"
-              onSubmit={(event) => {
-                event.preventDefault();
+              onClear={() => {
                 if (!clearAllPasswordDraft.trim()) {
                   setError("Enter your current password");
                   return;
@@ -956,43 +956,9 @@ export function LocalAccountsPanel({
                   currentPassword: clearAllPasswordDraft,
                 });
               }}
-            >
-              <strong>Clear all local accounts</strong>
-              <p className="local-account-inline-note">
-                Remove every local account except your current account and guest.
-              </p>
-              {error ? (
-                <p className="error-banner local-account-inline-error">{error}</p>
-              ) : null}
-              <input
-                type="password"
-                value={clearAllPasswordDraft}
-                onChange={(event) => setClearAllPasswordDraft(event.target.value)}
-                placeholder="Current admin password"
-              />
-              <div className="settings-actions">
-                <button
-                  type="submit"
-                  className="danger-button"
-                  disabled={clearAllAccountsMutation.isPending}
-                >
-                  {clearAllAccountsMutation.isPending
-                    ? "Clearing..."
-                    : "Clear Accounts"}
-                </button>
-                <button
-                  type="button"
-                  className="ghost-button compact-button"
-                  onClick={() => {
-                    setMode(null);
-                    resetClearAllDraft();
-                    setError(null);
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+              password={clearAllPasswordDraft}
+              setPassword={setClearAllPasswordDraft}
+            />
           ) : null}
 
           {selectedAccountCount > 0 ? (
@@ -1327,16 +1293,16 @@ export function LocalAccountsPanel({
                     </div>
 
                     {isEditMode ? (
-                      <form
-                        ref={(element) => {
-                          if (element) {
-                            activeModeRef.current = element;
-                          }
+                      <LocalAccountEditModal
+                        account={account}
+                        draft={accountDraft}
+                        error={error}
+                        isSaving={updateAccountMutation.isPending}
+                        onCancel={() => {
+                          setMode(null);
+                          setError(null);
                         }}
-                        tabIndex={-1}
-                        className="inline-form local-account-form local-account-inline-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
+                        onSave={() =>
                           updateAccountMutation.mutate({
                             payload: {
                               email: accountDraft.email,
@@ -1344,159 +1310,47 @@ export function LocalAccountsPanel({
                               role: accountDraft.role,
                             },
                             userId: account.id,
-                          });
-                        }}
-                      >
-                        <strong>{`Edit account · ${account.name}`}</strong>
-                        {error ? (
-                          <p className="error-banner local-account-inline-error">
-                            {error}
-                          </p>
-                        ) : null}
-                        <input
-                          value={accountDraft.name}
-                          onChange={(event) =>
-                            setAccountDraft((current) => ({
-                              ...current,
-                              name: event.target.value,
-                            }))
-                          }
-                          placeholder="Name"
-                        />
-                        <input
-                          type="email"
-                          value={accountDraft.email}
-                          onChange={(event) =>
-                            setAccountDraft((current) => ({
-                              ...current,
-                              email: event.target.value,
-                            }))
-                          }
-                          placeholder="Email"
-                        />
-                        <select
-                          value={accountDraft.role}
-                          onChange={(event) =>
-                            setAccountDraft((current) => ({
-                              ...current,
-                              role: event.target
-                                .value as CreateLocalAccountPayload["role"],
-                            }))
-                          }
-                        >
-                          <option value="viewer">Viewer</option>
-                          <option value="editor">Editor</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                        <div className="settings-actions">
-                          <button
-                            type="submit"
-                            disabled={updateAccountMutation.isPending}
-                          >
-                            {updateAccountMutation.isPending ? "Saving..." : "Save"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button compact-button"
-                            onClick={() => {
-                              setMode(null);
-                              setError(null);
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
+                          })
+                        }
+                        setDraft={setAccountDraft}
+                      />
                     ) : null}
 
                     {isPasswordMode ? (
-                      <form
-                        ref={(element) => {
-                          if (element) {
-                            activeModeRef.current = element;
-                          }
+                      <LocalAccountPasswordModal
+                        account={account}
+                        emailDeliveryAvailable={emailDeliveryAvailable}
+                        error={error}
+                        isSaving={setAccountPasswordMutation.isPending}
+                        onCancel={() => {
+                          setMode(null);
+                          resetPasswordDrafts();
+                          setError(null);
                         }}
-                        tabIndex={-1}
-                        className="inline-form local-account-form local-account-inline-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          submitPassword(account);
-                        }}
-                      >
-                        <strong>{`Set password · ${account.name}`}</strong>
-                        {error ? (
-                          <p className="error-banner local-account-inline-error">
-                            {error}
-                          </p>
-                        ) : null}
-                        <input
-                          type="password"
-                          value={passwordDraft}
-                          onChange={(event) => setPasswordDraft(event.target.value)}
-                          placeholder="New password"
-                        />
-                        <input
-                          type="password"
-                          value={passwordConfirmation}
-                          onChange={(event) =>
-                            setPasswordConfirmation(event.target.value)
-                          }
-                          placeholder="Confirm password"
-                        />
-                         {emailDeliveryAvailable ? (
-                           <label className="send-email-check">
-                            <input
-                              checked={sendEmail}
-                              onChange={(event) =>
-                                setSendEmail(event.target.checked)
-                              }
-                              type="checkbox"
-                            />
-                            Send password via email
-                          </label>
-                        ) : null}
-                        <div className="settings-actions">
-                          <button
-                            type="button"
-                            className="ghost-button compact-button"
-                            onClick={generatePasswordDrafts}
-                          >
-                            Generate
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={setAccountPasswordMutation.isPending}
-                          >
-                            {setAccountPasswordMutation.isPending
-                              ? "Saving..."
-                              : "Set Password"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button compact-button"
-                            onClick={() => {
-                              setMode(null);
-                              resetPasswordDrafts();
-                              setError(null);
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
+                        onGenerate={generatePasswordDrafts}
+                        onSave={() => submitPassword(account)}
+                        password={passwordDraft}
+                        passwordConfirmation={passwordConfirmation}
+                        sendEmail={sendEmail}
+                        setPassword={setPasswordDraft}
+                        setPasswordConfirmation={setPasswordConfirmation}
+                        setSendEmail={setSendEmail}
+                      />
                     ) : null}
 
                     {isDeleteMode ? (
-                      <form
-                        ref={(element) => {
-                          if (element) {
-                            activeModeRef.current = element;
-                          }
+                      <LocalAccountDeleteModal
+                        account={account}
+                        deleteProjectOwnerUserId={deleteProjectOwnerUserId}
+                        deleteTaskAssigneeUserId={deleteTaskAssigneeUserId}
+                        error={error}
+                        isDeleting={deleteAccountMutation.isPending}
+                        onCancel={() => {
+                          setMode(null);
+                          resetDeleteDraft();
+                          setError(null);
                         }}
-                        tabIndex={-1}
-                        className="inline-form local-account-form local-account-inline-form"
-                        onSubmit={(event) => {
-                          event.preventDefault();
+                        onDelete={() =>
                           deleteAccountMutation.mutate({
                             userId: account.id,
                             payload: {
@@ -1519,82 +1373,16 @@ export function LocalAccountsPanel({
                                   }
                                 : {}),
                             },
-                          });
-                        }}
-                      >
-                        <strong>{`Remove account · ${account.name}`}</strong>
-                        {error ? (
-                          <p className="error-banner local-account-inline-error">
-                            {error}
-                          </p>
-                        ) : null}
-                        <p className="toolbar-hint local-account-inline-note">
-                          {buildLocalAccountDeleteBlockerMessage(account)}
-                        </p>
-                        {(account.ownedProjectCount ?? 0) > 0 ? (
-                          <label>
-                            Owned projects
-                            <select
-                              aria-label={`Owned projects for ${account.name}`}
-                              value={deleteProjectOwnerUserId}
-                              onChange={(event) =>
-                                setDeleteProjectOwnerUserId(event.target.value)
-                              }
-                            >
-                              {deleteReplacementOptions.map((candidate) => (
-                                <option key={candidate.id} value={candidate.id}>
-                                  {candidate.name}
-                                </option>
-                              ))}
-                              <option value={NONE_LOCAL_ACCOUNT_REASSIGN_VALUE}>
-                                None
-                              </option>
-                            </select>
-                          </label>
-                        ) : null}
-                        {(account.assignedTaskCount ?? 0) > 0 ? (
-                          <label>
-                            Assigned tasks
-                            <select
-                              aria-label={`Assigned tasks for ${account.name}`}
-                              value={deleteTaskAssigneeUserId}
-                              onChange={(event) =>
-                                setDeleteTaskAssigneeUserId(event.target.value)
-                              }
-                            >
-                              {deleteReplacementOptions.map((candidate) => (
-                                <option key={candidate.id} value={candidate.id}>
-                                  {candidate.name}
-                                </option>
-                              ))}
-                              <option value={NONE_LOCAL_ACCOUNT_REASSIGN_VALUE}>
-                                None
-                              </option>
-                            </select>
-                          </label>
-                        ) : null}
-                        <div className="settings-actions">
-                          <button
-                            type="submit"
-                            disabled={deleteAccountMutation.isPending}
-                          >
-                            {deleteAccountMutation.isPending
-                              ? "Removing..."
-                              : "Remove Account"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button compact-button"
-                            onClick={() => {
-                              setMode(null);
-                              resetDeleteDraft();
-                              setError(null);
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
+                          })
+                        }
+                        replacementOptions={deleteReplacementOptions}
+                        setDeleteProjectOwnerUserId={
+                          setDeleteProjectOwnerUserId
+                        }
+                        setDeleteTaskAssigneeUserId={
+                          setDeleteTaskAssigneeUserId
+                        }
+                      />
                     ) : null}
                   </li>
                 );
@@ -1644,6 +1432,429 @@ export function LocalAccountsPanel({
         </form>
       )}
     </section>
+  );
+}
+
+type LocalAccountEditModalProps = {
+  account: LocalAccount;
+  draft: CreateLocalAccountPayload;
+  error: string | null;
+  isSaving: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+  setDraft: React.Dispatch<React.SetStateAction<CreateLocalAccountPayload>>;
+};
+
+function LocalAccountEditModal({
+  account,
+  draft,
+  error,
+  isSaving,
+  onCancel,
+  onSave,
+  setDraft,
+}: LocalAccountEditModalProps) {
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <Modal
+      disableDismiss={isSaving}
+      initialFocusRef={nameInputRef}
+      inline
+      onClose={onCancel}
+      subtitle={account.email}
+      title={`Edit account · ${account.name}`}
+      footer={
+        <div className="modal-actions">
+          <button
+            type="submit"
+            form="local-account-edit-modal-form"
+            disabled={isSaving}
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isSaving}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <form
+        id="local-account-edit-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <label>
+          Name
+          <input
+            ref={nameInputRef}
+            value={draft.name}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
+            placeholder="Name"
+          />
+        </label>
+        <label>
+          Email
+          <input
+            type="email"
+            value={draft.email}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                email: event.target.value,
+              }))
+            }
+            placeholder="Email"
+          />
+        </label>
+        <label>
+          Role
+          <select
+            value={draft.role}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                role: event.target.value as CreateLocalAccountPayload["role"],
+              }))
+            }
+          >
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+      </form>
+    </Modal>
+  );
+}
+
+type LocalAccountPasswordModalProps = {
+  account: LocalAccount;
+  emailDeliveryAvailable: boolean;
+  error: string | null;
+  isSaving: boolean;
+  onCancel: () => void;
+  onGenerate: () => void;
+  onSave: () => void;
+  password: string;
+  passwordConfirmation: string;
+  sendEmail: boolean;
+  setPassword: React.Dispatch<React.SetStateAction<string>>;
+  setPasswordConfirmation: React.Dispatch<React.SetStateAction<string>>;
+  setSendEmail: React.Dispatch<React.SetStateAction<boolean>>;
+};
+
+function LocalAccountPasswordModal({
+  account,
+  emailDeliveryAvailable,
+  error,
+  isSaving,
+  onCancel,
+  onGenerate,
+  onSave,
+  password,
+  passwordConfirmation,
+  sendEmail,
+  setPassword,
+  setPasswordConfirmation,
+  setSendEmail,
+}: LocalAccountPasswordModalProps) {
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <Modal
+      disableDismiss={isSaving}
+      initialFocusRef={passwordInputRef}
+      inline
+      onClose={onCancel}
+      subtitle={account.email}
+      title={`Set password · ${account.name}`}
+      footer={
+        <div className="modal-actions modal-actions--split">
+          <div className="modal-danger-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={isSaving}
+              onClick={onGenerate}
+            >
+              Generate
+            </button>
+          </div>
+          <div className="modal-primary-actions">
+            <button
+              type="submit"
+              form="local-account-password-modal-form"
+              disabled={isSaving}
+            >
+              {isSaving ? "Saving..." : "Set Password"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={isSaving}
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <form
+        id="local-account-password-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <label>
+          New password
+          <input
+            ref={passwordInputRef}
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="New password"
+          />
+        </label>
+        <label>
+          Confirm password
+          <input
+            type="password"
+            value={passwordConfirmation}
+            onChange={(event) => setPasswordConfirmation(event.target.value)}
+            placeholder="Confirm password"
+          />
+        </label>
+        {emailDeliveryAvailable ? (
+          <label className="settings-switch modal-field-wide">
+            <span className="settings-switch-label">
+              Send password via email
+            </span>
+            <input
+              checked={sendEmail}
+              onChange={(event) => setSendEmail(event.target.checked)}
+              role="switch"
+              type="checkbox"
+            />
+          </label>
+        ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+type LocalAccountDeleteModalProps = {
+  account: LocalAccount;
+  deleteProjectOwnerUserId: string;
+  deleteTaskAssigneeUserId: string;
+  error: string | null;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onDelete: () => void;
+  replacementOptions: LocalAccount[];
+  setDeleteProjectOwnerUserId: React.Dispatch<React.SetStateAction<string>>;
+  setDeleteTaskAssigneeUserId: React.Dispatch<React.SetStateAction<string>>;
+};
+
+function LocalAccountDeleteModal({
+  account,
+  deleteProjectOwnerUserId,
+  deleteTaskAssigneeUserId,
+  error,
+  isDeleting,
+  onCancel,
+  onDelete,
+  replacementOptions,
+  setDeleteProjectOwnerUserId,
+  setDeleteTaskAssigneeUserId,
+}: LocalAccountDeleteModalProps) {
+  const firstFieldRef = useRef<HTMLSelectElement | null>(null);
+
+  return (
+    <Modal
+      className="modal-dialog--danger"
+      disableDismiss={isDeleting}
+      initialFocusRef={firstFieldRef}
+      inline
+      onClose={onCancel}
+      subtitle={account.email}
+      title={`Remove account · ${account.name}`}
+      footer={
+        <div className="modal-actions">
+          <button
+            type="submit"
+            form="local-account-delete-modal-form"
+            className="danger-button"
+            disabled={isDeleting}
+          >
+            {isDeleting ? "Removing..." : "Remove Account"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isDeleting}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <form
+        id="local-account-delete-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onDelete();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <p className="toolbar-hint modal-field-wide">
+          {buildLocalAccountDeleteBlockerMessage(account)}
+        </p>
+        {(account.ownedProjectCount ?? 0) > 0 ? (
+          <label>
+            Owned projects
+            <select
+              ref={firstFieldRef}
+              aria-label={`Owned projects for ${account.name}`}
+              value={deleteProjectOwnerUserId}
+              onChange={(event) =>
+                setDeleteProjectOwnerUserId(event.target.value)
+              }
+            >
+              {replacementOptions.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+              <option value={NONE_LOCAL_ACCOUNT_REASSIGN_VALUE}>None</option>
+            </select>
+          </label>
+        ) : null}
+        {(account.assignedTaskCount ?? 0) > 0 ? (
+          <label>
+            Assigned tasks
+            <select
+              ref={
+                (account.ownedProjectCount ?? 0) > 0 ? undefined : firstFieldRef
+              }
+              aria-label={`Assigned tasks for ${account.name}`}
+              value={deleteTaskAssigneeUserId}
+              onChange={(event) =>
+                setDeleteTaskAssigneeUserId(event.target.value)
+              }
+            >
+              {replacementOptions.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </option>
+              ))}
+              <option value={NONE_LOCAL_ACCOUNT_REASSIGN_VALUE}>None</option>
+            </select>
+          </label>
+        ) : null}
+      </form>
+    </Modal>
+  );
+}
+
+type ClearLocalAccountsModalProps = {
+  error: string | null;
+  isClearing: boolean;
+  onCancel: () => void;
+  onClear: () => void;
+  password: string;
+  setPassword: React.Dispatch<React.SetStateAction<string>>;
+};
+
+function ClearLocalAccountsModal({
+  error,
+  isClearing,
+  onCancel,
+  onClear,
+  password,
+  setPassword,
+}: ClearLocalAccountsModalProps) {
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <Modal
+      className="modal-dialog--danger"
+      disableDismiss={isClearing}
+      initialFocusRef={passwordInputRef}
+      inline
+      onClose={onCancel}
+      subtitle="Remove every local account except your current account and guest."
+      title="Clear all local accounts"
+      footer={
+        <div className="modal-actions">
+          <button
+            type="submit"
+            form="clear-local-accounts-modal-form"
+            className="danger-button"
+            disabled={isClearing}
+          >
+            {isClearing ? "Clearing..." : "Clear Accounts"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isClearing}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <form
+        id="clear-local-accounts-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onClear();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <label className="modal-field-wide">
+          Current admin password
+          <input
+            ref={passwordInputRef}
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Current admin password"
+          />
+        </label>
+      </form>
+    </Modal>
   );
 }
 

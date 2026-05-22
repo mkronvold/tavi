@@ -4,6 +4,13 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.19 - 2026-05-22
+
+- Added a shared compact modal dialog foundation for workspace edit and confirmation flows.
+- Converted project, task, Personal ToDo, user profile, and Local Accounts edit flows from dense inline editors to modal dialogs while preserving existing save, delete, conversion, movement, and role-based behavior.
+- Replaced retention prune and backup restore/delete/clear browser confirmations with typed modal confirmations.
+- Updated web regression coverage for the modalized edit and admin workflows.
+
 ## 0.9.18 - 2026-05-21
 
 - Updated Prisma to 7.x with CLI datasource configuration in `prisma.config.ts` and PostgreSQL driver-adapter client initialization for the API and worker.

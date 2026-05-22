@@ -1,12 +1,10 @@
 import {
   type DragEvent as ReactDragEvent,
-  type FormEvent as ReactFormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -68,6 +66,7 @@ import { ExportPanel } from "./ExportPanel";
 import { downloadCsvFile } from "./export-utils";
 import { ImportPanel } from "./ImportPanel";
 import { LocalAccountsPanel } from "./LocalAccountsPanel";
+import { Modal } from "./Modal";
 import { NotesMarkdown } from "./NotesMarkdown";
 import {
   extractUrlFilename,
@@ -234,8 +233,6 @@ const PERSONAL_TODO_RETENTION_OPTIONS = [
   { label: "12 months", value: "twelve_months" },
   { label: "Delete when done", value: "delete_when_done" },
 ] as const;
-const EDITOR_INPUT_SELECTOR =
-  'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled])';
 const ROW_EDIT_INTERACTIVE_SELECTOR =
   "button, a, input, select, textarea, label";
 
@@ -1076,8 +1073,6 @@ function WorkspaceScreen({
     project: null,
     task: null,
   });
-  const projectEditFormRef = useRef<HTMLFormElement | null>(null);
-  const taskEditRowRef = useRef<HTMLTableRowElement | null>(null);
   const workspaceSearchInputRef = useRef<HTMLInputElement | null>(null);
   const validAssigneeUserIds = useMemo(
     () => new Set(data.users.map((user) => user.id)),
@@ -1409,22 +1404,6 @@ function WorkspaceScreen({
     writeTaviStorage(NOTE_EDITOR_HEIGHTS_STORAGE_KEY, noteEditorHeights);
   }, [noteEditorHeights]);
 
-  useLayoutEffect(() => {
-    if (!editingProjectId) {
-      return;
-    }
-
-    revealEditor(projectEditFormRef.current);
-  }, [editingProjectId]);
-
-  useLayoutEffect(() => {
-    if (!editingTaskId) {
-      return;
-    }
-
-    revealEditor(taskEditRowRef.current);
-  }, [editingTaskId]);
-
   useEffect(() => {
     const activePanels = activeBooleanSelection(panelState);
 
@@ -1753,30 +1732,20 @@ function WorkspaceScreen({
   };
 
   const openTaskEditor = (projectId: string, selectedTask: WorkspaceTask) => {
-    const enterEditMode = () => {
-      setEditingTaskId(selectedTask.id);
-      setTaskDraft({
-        projectId: selectedTask.projectId,
-        title: selectedTask.title,
-        notes: selectedTask.notes ?? "",
-        assigneeUserId: selectedTask.assigneeUserId,
-        dueDate: toDateInput(selectedTask.dueDate),
-        priority: selectedTask.priority,
-        status: selectedTask.status,
-      });
-    };
-
     setProjectExpanded(projectId, true);
     setProjectEditError(null);
     setEditingProjectId(null);
     setTaskEditError(null);
-
-    if (typeof globalThis.requestAnimationFrame === "function") {
-      globalThis.requestAnimationFrame(enterEditMode);
-      return;
-    }
-
-    globalThis.setTimeout(enterEditMode, 0);
+    setEditingTaskId(selectedTask.id);
+    setTaskDraft({
+      projectId: selectedTask.projectId,
+      title: selectedTask.title,
+      notes: selectedTask.notes ?? "",
+      assigneeUserId: selectedTask.assigneeUserId,
+      dueDate: toDateInput(selectedTask.dueDate),
+      priority: selectedTask.priority,
+      status: selectedTask.status,
+    });
   };
 
   const createProjectMutation = useMutation({
@@ -3623,6 +3592,11 @@ function WorkspaceScreen({
                 const allProjectTasksSelected =
                   projectTaskIds.length > 0 &&
                   selectedProjectTaskCount === projectTaskIds.length;
+                const editingProjectTask =
+                  editingTaskId && project.tasks.some((task) => task.id === editingTaskId)
+                    ? project.tasks.find((task) => task.id === editingTaskId) ??
+                      null
+                    : null;
 
                 const projectCardClassName = `project-card${
                   expanded ? " project-card--expanded" : ""
@@ -3829,193 +3803,53 @@ function WorkspaceScreen({
                     </div>
 
                     {canEditWorkspace && editingProjectId === project.id ? (
-                      <form
-                        ref={projectEditFormRef}
-                        className="inline-form project-row project-row--edit"
-                        onSubmit={(event) => {
-                          event.preventDefault();
+                      <ProjectEditModal
+                        data={data}
+                        draft={projectDraft}
+                        error={projectEditError}
+                        isConverting={convertProjectToTaskMutation.isPending}
+                        isDeleting={deleteProjectMutation.isPending}
+                        isSaving={updateProjectMutation.isPending}
+                        noteEditorHeight={noteEditorHeights.project}
+                        onCancel={() => {
+                          setProjectEditError(null);
+                          setEditingProjectId(null);
+                        }}
+                        onConvert={() =>
+                          convertProjectToTaskMutation.mutate({
+                            project,
+                            payload: normalizeProjectDraftPayload(projectDraft),
+                          })
+                        }
+                        onDelete={() => {
+                          if (
+                            !window.confirm(
+                              `Delete project "${project.title}" and remove its ${project.taskTotalCount.toString()} task${project.taskTotalCount === 1 ? "" : "s"} from the workspace?`,
+                            )
+                          ) {
+                            return;
+                          }
 
+                          deleteProjectMutation.mutate({
+                            projectId: project.id,
+                            title: project.title,
+                          });
+                        }}
+                        onNotesPointerDown={(textarea) =>
+                          rememberNoteEditorHeight("project", textarea)
+                        }
+                        onNotesPointerUp={(textarea) =>
+                          persistNoteEditorHeight("project", textarea)
+                        }
+                        onSave={() =>
                           updateProjectMutation.mutate({
                             projectId: project.id,
                             payload: normalizeProjectDraftPayload(projectDraft),
-                          });
-                        }}
-                      >
-                        <span className="project-row-edit-spacer" />
-                        <div className="project-main">
-                          <input
-                            value={projectDraft.title ?? ""}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                title: event.target.value,
-                              }))
-                            }
-                            placeholder="Project title"
-                          />
-                          <textarea
-                            value={projectDraft.notes ?? ""}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                notes: event.target.value,
-                              }))
-                            }
-                            className="resizable-notes"
-                            onPointerDown={(event) =>
-                              rememberNoteEditorHeight(
-                                "project",
-                                event.currentTarget,
-                              )
-                            }
-                            onPointerUp={(event) =>
-                              persistNoteEditorHeight(
-                                "project",
-                                event.currentTarget,
-                              )
-                            }
-                            placeholder="Project notes"
-                            rows={2}
-                            style={toTextareaStyle(noteEditorHeights.project)}
-                          />
-                        </div>
-                        <div className="project-status project-status--edit">
-                          <select
-                            value={projectDraft.manualStatus ?? ""}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                manualStatus: event.target.value
-                                  ? (event.target.value as ProjectStatus)
-                                  : null,
-                              }))
-                            }
-                          >
-                            <option value="">Derived from tasks</option>
-                            {PROJECT_STATUS_FILTER_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="project-meta project-meta--edit">
-                          <select
-                            value={projectDraft.ownerUserId ?? ""}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                ownerUserId: event.target.value || null,
-                              }))
-                            }
-                          >
-                            <option value="">{NO_PROJECT_OWNER_LABEL}</option>
-                            {data.users.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {user.name}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={projectDraft.priority ?? "medium"}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                priority: event.target.value as Priority,
-                              }))
-                            }
-                          >
-                            <option value="low">Low</option>
-                            <option value="medium">Medium</option>
-                            <option value="high">High</option>
-                          </select>
-                          <input
-                            type="date"
-                            value={projectDraft.dueDate ?? ""}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                dueDate: event.target.value,
-                              }))
-                            }
-                          />
-                          <textarea
-                            value={projectDraft.references ?? ""}
-                            onChange={(event) =>
-                              setProjectDraft((current) => ({
-                                ...current,
-                                references: event.target.value,
-                              }))
-                            }
-                            className="resizable-notes project-references-input"
-                            placeholder="References (one per line)"
-                            rows={2}
-                          />
-                        </div>
-                        <div className="project-row-actions">
-                          <button type="submit">Save</button>
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            disabled={
-                              !canConvertProjectToTask(project, projectDraft) ||
-                              convertProjectToTaskMutation.isPending
-                            }
-                            title={
-                              projectConvertToTaskNote(project, projectDraft) ??
-                              undefined
-                            }
-                            onClick={() =>
-                              convertProjectToTaskMutation.mutate({
-                                project,
-                                payload:
-                                  normalizeProjectDraftPayload(projectDraft),
-                              })
-                            }
-                          >
-                            {convertProjectToTaskMutation.isPending
-                              ? "Converting..."
-                              : "Convert to Task"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => {
-                              if (
-                                !window.confirm(
-                                  `Delete project "${project.title}" and remove its ${project.taskTotalCount.toString()} task${project.taskTotalCount === 1 ? "" : "s"} from the workspace?`,
-                                )
-                              ) {
-                                return;
-                              }
-
-                              deleteProjectMutation.mutate({
-                                projectId: project.id,
-                                title: project.title,
-                              });
-                            }}
-                          >
-                            Delete
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost-button"
-                            onClick={() => {
-                              setProjectEditError(null);
-                              setEditingProjectId(null);
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
-                    ) : null}
-                    {canEditWorkspace &&
-                    editingProjectId === project.id &&
-                    projectEditError ? (
-                      <p className="error-banner nested-error">
-                        {projectEditError}
-                      </p>
+                          })
+                        }
+                        project={project}
+                        setDraft={setProjectDraft}
+                      />
                     ) : null}
 
                     {expanded ? (
@@ -4281,11 +4115,9 @@ function WorkspaceScreen({
                                 canEditTask={canEditWorkspace}
                                 canReorderTask={canReorderProjectTasks}
                                 canSelectTasks={canSelectTasks}
-                                data={data}
                                 dragHandleTitle={
                                   taskReorderDisabledReason ?? "Drag to reorder"
                                 }
-                                editRowRef={taskEditRowRef}
                                 hasUnviewedChanges={
                                   task.hasUnviewedChanges === true
                                 }
@@ -4304,47 +4136,6 @@ function WorkspaceScreen({
                                       ? null
                                       : current,
                                   );
-                                }}
-                                onSave={(payload) => {
-                                  const normalizedPayload =
-                                    normalizeTaskDraftPayload(payload);
-
-                                  setTaskEditError(null);
-
-                                  if (
-                                    normalizedPayload.projectId ===
-                                    CONVERT_TASK_TO_PROJECT_VALUE
-                                  ) {
-                                    convertTaskToProjectMutation.mutate({
-                                      payload: {
-                                        assigneeUserId:
-                                          normalizedPayload.assigneeUserId,
-                                        dueDate: normalizedPayload.dueDate,
-                                        notes: normalizedPayload.notes,
-                                        priority: normalizedPayload.priority,
-                                        status: normalizedPayload.status,
-                                        title: normalizedPayload.title,
-                                      },
-                                      task,
-                                    });
-                                    return;
-                                  }
-
-                                  updateTaskMutation.mutate({
-                                    task,
-                                    taskId: task.id,
-                                    payload: normalizedPayload,
-                                  });
-                                }}
-                                onDelete={() =>
-                                  deleteTaskMutation.mutate({
-                                    taskId: task.id,
-                                    title: task.title,
-                                  })
-                                }
-                                onCancel={() => {
-                                  setTaskEditError(null);
-                                  setEditingTaskId(null);
                                 }}
                                 onPreviewTaskDrop={(position) => {
                                   setTaskDragState((current) => {
@@ -4447,17 +4238,6 @@ function WorkspaceScreen({
                                 }
                                 showReorderHandle={showTaskReorderColumn}
                                 task={task}
-                                taskDraft={taskDraft}
-                                taskEditError={taskEditError}
-                                taskNoteEditorHeight={noteEditorHeights.task}
-                                userLookup={userLookup}
-                                onTaskNotesPointerDown={(textarea) =>
-                                  rememberNoteEditorHeight("task", textarea)
-                                }
-                                onTaskNotesPointerUp={(textarea) =>
-                                  persistNoteEditorHeight("task", textarea)
-                                }
-                                setTaskDraft={setTaskDraft}
                               />
                             ))}
                             {hideDoneTasks &&
@@ -4473,6 +4253,71 @@ function WorkspaceScreen({
                           </tbody>
                         </table>
                       </div>
+                    ) : null}
+                    {editingProjectTask ? (
+                      <TaskEditModal
+                        data={data}
+                        draft={taskDraft}
+                        error={taskEditError}
+                        noteEditorHeight={noteEditorHeights.task}
+                        onCancel={() => {
+                          setTaskEditError(null);
+                          setEditingTaskId(null);
+                        }}
+                        onDelete={() => {
+                          if (
+                            !window.confirm(
+                              `Delete task "${editingProjectTask.title}" from the workspace?`,
+                            )
+                          ) {
+                            return;
+                          }
+
+                          deleteTaskMutation.mutate({
+                            taskId: editingProjectTask.id,
+                            title: editingProjectTask.title,
+                          });
+                        }}
+                        onNotesPointerDown={(textarea) =>
+                          rememberNoteEditorHeight("task", textarea)
+                        }
+                        onNotesPointerUp={(textarea) =>
+                          persistNoteEditorHeight("task", textarea)
+                        }
+                        onSave={() => {
+                          const normalizedPayload =
+                            normalizeTaskDraftPayload(taskDraft);
+
+                          setTaskEditError(null);
+
+                          if (
+                            normalizedPayload.projectId ===
+                            CONVERT_TASK_TO_PROJECT_VALUE
+                          ) {
+                            convertTaskToProjectMutation.mutate({
+                              payload: {
+                                assigneeUserId: normalizedPayload.assigneeUserId,
+                                dueDate: normalizedPayload.dueDate,
+                                notes: normalizedPayload.notes,
+                                priority: normalizedPayload.priority,
+                                status: normalizedPayload.status,
+                                title: normalizedPayload.title,
+                              },
+                              task: editingProjectTask,
+                            });
+                            return;
+                          }
+
+                          updateTaskMutation.mutate({
+                            task: editingProjectTask,
+                            taskId: editingProjectTask.id,
+                            payload: normalizedPayload,
+                          });
+                        }}
+                        setDraft={setTaskDraft}
+                        task={editingProjectTask}
+                        userLookup={userLookup}
+                      />
                     ) : null}
                   </article>
                 );
@@ -4499,139 +4344,375 @@ function WorkspaceScreen({
   );
 }
 
+type ProjectEditModalProps = {
+  data: WorkspaceResponse;
+  draft: UpdateProjectPayload;
+  error: string | null;
+  isConverting: boolean;
+  isDeleting: boolean;
+  isSaving: boolean;
+  noteEditorHeight: number | null;
+  onCancel: () => void;
+  onConvert: () => void;
+  onDelete: () => void;
+  onNotesPointerDown: (textarea: HTMLTextAreaElement) => void;
+  onNotesPointerUp: (textarea: HTMLTextAreaElement) => void;
+  onSave: () => void;
+  project: WorkspaceProject;
+  setDraft: React.Dispatch<React.SetStateAction<UpdateProjectPayload>>;
+};
+
+function ProjectEditModal({
+  data,
+  draft,
+  error,
+  isConverting,
+  isDeleting,
+  isSaving,
+  noteEditorHeight,
+  onCancel,
+  onConvert,
+  onDelete,
+  onNotesPointerDown,
+  onNotesPointerUp,
+  onSave,
+  project,
+  setDraft,
+}: ProjectEditModalProps) {
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const busy = isSaving || isConverting || isDeleting;
+
+  return (
+    <Modal
+      className="modal-dialog--wide"
+      disableDismiss={busy}
+      initialFocusRef={titleInputRef}
+      inline
+      onClose={onCancel}
+      subtitle={formatProjectOwnerLabel(project.ownerName)}
+      title={`Edit project · ${project.title}`}
+      footer={
+        <div className="modal-actions modal-actions--split">
+          <div className="modal-danger-actions">
+            <button
+              type="button"
+              className="ghost-button modal-delete-button"
+              disabled={busy}
+              onClick={onDelete}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={
+                busy || !canConvertProjectToTask(project, draft)
+              }
+              title={projectConvertToTaskNote(project, draft) ?? undefined}
+              onClick={onConvert}
+            >
+              {isConverting ? "Converting..." : "Convert to Task"}
+            </button>
+          </div>
+          <div className="modal-primary-actions">
+            <button type="submit" form="project-edit-modal-form" disabled={busy}>
+              {isSaving ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={busy}
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <form
+        id="project-edit-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <label className="modal-field-wide">
+          Title
+          <input
+            ref={titleInputRef}
+            value={draft.title ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                title: event.target.value,
+              }))
+            }
+            placeholder="Project title"
+          />
+        </label>
+        <label className="modal-field-wide">
+          Notes
+          <textarea
+            value={draft.notes ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                notes: event.target.value,
+              }))
+            }
+            className="resizable-notes"
+            onPointerDown={(event) => onNotesPointerDown(event.currentTarget)}
+            onPointerUp={(event) => onNotesPointerUp(event.currentTarget)}
+            placeholder="Project notes"
+            rows={4}
+            style={toTextareaStyle(noteEditorHeight)}
+          />
+        </label>
+        <label>
+          Status override
+          <select
+            value={draft.manualStatus ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                manualStatus: event.target.value
+                  ? (event.target.value as ProjectStatus)
+                  : null,
+              }))
+            }
+          >
+            <option value="">Derived from tasks</option>
+            {PROJECT_STATUS_FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Owner
+          <select
+            value={draft.ownerUserId ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                ownerUserId: event.target.value || null,
+              }))
+            }
+          >
+            <option value="">{NO_PROJECT_OWNER_LABEL}</option>
+            {data.users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Priority
+          <select
+            value={draft.priority ?? "medium"}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                priority: event.target.value as Priority,
+              }))
+            }
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label>
+          Due date
+          <input
+            type="date"
+            value={draft.dueDate ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                dueDate: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <label className="modal-field-wide">
+          References
+          <textarea
+            value={draft.references ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                references: event.target.value,
+              }))
+            }
+            className="resizable-notes project-references-input"
+            placeholder="References (one per line)"
+            rows={2}
+          />
+        </label>
+      </form>
+    </Modal>
+  );
+}
+
 type TaskRowProps = {
   canEditTask: boolean;
   canReorderTask: boolean;
   canSelectTasks: boolean;
-  data: WorkspaceResponse;
   dragHandleTitle: string;
-  editRowRef?: React.Ref<HTMLTableRowElement>;
   hasUnviewedChanges: boolean;
   editingTaskId: string | null;
   isSelected: boolean;
   isTaskDragging: boolean;
   onEdit: (task: WorkspaceTask) => void;
   onFinishTaskDrag: () => void;
-  onSave: (payload: UpdateTaskPayload) => void;
-  onDelete: () => void;
-  onCancel: () => void;
   onPreviewTaskDrop: (position: TaskDropPosition) => void;
   onStartTaskDrag: () => void;
   onSubmitTaskDrop: (position: TaskDropPosition) => void;
-  onTaskNotesPointerDown: (textarea: HTMLTextAreaElement) => void;
-  onTaskNotesPointerUp: (textarea: HTMLTextAreaElement) => void;
   onToggleSelected: (checked: boolean) => void;
   onViewHistory: () => void;
   reorderIndicator: TaskDropPosition | null;
   showReorderHandle: boolean;
   task: WorkspaceTask;
-  taskDraft: UpdateTaskPayload;
-  taskEditError: string | null;
-  taskNoteEditorHeight: number | null;
-  userLookup: Record<string, WorkspaceUser>;
-  setTaskDraft: React.Dispatch<React.SetStateAction<UpdateTaskPayload>>;
 };
 
-function TaskRow({
-  canEditTask,
-  canReorderTask,
-  canSelectTasks,
-  data,
-  dragHandleTitle,
-  editRowRef,
-  hasUnviewedChanges,
-  editingTaskId,
-  isSelected,
-  isTaskDragging,
-  onEdit,
-  onFinishTaskDrag,
-  onSave,
-  onDelete,
-  onCancel,
-  onPreviewTaskDrop,
-  onStartTaskDrag,
-  onSubmitTaskDrop,
-  onTaskNotesPointerDown,
-  onTaskNotesPointerUp,
-  onToggleSelected,
-  onViewHistory,
-  reorderIndicator,
-  showReorderHandle,
-  task,
-  taskDraft,
-  taskEditError,
-  taskNoteEditorHeight,
-  userLookup,
-  setTaskDraft,
-}: TaskRowProps) {
-  if (editingTaskId === task.id) {
-    const taskEditFormId = `task-edit-${task.id}`;
-    const selectedProjectId = taskDraft.projectId ?? task.projectId;
-    const isConvertingToProject =
-      selectedProjectId === CONVERT_TASK_TO_PROJECT_VALUE;
+type TaskEditModalProps = {
+  data: WorkspaceResponse;
+  draft: UpdateTaskPayload;
+  error: string | null;
+  noteEditorHeight: number | null;
+  onCancel: () => void;
+  onDelete: () => void;
+  onNotesPointerDown: (textarea: HTMLTextAreaElement) => void;
+  onNotesPointerUp: (textarea: HTMLTextAreaElement) => void;
+  onSave: () => void;
+  setDraft: React.Dispatch<React.SetStateAction<UpdateTaskPayload>>;
+  task: WorkspaceTask;
+  userLookup: Record<string, WorkspaceUser>;
+};
 
-    return (
-      <tr className="editing-row" ref={editRowRef}>
-        {canSelectTasks ? <td className="task-select-cell" /> : null}
-        {showReorderHandle ? (
-          <td className="task-reorder-cell task-reorder-cell--spacer" />
-        ) : null}
-        <td>
-          <div className="task-create-field">
-            {taskEditError ? (
-              <p className="error-banner task-edit-error">{taskEditError}</p>
-            ) : null}
-            <input
-              form={taskEditFormId}
-              value={taskDraft.title ?? ""}
-              onChange={(event) =>
-                setTaskDraft((current) => ({
-                  ...current,
-                  title: event.target.value,
-                }))
-              }
-            />
-            <textarea
-              form={taskEditFormId}
-              value={taskDraft.notes ?? ""}
-              onChange={(event) =>
-                setTaskDraft((current) => ({
-                  ...current,
-                  notes: event.target.value,
-                }))
-              }
-              className="resizable-notes"
-              onPointerDown={(event) =>
-                onTaskNotesPointerDown(event.currentTarget)
-              }
-              onPointerUp={(event) => onTaskNotesPointerUp(event.currentTarget)}
-              placeholder="Task notes"
-              rows={2}
-              style={toTextareaStyle(taskNoteEditorHeight)}
-            />
-            <ProjectPickerControl
-              currentUser={data.currentUser}
-              includeConvertToProject
-              label="Project"
-              onChange={(projectId) =>
-                setTaskDraft((current) => ({
-                  ...current,
-                  projectId,
-                }))
-              }
-              projects={data.projects}
-              selectedProjectId={selectedProjectId}
-              users={userLookup}
-            />
+function TaskEditModal({
+  data,
+  draft,
+  error,
+  noteEditorHeight,
+  onCancel,
+  onDelete,
+  onNotesPointerDown,
+  onNotesPointerUp,
+  onSave,
+  setDraft,
+  task,
+  userLookup,
+}: TaskEditModalProps) {
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedProjectId = draft.projectId ?? task.projectId;
+  const isConvertingToProject =
+    selectedProjectId === CONVERT_TASK_TO_PROJECT_VALUE;
+
+  return (
+    <Modal
+      className="modal-dialog--wide"
+      initialFocusRef={titleInputRef}
+      inline
+      onClose={onCancel}
+      subtitle={task.assigneeName ?? NO_TASK_ASSIGNEE_LABEL}
+      title={`Edit task · ${task.title}`}
+      footer={
+        <div className="modal-actions modal-actions--split">
+          <div className="modal-danger-actions">
+            <button
+              type="button"
+              className="ghost-button modal-delete-button"
+              onClick={onDelete}
+            >
+              Delete
+            </button>
           </div>
-        </td>
-        <td>
+          <div className="modal-primary-actions">
+            <button type="submit" form="task-edit-modal-form">
+              {isConvertingToProject ? "Convert" : "Save"}
+            </button>
+            <button type="button" className="ghost-button" onClick={onCancel}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <form
+        id="task-edit-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <label className="modal-field-wide">
+          Title
+          <input
+            ref={titleInputRef}
+            value={draft.title ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                title: event.target.value,
+              }))
+            }
+            placeholder="Task title"
+          />
+        </label>
+        <label className="modal-field-wide">
+          Notes
+          <textarea
+            value={draft.notes ?? ""}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                notes: event.target.value,
+              }))
+            }
+            className="resizable-notes"
+            onPointerDown={(event) => onNotesPointerDown(event.currentTarget)}
+            onPointerUp={(event) => onNotesPointerUp(event.currentTarget)}
+            placeholder="Task notes"
+            rows={4}
+            style={toTextareaStyle(noteEditorHeight)}
+          />
+        </label>
+        <div className="modal-field-wide">
+          <ProjectPickerControl
+            currentUser={data.currentUser}
+            includeConvertToProject
+            label="Project"
+            onChange={(projectId) =>
+              setDraft((current) => ({
+                ...current,
+                projectId,
+              }))
+            }
+            projects={data.projects}
+            selectedProjectId={selectedProjectId}
+            users={userLookup}
+          />
+        </div>
+        <label>
+          Assignee
           <select
             aria-label="Assignee"
-            form={taskEditFormId}
-            value={taskDraft.assigneeUserId ?? ""}
+            value={draft.assigneeUserId ?? ""}
             onChange={(event) =>
-              setTaskDraft((current) => ({
+              setDraft((current) => ({
                 ...current,
                 assigneeUserId: event.target.value || null,
               }))
@@ -4644,13 +4725,13 @@ function TaskRow({
               </option>
             ))}
           </select>
-        </td>
-        <td>
+        </label>
+        <label>
+          Status
           <select
-            form={taskEditFormId}
-            value={taskDraft.status ?? "not_started"}
+            value={draft.status ?? "not_started"}
             onChange={(event) =>
-              setTaskDraft((current) => ({
+              setDraft((current) => ({
                 ...current,
                 status: event.target.value as TaskStatus,
               }))
@@ -4662,13 +4743,13 @@ function TaskRow({
               </option>
             ))}
           </select>
-        </td>
-        <td>
+        </label>
+        <label>
+          Priority
           <select
-            form={taskEditFormId}
-            value={taskDraft.priority ?? "medium"}
+            value={draft.priority ?? "medium"}
             onChange={(event) =>
-              setTaskDraft((current) => ({
+              setDraft((current) => ({
                 ...current,
                 priority: event.target.value as Priority,
               }))
@@ -4678,68 +4759,48 @@ function TaskRow({
             <option value="medium">Medium</option>
             <option value="high">High</option>
           </select>
-        </td>
-        <td>
+        </label>
+        <label>
+          Due date
           <input
-            form={taskEditFormId}
             type="date"
-            value={taskDraft.dueDate ?? ""}
+            value={draft.dueDate ?? ""}
             onChange={(event) =>
-              setTaskDraft((current) => ({
+              setDraft((current) => ({
                 ...current,
                 dueDate: event.target.value,
               }))
             }
           />
-        </td>
-        <td className="task-action-cell task-edit-action-cell">
-          <form
-            id={taskEditFormId}
-            className="task-edit-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSave(taskDraft);
-            }}
-          />
-          <button
-            type="submit"
-            form={taskEditFormId}
-            className="compact-button mini-button"
-          >
-            {isConvertingToProject ? "Convert" : "Save"}
-          </button>
-          <button
-            type="button"
-            className="ghost-button compact-button mini-button"
-            onClick={() => {
-              if (
-                !window.confirm(
-                  `Delete task "${task.title}" from the workspace?`,
-                )
-              ) {
-                return;
-              }
+        </label>
+      </form>
+    </Modal>
+  );
+}
 
-              onDelete();
-            }}
-          >
-            Delete
-          </button>
-          <button
-            type="button"
-            className="ghost-button compact-button mini-button icon-compact-button"
-            aria-label="Cancel editing task"
-            onClick={onCancel}
-          >
-            X
-          </button>
-        </td>
-      </tr>
-    );
-  }
-
+function TaskRow({
+  canEditTask,
+  canReorderTask,
+  canSelectTasks,
+  dragHandleTitle,
+  hasUnviewedChanges,
+  editingTaskId,
+  isSelected,
+  isTaskDragging,
+  onEdit,
+  onFinishTaskDrag,
+  onPreviewTaskDrop,
+  onStartTaskDrag,
+  onSubmitTaskDrop,
+  onToggleSelected,
+  onViewHistory,
+  reorderIndicator,
+  showReorderHandle,
+  task,
+}: TaskRowProps) {
   const rowClassName = [
     hasUnviewedChanges ? "task-row--unviewed" : null,
+    editingTaskId === task.id ? "task-row--editing" : null,
     isTaskDragging ? "task-row--dragging" : null,
     reorderIndicator === "before" ? "task-row--drop-before" : null,
     reorderIndicator === "after" ? "task-row--drop-after" : null,
@@ -4748,114 +4809,115 @@ function TaskRow({
     .join(" ");
 
   return (
-    <tr
-      className={rowClassName || undefined}
-      onClick={(event) => {
-        if (canEditTask && shouldOpenEditorFromModifierClick(event)) {
-          onEdit(task);
-        }
-      }}
-      onDragOver={(event) => {
-        if (!canReorderTask) {
-          return;
-        }
+    <>
+      <tr
+        className={rowClassName || undefined}
+        onClick={(event) => {
+          if (canEditTask && shouldOpenEditorFromModifierClick(event)) {
+            onEdit(task);
+          }
+        }}
+        onDragOver={(event) => {
+          if (!canReorderTask) {
+            return;
+          }
 
-        event.preventDefault();
-        event.stopPropagation();
-        onPreviewTaskDrop(readTaskDropPosition(event));
-      }}
-      onDrop={(event) => {
-        if (!canReorderTask) {
-          return;
-        }
+          event.preventDefault();
+          event.stopPropagation();
+          onPreviewTaskDrop(readTaskDropPosition(event));
+        }}
+        onDrop={(event) => {
+          if (!canReorderTask) {
+            return;
+          }
 
-        event.preventDefault();
-        event.stopPropagation();
-        onSubmitTaskDrop(readTaskDropPosition(event));
-      }}
-    >
-      {canSelectTasks ? (
-        <td className="task-select-cell">
-          <input
-            aria-label={`Select task ${task.title}`}
-            checked={isSelected}
-            onChange={(event) => onToggleSelected(event.target.checked)}
-            type="checkbox"
+          event.preventDefault();
+          event.stopPropagation();
+          onSubmitTaskDrop(readTaskDropPosition(event));
+        }}
+      >
+        {canSelectTasks ? (
+          <td className="task-select-cell">
+            <input
+              aria-label={`Select task ${task.title}`}
+              checked={isSelected}
+              onChange={(event) => onToggleSelected(event.target.checked)}
+              type="checkbox"
+            />
+          </td>
+        ) : null}
+        {showReorderHandle ? (
+          <td className="task-reorder-cell">
+            <button
+              type="button"
+              className={`ghost-button compact-button task-reorder-handle${
+                isTaskDragging ? " is-active" : ""
+              }`}
+              aria-label={`Drag to reorder ${task.title}`}
+              title={dragHandleTitle}
+              disabled={!canReorderTask}
+              draggable={canReorderTask}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onDragStart={(event) => {
+                if (!canReorderTask) {
+                  return;
+                }
+
+                event.stopPropagation();
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", task.id);
+                onStartTaskDrag();
+              }}
+              onDragEnd={(event) => {
+                event.stopPropagation();
+                onFinishTaskDrag();
+              }}
+            >
+              ::
+            </button>
+          </td>
+        ) : null}
+        <td>
+          <strong>{task.title}</strong>
+          <NotesMarkdown
+            className="formatted-notes formatted-notes--task task-subtext"
+            emptyLabel="No notes"
+            value={task.notes}
           />
         </td>
-      ) : null}
-      {showReorderHandle ? (
-        <td className="task-reorder-cell">
-          <button
-            type="button"
-            className={`ghost-button compact-button task-reorder-handle${
-              isTaskDragging ? " is-active" : ""
-            }`}
-            aria-label={`Drag to reorder ${task.title}`}
-            title={dragHandleTitle}
-            disabled={!canReorderTask}
-            draggable={canReorderTask}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onDragStart={(event) => {
-              if (!canReorderTask) {
-                return;
-              }
-
-              event.stopPropagation();
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", task.id);
-              onStartTaskDrag();
-            }}
-            onDragEnd={(event) => {
-              event.stopPropagation();
-              onFinishTaskDrag();
-            }}
-          >
-            ::
-          </button>
+        <td>{task.assigneeName ?? NO_TASK_ASSIGNEE_LABEL}</td>
+        <td>
+          <span className={`status-pill status-${task.status}`}>
+            {formatStatusLabel(task.status)}
+          </span>
         </td>
-      ) : null}
-      <td>
-        <strong>{task.title}</strong>
-        <NotesMarkdown
-          className="formatted-notes formatted-notes--task task-subtext"
-          emptyLabel="No notes"
-          value={task.notes}
-        />
-      </td>
-      <td>{task.assigneeName ?? NO_TASK_ASSIGNEE_LABEL}</td>
-      <td>
-        <span className={`status-pill status-${task.status}`}>
-          {formatStatusLabel(task.status)}
-        </span>
-      </td>
-      <td>{task.priority}</td>
-      <td>{formatDate(task.dueDate)}</td>
-      <td className="task-action-cell">
-        <button
-          type="button"
-          className="ghost-button compact-button"
-          onClick={onViewHistory}
-        >
-          History
-        </button>
-        {canEditTask ? (
+        <td>{task.priority}</td>
+        <td>{formatDate(task.dueDate)}</td>
+        <td className="task-action-cell">
           <button
             type="button"
             className="ghost-button compact-button"
-            onClick={() => onEdit(task)}
+            onClick={onViewHistory}
           >
-            Edit
+            History
           </button>
-        ) : null}
-      </td>
-    </tr>
+          {canEditTask ? (
+            <button
+              type="button"
+              className="ghost-button compact-button"
+              onClick={() => onEdit(task)}
+            >
+              Edit
+            </button>
+          ) : null}
+        </td>
+      </tr>
+    </>
   );
 }
-
 function settingsCardButtonProps(action: () => void) {
   return {
     onClick: action,
@@ -4891,6 +4953,132 @@ type ProfilePanelProps = {
   onToggleUserHistory: () => void;
   theme: WorkspaceTheme;
 };
+
+type ProfileEditModalProps = {
+  currentPasswordDraft: string;
+  currentUser: WorkspaceUser;
+  emailDraft: string;
+  error: string | null;
+  isSaving: boolean;
+  nameDraft: string;
+  onCancel: () => void;
+  onSave: () => void;
+  passwordConfirmation: string;
+  passwordDraft: string;
+  setCurrentPasswordDraft: React.Dispatch<React.SetStateAction<string>>;
+  setEmailDraft: React.Dispatch<React.SetStateAction<string>>;
+  setNameDraft: React.Dispatch<React.SetStateAction<string>>;
+  setPasswordConfirmation: React.Dispatch<React.SetStateAction<string>>;
+  setPasswordDraft: React.Dispatch<React.SetStateAction<string>>;
+};
+
+function ProfileEditModal({
+  currentPasswordDraft,
+  currentUser,
+  emailDraft,
+  error,
+  isSaving,
+  nameDraft,
+  onCancel,
+  onSave,
+  passwordConfirmation,
+  passwordDraft,
+  setCurrentPasswordDraft,
+  setEmailDraft,
+  setNameDraft,
+  setPasswordConfirmation,
+  setPasswordDraft,
+}: ProfileEditModalProps) {
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <Modal
+      disableDismiss={isSaving}
+      initialFocusRef={nameInputRef}
+      inline
+      onClose={onCancel}
+      subtitle={currentUser.email}
+      title="Edit user profile"
+      footer={
+        <div className="modal-actions">
+          <button
+            type="submit"
+            form="profile-edit-modal-form"
+            disabled={isSaving}
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isSaving}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <form
+        id="profile-edit-modal-form"
+        className="modal-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave();
+        }}
+      >
+        {error ? (
+          <p className="error-banner modal-field-wide">{error}</p>
+        ) : null}
+        <label>
+          Name
+          <input
+            ref={nameInputRef}
+            value={nameDraft}
+            onChange={(event) => setNameDraft(event.target.value)}
+            placeholder="Your name"
+          />
+        </label>
+        <label>
+          Email
+          <input
+            type="email"
+            value={emailDraft}
+            onChange={(event) => setEmailDraft(event.target.value)}
+            placeholder="you@example.com"
+          />
+        </label>
+        <label>
+          Current password
+          <input
+            type="password"
+            value={currentPasswordDraft}
+            onChange={(event) => setCurrentPasswordDraft(event.target.value)}
+            placeholder="Current password"
+          />
+        </label>
+        <label>
+          Change password
+          <input
+            type="password"
+            value={passwordDraft}
+            onChange={(event) => setPasswordDraft(event.target.value)}
+            placeholder="New password"
+          />
+        </label>
+        <label>
+          Repeat password
+          <input
+            type="password"
+            value={passwordConfirmation}
+            onChange={(event) => setPasswordConfirmation(event.target.value)}
+            placeholder="Repeat new password"
+          />
+        </label>
+      </form>
+    </Modal>
+  );
+}
 
 function ProfilePanel({
   autoCollapse,
@@ -5072,9 +5260,7 @@ function ProfilePanel({
       );
     },
   });
-  const submitProfile = (event: ReactFormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
+  const submitProfile = () => {
     const trimmedName = nameDraft.trim();
     const trimmedEmail = emailDraft.trim();
     const hasPasswordInput =
@@ -5169,110 +5355,54 @@ function ProfilePanel({
             <span>{currentUser.role}</span>
           </div>
 
-          <form className="profile-form" onSubmit={submitProfile}>
+          <div className="profile-form">
             <div className="profile-form-grid">
               <label>
                 Name
-                {isEditing ? (
-                  <input
-                    value={nameDraft}
-                    onChange={(event) => setNameDraft(event.target.value)}
-                    placeholder="Your name"
-                  />
-                ) : (
-                  <span className="profile-summary-value">
-                    {currentUser.name}
-                  </span>
-                )}
+                <span className="profile-summary-value">
+                  {currentUser.name}
+                </span>
               </label>
               <label>
                 Email
-                {isEditing ? (
-                  <input
-                    type="email"
-                    value={emailDraft}
-                    onChange={(event) => setEmailDraft(event.target.value)}
-                    placeholder="you@example.com"
-                  />
-                ) : (
-                  <span className="profile-summary-value">
-                    {currentUser.email}
-                  </span>
-                )}
+                <span className="profile-summary-value">
+                  {currentUser.email}
+                </span>
               </label>
-              {isEditing ? (
-                <>
-                  <label>
-                    Current password
-                    <input
-                      type="password"
-                      value={currentPasswordDraft}
-                      onChange={(event) =>
-                        setCurrentPasswordDraft(event.target.value)
-                      }
-                      placeholder="Current password"
-                    />
-                  </label>
-                  <label>
-                    Change password
-                    <input
-                      type="password"
-                      value={passwordDraft}
-                      onChange={(event) => setPasswordDraft(event.target.value)}
-                      placeholder="New password"
-                    />
-                  </label>
-                  <label>
-                    Repeat password
-                    <input
-                      type="password"
-                      value={passwordConfirmation}
-                      onChange={(event) =>
-                        setPasswordConfirmation(event.target.value)
-                      }
-                      placeholder="Repeat new password"
-                    />
-                  </label>
-                </>
-              ) : null}
             </div>
-
-            {profileError ? (
-              <p className="error-banner">{profileError}</p>
-            ) : null}
 
             <div className="settings-actions">
-              {isEditing ? (
-                <>
-                  <button
-                    type="submit"
-                    disabled={updateProfileMutation.isPending}
-                  >
-                    {updateProfileMutation.isPending ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button compact-button"
-                    disabled={updateProfileMutation.isPending}
-                    onClick={() => {
-                      setIsEditing(false);
-                      resetProfileDraft();
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="ghost-button compact-button"
-                  onClick={beginEditing}
-                >
-                  Edit
-                </button>
-              )}
+              <button
+                type="button"
+                className="ghost-button compact-button"
+                onClick={beginEditing}
+              >
+                Edit
+              </button>
             </div>
-          </form>
+          </div>
+          {isEditing ? (
+            <ProfileEditModal
+              currentPasswordDraft={currentPasswordDraft}
+              currentUser={currentUser}
+              emailDraft={emailDraft}
+              error={profileError}
+              isSaving={updateProfileMutation.isPending}
+              nameDraft={nameDraft}
+              onCancel={() => {
+                setIsEditing(false);
+                resetProfileDraft();
+              }}
+              onSave={submitProfile}
+              passwordConfirmation={passwordConfirmation}
+              passwordDraft={passwordDraft}
+              setCurrentPasswordDraft={setCurrentPasswordDraft}
+              setEmailDraft={setEmailDraft}
+              setNameDraft={setNameDraft}
+              setPasswordConfirmation={setPasswordConfirmation}
+              setPasswordDraft={setPasswordDraft}
+            />
+          ) : null}
         </div>
 
         <div
@@ -8445,20 +8575,6 @@ function revealElementInViewport(element: HTMLElement | null) {
       inline: "nearest",
     });
   }
-}
-
-function revealEditor(element: HTMLElement | null) {
-  if (!element) {
-    return;
-  }
-
-  revealElementInViewport(element);
-
-  const firstEditableField = element.querySelector<HTMLElement>(
-    EDITOR_INPUT_SELECTOR,
-  );
-
-  firstEditableField?.focus({ preventScroll: true });
 }
 
 function readViewportScrollOffset() {

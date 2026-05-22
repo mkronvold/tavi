@@ -6,6 +6,7 @@ import {
   pruneRetentionData,
   updateRetentionSettings,
 } from "./api";
+import { Modal } from "./Modal";
 import type {
   BackupRetentionSummary,
   BackupRetentionWindow,
@@ -60,6 +61,8 @@ export function RetentionSettingsPanel({
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingPruneTarget, setPendingPruneTarget] =
+    useState<RetentionTarget | null>(null);
 
   const retentionQuery = useQuery({
     queryFn: getRetentionStatus,
@@ -88,6 +91,7 @@ export function RetentionSettingsPanel({
     mutationFn: pruneRetentionData,
     onSuccess: (result) => {
       queryClient.setQueryData(["retention-status"], result.settings);
+      setPendingPruneTarget(null);
       setError(null);
       setMessage(
         `Pruned ${formatRetentionTargetLabel(result.target)}: removed ${formatBytes(result.deletedSizeBytes)} across ${formatCountLabel(result.deletedCount, "item")}.`,
@@ -135,17 +139,18 @@ export function RetentionSettingsPanel({
 
     const policyLabel = formatCurrentPolicyLabel(target, retentionDraft);
 
-    if (
-      !window.confirm(
-        `Prune ${formatRetentionTargetLabel(target).toLowerCase()} older than ${policyLabel}?`,
-      )
-    ) {
+    setPendingPruneTarget(target);
+    setMessage(`Ready to prune ${formatRetentionTargetLabel(target)} older than ${policyLabel}.`);
+  };
+
+  const confirmPrune = () => {
+    if (!pendingPruneTarget) {
       return;
     }
 
     setError(null);
     setMessage(null);
-    pruneMutation.mutate({ target });
+    pruneMutation.mutate({ target: pendingPruneTarget });
   };
 
   return (
@@ -249,7 +254,75 @@ export function RetentionSettingsPanel({
           />
         </div>
       ) : null}
+      {pendingPruneTarget && retentionDraft ? (
+        <RetentionPruneModal
+          isPruning={pruneMutation.isPending}
+          onCancel={() => {
+            if (!pruneMutation.isPending) {
+              setPendingPruneTarget(null);
+              setMessage(null);
+            }
+          }}
+          onConfirm={confirmPrune}
+          policyLabel={formatCurrentPolicyLabel(
+            pendingPruneTarget,
+            retentionDraft,
+          )}
+          target={pendingPruneTarget}
+        />
+      ) : null}
     </section>
+  );
+}
+
+type RetentionPruneModalProps = {
+  isPruning: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  policyLabel: string;
+  target: RetentionTarget;
+};
+
+function RetentionPruneModal({
+  isPruning,
+  onCancel,
+  onConfirm,
+  policyLabel,
+  target,
+}: RetentionPruneModalProps) {
+  return (
+    <Modal
+      className="modal-dialog--danger"
+      disableDismiss={isPruning}
+      onClose={onCancel}
+      subtitle={`Older than ${policyLabel}`}
+      title={`Prune ${formatRetentionTargetLabel(target)}`}
+      footer={
+        <div className="modal-actions">
+          <button
+            type="button"
+            className="danger-button"
+            disabled={isPruning}
+            onClick={onConfirm}
+          >
+            {isPruning ? "Pruning..." : "Prune now"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isPruning}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <p className="toolbar-hint">
+        This removes retained {formatRetentionTargetLabel(target)} older than the
+        current retention policy.
+      </p>
+    </Modal>
   );
 }
 

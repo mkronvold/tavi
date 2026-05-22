@@ -581,8 +581,11 @@ describe("LocalAccountsPanel", () => {
 
     fireEvent.click(within(accountRow!).getByRole("button", { name: "Set Password" }));
 
-    const passwordForm = within(accountRow!)
-      .getByText("Set password · Viewer One")
+    const passwordDialog = within(accountRow!).getByRole("dialog", {
+      name: "Set password · Viewer One",
+    });
+    const passwordForm = within(passwordDialog)
+      .getByPlaceholderText("New password")
       .closest("form") as HTMLFormElement | null;
 
     expect(passwordForm).not.toBeNull();
@@ -594,14 +597,16 @@ describe("LocalAccountsPanel", () => {
       "Confirm password",
     ) as HTMLInputElement;
 
-    fireEvent.click(within(passwordForm!).getByRole("button", { name: "Generate" }));
+    fireEvent.click(within(passwordDialog).getByRole("button", { name: "Generate" }));
 
     generatedPassword = nextPasswordInput.value;
 
     expect(generatedPassword).toMatch(/^[A-Za-z0-9]{20}$/);
     expect(confirmPasswordInput.value).toBe(generatedPassword);
 
-    fireEvent.click(within(passwordForm!).getByRole("button", { name: "Set Password" }));
+    fireEvent.click(
+      within(passwordDialog).getByRole("button", { name: "Set Password" }),
+    );
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(

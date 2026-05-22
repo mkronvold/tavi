@@ -12,6 +12,7 @@ import {
   updateBackupSettings,
   uploadBackupFile,
 } from "./api";
+import { Modal } from "./Modal";
 import {
   formatDateTime,
   getLocalTimeZoneLabel,
@@ -57,6 +58,7 @@ export function BackupSettingsCard({
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState("02:00");
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreConfirmationOpen, setRestoreConfirmationOpen] = useState(false);
   const [selectedStoredFileName, setSelectedStoredFileName] = useState("");
   const [preview, setPreview] = useState<BackupRestorePreview | null>(null);
   const [restoreScope, setRestoreScope] = useState<RestoreScope>("full");
@@ -75,6 +77,9 @@ export function BackupSettingsCard({
   const [downloadingFileName, setDownloadingFileName] = useState<string | null>(
     null,
   );
+  const [pendingDeleteFileName, setPendingDeleteFileName] = useState<
+    string | null
+  >(null);
   const [clearConfirmationOpen, setClearConfirmationOpen] = useState(false);
   const [clearPassword, setClearPassword] = useState("");
 
@@ -109,6 +114,7 @@ export function BackupSettingsCard({
   const resetRestorePreview = () => {
     setPreview(null);
     setRestoreError(null);
+    setRestoreConfirmationOpen(false);
     setSelectedProjectIds({});
     setSelectedUserIds({});
     setProjectConflictActions({});
@@ -173,6 +179,7 @@ export function BackupSettingsCard({
     mutationFn: deleteBackupFile,
     onSuccess: (status, fileName) => {
       setBackupError(null);
+      setPendingDeleteFileName(null);
       applyBackupStatus(status);
 
       if (selectedStoredFileName === fileName) {
@@ -263,6 +270,7 @@ export function BackupSettingsCard({
       }),
     onSuccess: async (result) => {
       setRestoreError(null);
+      setRestoreConfirmationOpen(false);
       resetRestorePreview();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["backup-status"] }),
@@ -396,17 +404,7 @@ export function BackupSettingsCard({
       return;
     }
 
-    const confirmed = window.confirm(
-      restoreScope === "full"
-        ? "Apply a full restore?\n\nThis replaces all current Tavi data with the selected backup."
-        : "Apply the selected restore changes?",
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    applyMutation.mutate();
+    setRestoreConfirmationOpen(true);
   };
 
   const handleUploadClick = () => {
@@ -453,13 +451,7 @@ export function BackupSettingsCard({
   };
 
   const handleDelete = (fileName: string) => {
-    const confirmed = window.confirm(`Delete ${fileName} from backup storage?`);
-
-    if (!confirmed) {
-      return;
-    }
-
-    deleteBackupMutation.mutate(fileName);
+    setPendingDeleteFileName(fileName);
   };
 
   const openClearConfirmation = () => {
@@ -763,64 +755,29 @@ export function BackupSettingsCard({
                       seeding example projects, then apply the selected restore.
                     </span>
                   </div>
-                  {!clearConfirmationOpen ? (
-                    <div className="settings-actions">
-                      <button
-                        type="button"
-                        className="danger-button"
-                        disabled={clearWorkspaceMutation.isPending}
-                        onClick={openClearConfirmation}
-                      >
-                        Clear all existing projects/tasks
-                      </button>
-                    </div>
-                  ) : null}
+                  <div className="settings-actions">
+                    <button
+                      type="button"
+                      className="danger-button"
+                      disabled={clearWorkspaceMutation.isPending}
+                      onClick={openClearConfirmation}
+                    >
+                      Clear all existing projects/tasks
+                    </button>
+                  </div>
                 </div>
 
                 {clearConfirmationOpen ? (
-                  <div className="import-reset-confirmation">
-                    <p className="toolbar-hint">
-                      Confirm with your current admin password to clear the
-                      current project/task workspace before restoring from this
-                      backup.
-                    </p>
-                    <label>
-                      Current password
-                      <input
-                        type="password"
-                        value={clearPassword}
-                        onChange={(event) => {
-                          setRestoreError(null);
-                          setClearPassword(event.target.value);
-                        }}
-                      />
-                    </label>
-                    <div className="settings-actions">
-                      <button
-                        type="button"
-                        className="ghost-button"
-                        disabled={clearWorkspaceMutation.isPending}
-                        onClick={closeClearConfirmation}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="danger-button"
-                        disabled={
-                          clearPassword.trim().length < 8 ||
-                          clearWorkspaceMutation.isPending
-                        }
-                        onClick={() =>
-                          clearWorkspaceMutation.mutate(clearPassword)
-                        }
-                      >
-                        {clearWorkspaceMutation.isPending
-                          ? "Clearing..."
-                          : "Confirm clear"}
-                      </button>
-                    </div>
-                  </div>
+                  <BackupClearWorkspaceModal
+                    isClearing={clearWorkspaceMutation.isPending}
+                    onCancel={closeClearConfirmation}
+                    onClear={() => clearWorkspaceMutation.mutate(clearPassword)}
+                    password={clearPassword}
+                    setPassword={(value) => {
+                      setRestoreError(null);
+                      setClearPassword(value);
+                    }}
+                  />
                 ) : null}
               </div>
 
@@ -1029,7 +986,195 @@ export function BackupSettingsCard({
           ) : null}
         </div>
       ) : null}
+      {restoreConfirmationOpen && preview ? (
+        <BackupRestoreConfirmModal
+          isApplying={applyMutation.isPending}
+          onCancel={() => {
+            if (!applyMutation.isPending) {
+              setRestoreConfirmationOpen(false);
+            }
+          }}
+          onConfirm={() => applyMutation.mutate()}
+          scope={restoreScope}
+        />
+      ) : null}
+      {pendingDeleteFileName ? (
+        <BackupDeleteModal
+          fileName={pendingDeleteFileName}
+          isDeleting={deleteBackupMutation.isPending}
+          onCancel={() => {
+            if (!deleteBackupMutation.isPending) {
+              setPendingDeleteFileName(null);
+            }
+          }}
+          onDelete={() => deleteBackupMutation.mutate(pendingDeleteFileName)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+type BackupClearWorkspaceModalProps = {
+  isClearing: boolean;
+  onCancel: () => void;
+  onClear: () => void;
+  password: string;
+  setPassword: (value: string) => void;
+};
+
+function BackupClearWorkspaceModal({
+  isClearing,
+  onCancel,
+  onClear,
+  password,
+  setPassword,
+}: BackupClearWorkspaceModalProps) {
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <Modal
+      className="modal-dialog--danger"
+      disableDismiss={isClearing}
+      initialFocusRef={passwordInputRef}
+      onClose={onCancel}
+      subtitle="Clear the current project/task workspace before restoring from this backup."
+      title="Clear existing projects and tasks"
+      footer={
+        <div className="modal-actions">
+          <button
+            type="button"
+            className="danger-button"
+            disabled={password.trim().length < 8 || isClearing}
+            onClick={onClear}
+          >
+            {isClearing ? "Clearing..." : "Confirm clear"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isClearing}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <label className="modal-field-label">
+        Current password
+        <input
+          ref={passwordInputRef}
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </label>
+    </Modal>
+  );
+}
+
+type BackupRestoreConfirmModalProps = {
+  isApplying: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  scope: RestoreScope;
+};
+
+function BackupRestoreConfirmModal({
+  isApplying,
+  onCancel,
+  onConfirm,
+  scope,
+}: BackupRestoreConfirmModalProps) {
+  const fullRestore = scope === "full";
+
+  return (
+    <Modal
+      className={fullRestore ? "modal-dialog--danger" : undefined}
+      disableDismiss={isApplying}
+      onClose={onCancel}
+      subtitle={
+        fullRestore
+          ? "This replaces all current Tavi data with the selected backup."
+          : "This applies the selected restore changes."
+      }
+      title={fullRestore ? "Apply full restore" : "Apply restore changes"}
+      footer={
+        <div className="modal-actions">
+          <button
+            type="button"
+            className={fullRestore ? "danger-button" : undefined}
+            disabled={isApplying}
+            onClick={onConfirm}
+          >
+            {isApplying ? "Applying..." : "Apply restore"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isApplying}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <p className="toolbar-hint">
+        Review the restore preview before continuing. This action can change
+        existing projects, tasks, users, and settings depending on the selected
+        scope.
+      </p>
+    </Modal>
+  );
+}
+
+type BackupDeleteModalProps = {
+  fileName: string;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onDelete: () => void;
+};
+
+function BackupDeleteModal({
+  fileName,
+  isDeleting,
+  onCancel,
+  onDelete,
+}: BackupDeleteModalProps) {
+  return (
+    <Modal
+      className="modal-dialog--danger"
+      disableDismiss={isDeleting}
+      onClose={onCancel}
+      subtitle="Remove this file from backup storage."
+      title={`Delete ${fileName}`}
+      footer={
+        <div className="modal-actions">
+          <button
+            type="button"
+            className="danger-button"
+            disabled={isDeleting}
+            onClick={onDelete}
+          >
+            {isDeleting ? "Deleting..." : "Delete backup"}
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={isDeleting}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <p className="toolbar-hint">
+        This does not change workspace data, but the selected backup file will no
+        longer be available for restore.
+      </p>
+    </Modal>
   );
 }
 

@@ -3834,7 +3834,6 @@ describe("App", () => {
     const workspacePayload = createAdminWorkspacePayload();
     const updateRequests: UpdateRetentionSettingsPayload[] = [];
     const pruneRequests: string[] = [];
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.toString();
@@ -3976,9 +3975,11 @@ describe("App", () => {
       within(notificationsRow!).getByRole("button", { name: "Prune now" }),
     );
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Prune notifications older than 2 weeks?",
-    );
+    const pruneDialog = await screen.findByRole("dialog", {
+      name: "Prune notifications",
+    });
+    fireEvent.click(within(pruneDialog).getByRole("button", { name: "Prune now" }));
+
     await waitFor(() => {
       expect(pruneRequests).toEqual(["notifications"]);
       expect(
@@ -4231,9 +4232,7 @@ describe("App", () => {
         screen.getByPlaceholderText("Current password"),
       ).toBeInTheDocument();
       expect(
-        within(
-          screen.getByPlaceholderText("Current password").closest("form")!,
-        ).getByRole("button", { name: "Save" }),
+        screen.getByRole("button", { name: "Save" }),
       ).toBeInTheDocument();
     });
   });
@@ -4312,11 +4311,7 @@ describe("App", () => {
     fireEvent.change(screen.getByDisplayValue("editor@tavi.local"), {
       target: { value: "renamed@tavi.local" },
     });
-    fireEvent.click(
-      within(
-        screen.getByPlaceholderText("Current password").closest("form")!,
-      ).getByRole("button", { name: "Save" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(JSON.parse(updateProfileRequestBody ?? "{}")).toEqual({
@@ -4788,7 +4783,7 @@ describe("App", () => {
     ]);
   });
 
-  it("keeps the project open while editing tasks with compact aligned actions", async () => {
+  it("keeps the project open while editing tasks in a modal", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -4819,22 +4814,17 @@ describe("App", () => {
     });
 
     const projectToggle = projectCard.querySelector("button.group-toggle");
-    const editingRow = within(projectCard)
-      .getByDisplayValue("Kickoff")
-      .closest("tr");
+    const editDialog = within(projectCard).getByRole("dialog", {
+      name: "Edit task · Kickoff",
+    });
 
-    expect(editingRow).not.toBeNull();
     expect(projectToggle).toHaveTextContent("-");
-    expect(editingRow?.querySelector("td[colspan]")).toBeNull();
-    expect(editingRow?.querySelectorAll("td")).toHaveLength(8);
     expect(
-      within(editingRow!).getByRole("button", { name: "Save" }),
-    ).toHaveClass("mini-button");
+      within(editDialog).getByRole("button", { name: "Save" }),
+    ).toBeInTheDocument();
     expect(
-      within(editingRow!).getByRole("button", {
-        name: "Cancel editing task",
-      }),
-    ).toHaveTextContent("X");
+      within(editDialog).getByRole("button", { name: "Cancel" }),
+    ).toBeInTheDocument();
   });
 
   it("opens a prefilled follow-up draft when a task moves into review", async () => {
@@ -5139,9 +5129,8 @@ describe("App", () => {
     });
   });
 
-  it("defers task edit mode so the first click cannot submit the inline save button", async () => {
+  it("opens task edit in a modal without submitting from the first click", async () => {
     const workspacePayload = createWorkspacePayload();
-    let queuedAnimationFrame: FrameRequestCallback | null = null;
     let patchBody: string | null = null;
     let patchCount = 0;
     const fetchMock = vi.fn(
@@ -5167,14 +5156,6 @@ describe("App", () => {
       },
     );
 
-    vi.stubGlobal(
-      "requestAnimationFrame",
-      vi.fn((callback: FrameRequestCallback) => {
-        queuedAnimationFrame = callback;
-        return 1;
-      }),
-    );
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
     vi.stubGlobal("fetch", fetchMock);
 
     renderApp();
@@ -5195,23 +5176,7 @@ describe("App", () => {
     fireEvent.click(within(kickoffRow!).getByRole("button", { name: "Edit" }));
 
     expect(patchCount).toBe(0);
-    expect(queuedAnimationFrame).not.toBeNull();
-    expect(
-      within(projectCard).queryByRole("button", { name: "Save" }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(projectCard).queryByDisplayValue("Kickoff"),
-    ).not.toBeInTheDocument();
-
-    act(() => {
-      queuedAnimationFrame?.(16);
-    });
-
-    await waitFor(() => {
-      expect(
-        within(projectCard).getByDisplayValue("Kickoff"),
-      ).toBeInTheDocument();
-    });
+    expect(within(projectCard).getByDisplayValue("Kickoff")).toBeInTheDocument();
 
     fireEvent.change(within(projectCard).getByDisplayValue("Kickoff"), {
       target: { value: "Kickoff updated" },

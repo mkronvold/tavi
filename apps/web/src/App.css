@@ -50,6 +50,130 @@
   gap: 20px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 0.42);
+}
+
+.modal-dialog {
+  width: min(100%, 760px);
+  max-height: min(820px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgb(15 23 42 / 0.24);
+}
+
+.modal-dialog--wide {
+  width: min(100%, 920px);
+}
+
+.modal-dialog--danger {
+  border-color: var(--error-text);
+}
+
+.modal-header,
+.modal-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.modal-header {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-footer {
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.modal-heading {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.modal-heading h2,
+.modal-heading p {
+  margin: 0;
+}
+
+.modal-heading h2 {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+
+.modal-heading p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.modal-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.modal-form-grid,
+.modal-field-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.modal-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.modal-field-wide {
+  grid-column: 1 / -1;
+}
+
+.modal-body label,
+.modal-field-label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.modal-actions--split {
+  justify-content: space-between;
+}
+
+.modal-danger-actions,
+.modal-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.modal-close-button {
+  flex: none;
+}
+
+.modal-delete-button {
+  color: var(--error-text);
+}
+
 .login-header {
   display: grid;
   gap: 10px;
@@ -1989,6 +2113,10 @@ button:disabled {
 .task-row--unviewed > td {
   background: var(--unviewed-task-bg);
   box-shadow: inset 3px 0 0 var(--unviewed-border);
+}
+
+.task-row--editing > td {
+  background: var(--card-bg-muted);
 }
 
 .task-row--drop-before > td {
