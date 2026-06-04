@@ -75,6 +75,7 @@ import {
 import { PersonalTodoPanel } from "./PersonalTodoPanel";
 import { RetentionSettingsPanel } from "./RetentionSettingsPanel";
 import { getAppHomeUrl } from "./runtime-config";
+import { SearchHighlightedText } from "./SearchHighlightedText";
 import {
   clearTaviStorage,
   hasTaviStorage,
@@ -88,6 +89,10 @@ import {
   localTimeToUtcTime,
   utcTimeToLocalTime,
 } from "./time";
+import {
+  normalizeSearchHighlightTerm,
+  textMatchesSearch,
+} from "./search-highlight";
 import type {
   EmailAuditEvent,
   AuditHistoryEvent,
@@ -275,6 +280,13 @@ type WorkspaceFilterState = {
 
 type WorkspaceUserConfigWithFilters = Omit<WorkspaceUserConfig, "filters"> & {
   filters: WorkspaceFilterState;
+};
+
+type SearchTaskRevealTarget = {
+  groupKey: string;
+  hiddenByDoneFilter: boolean;
+  projectId: string;
+  taskId: string;
 };
 type WorkspaceUserConfigInput = Partial<
   Omit<WorkspaceUserConfig, "filters">
@@ -1068,7 +1080,10 @@ function WorkspaceScreen({
     sortBy,
     statusFilters,
   } = workspaceFilters;
-  const collapsedGroups = collapsedGroupsByGroup[groupBy] ?? {};
+  const collapsedGroups = useMemo(
+    () => collapsedGroupsByGroup[groupBy] ?? {},
+    [collapsedGroupsByGroup, groupBy],
+  );
   const noteEditorResizeStartHeights = useRef<NoteEditorHeights>({
     project: null,
     task: null,
@@ -1090,6 +1105,12 @@ function WorkspaceScreen({
   const [search, setSearch] = useState(() =>
     readWorkspaceSearchQueryFromLocation(),
   );
+  const lastSearchTaskRevealKeyRef = useRef<string | null>(null);
+  const setProjectExpandedRef = useRef<
+    ((projectId: string, nextValue: boolean) => void) | null
+  >(null);
+  const [pendingSearchTaskReveal, setPendingSearchTaskReveal] =
+    useState<SearchTaskRevealTarget | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<
     Record<string, boolean>
   >({});
@@ -1277,7 +1298,7 @@ function WorkspaceScreen({
           },
     );
   };
-  const setCollapsedGroupsForGroupBy = (
+  const setCollapsedGroupsForGroupBy = useCallback((
     targetGroupBy: GroupBy,
     nextValue:
       | Record<string, boolean>
@@ -1311,14 +1332,14 @@ function WorkspaceScreen({
         [targetGroupBy]: nextSelection,
       };
     });
-  };
-  const setCollapsedGroups = (
+  }, []);
+  const setCollapsedGroups = useCallback((
     nextValue:
       | Record<string, boolean>
       | ((current: Record<string, boolean>) => Record<string, boolean>),
   ) => {
     setCollapsedGroupsForGroupBy(groupBy, nextValue);
-  };
+  }, [groupBy, setCollapsedGroupsForGroupBy]);
   const rememberNoteEditorHeight = (
     editorType: NoteEditorType,
     textarea: HTMLTextAreaElement,
@@ -1713,7 +1734,6 @@ function WorkspaceScreen({
       revealExpandedProjectCard(projectId);
     }
   };
-
   const openProjectEditor = (project: WorkspaceProject) => {
     setTaskEditError(null);
     setEditingTaskId(null);
@@ -2293,6 +2313,19 @@ function WorkspaceScreen({
     () => groupProjects(filteredProjects, groupBy, sortBy),
     [filteredProjects, groupBy, sortBy],
   );
+  const normalizedWorkspaceSearch = useMemo(
+    () => normalizeSearchHighlightTerm(search),
+    [search],
+  );
+  const searchTaskRevealTarget = useMemo(
+    () =>
+      findFirstMatchingSearchTaskTarget(
+        groupedProjects,
+        normalizedWorkspaceSearch,
+        hideDoneTasksByProject,
+      ),
+    [groupedProjects, hideDoneTasksByProject, normalizedWorkspaceSearch],
+  );
   const orderedProjects = useMemo(
     () => groupedProjects.flatMap((group) => group.projects),
     [groupedProjects],
@@ -2349,6 +2382,95 @@ function WorkspaceScreen({
     () => new Set(selectedTaskItems.map((task) => task.projectId)).size,
     [selectedTaskItems],
   );
+
+  useEffect(() => {
+    setProjectExpandedRef.current = setProjectExpanded;
+  });
+
+  useEffect(() => {
+    if (!normalizedWorkspaceSearch || !searchTaskRevealTarget) {
+      lastSearchTaskRevealKeyRef.current = null;
+      setPendingSearchTaskReveal(null);
+      return;
+    }
+
+    const revealKey = `${normalizedWorkspaceSearch}:${searchTaskRevealTarget.taskId}`;
+
+    if (lastSearchTaskRevealKeyRef.current === revealKey) {
+      return;
+    }
+
+    lastSearchTaskRevealKeyRef.current = revealKey;
+    setPendingSearchTaskReveal(searchTaskRevealTarget);
+
+    if (collapsedGroups[searchTaskRevealTarget.groupKey]) {
+      setCollapsedGroups((current) => {
+        if (!current[searchTaskRevealTarget.groupKey]) {
+          return current;
+        }
+
+        const nextCollapsedGroups = { ...current };
+
+        delete nextCollapsedGroups[searchTaskRevealTarget.groupKey];
+        return nextCollapsedGroups;
+      });
+    }
+
+    if (
+      searchTaskRevealTarget.hiddenByDoneFilter &&
+      hideDoneTasksByProject[searchTaskRevealTarget.projectId]
+    ) {
+      setHideDoneTasksByProject((current) => ({
+        ...current,
+        [searchTaskRevealTarget.projectId]: false,
+      }));
+    }
+
+    if (!expandedProjects[searchTaskRevealTarget.projectId]) {
+      setProjectExpandedRef.current?.(searchTaskRevealTarget.projectId, true);
+    }
+  }, [
+    collapsedGroups,
+    expandedProjects,
+    hideDoneTasksByProject,
+    normalizedWorkspaceSearch,
+    searchTaskRevealTarget,
+    setCollapsedGroups,
+  ]);
+
+  useEffect(() => {
+    if (!pendingSearchTaskReveal) {
+      return;
+    }
+
+    if (
+      collapsedGroups[pendingSearchTaskReveal.groupKey] ||
+      !expandedProjects[pendingSearchTaskReveal.projectId] ||
+      (pendingSearchTaskReveal.hiddenByDoneFilter &&
+        hideDoneTasksByProject[pendingSearchTaskReveal.projectId])
+    ) {
+      return;
+    }
+
+    const reveal = () => {
+      revealElementInViewport(
+        findTaskRowElementById(pendingSearchTaskReveal.taskId),
+      );
+      setPendingSearchTaskReveal(null);
+    };
+
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(reveal);
+      return;
+    }
+
+    globalThis.setTimeout(reveal, 0);
+  }, [
+    collapsedGroups,
+    expandedProjects,
+    hideDoneTasksByProject,
+    pendingSearchTaskReveal,
+  ]);
 
   useEffect(() => {
     if (hiddenDoneTaskIds.size === 0) {
@@ -3643,10 +3765,16 @@ function WorkspaceScreen({
                       </button>
 
                       <div className="project-main">
-                        <strong>{project.title}</strong>
+                        <strong>
+                          <SearchHighlightedText
+                            search={search}
+                            text={project.title}
+                          />
+                        </strong>
                         <NotesMarkdown
                           className="formatted-notes formatted-notes--project"
                           emptyLabel="No notes"
+                          highlight={search}
                           value={project.notes}
                         />
                       </div>
@@ -3711,7 +3839,11 @@ function WorkspaceScreen({
                                 target="_blank"
                                 title={reference}
                               >
-                                {referenceLabel} ↗
+                                <SearchHighlightedText
+                                  search={search}
+                                  text={referenceLabel}
+                                />{" "}
+                                ↗
                               </a>
                             ) : (
                               <span
@@ -3719,7 +3851,10 @@ function WorkspaceScreen({
                                 className="project-reference project-reference-text"
                                 title={reference}
                               >
-                                {reference}
+                                <SearchHighlightedText
+                                  search={search}
+                                  text={reference}
+                                />
                               </span>
                             );
                           },
@@ -4237,6 +4372,7 @@ function WorkspaceScreen({
                                     : null
                                 }
                                 showReorderHandle={showTaskReorderColumn}
+                                search={search}
                                 task={task}
                               />
                             ))}
@@ -4579,6 +4715,7 @@ type TaskRowProps = {
   onToggleSelected: (checked: boolean) => void;
   onViewHistory: () => void;
   reorderIndicator: TaskDropPosition | null;
+  search: string;
   showReorderHandle: boolean;
   task: WorkspaceTask;
 };
@@ -4795,6 +4932,7 @@ function TaskRow({
   onToggleSelected,
   onViewHistory,
   reorderIndicator,
+  search,
   showReorderHandle,
   task,
 }: TaskRowProps) {
@@ -4812,6 +4950,7 @@ function TaskRow({
     <>
       <tr
         className={rowClassName || undefined}
+        data-task-row-id={task.id}
         onClick={(event) => {
           if (canEditTask && shouldOpenEditorFromModifierClick(event)) {
             onEdit(task);
@@ -4881,10 +5020,13 @@ function TaskRow({
           </td>
         ) : null}
         <td>
-          <strong>{task.title}</strong>
+          <strong>
+            <SearchHighlightedText search={search} text={task.title} />
+          </strong>
           <NotesMarkdown
             className="formatted-notes formatted-notes--task task-subtext"
             emptyLabel="No notes"
+            highlight={search}
             value={task.notes}
           />
         </td>
@@ -7646,7 +7788,7 @@ function filterProjects({
   search: string;
   statusFilters: ProjectStatus[];
 }) {
-  const normalizedSearch = search.trim().toLowerCase();
+  const normalizedSearch = normalizeSearchHighlightTerm(search);
   const hasAssigneeFilter = assigneeUserIds.length > 0;
 
   return projects.flatMap((project) => {
@@ -7681,14 +7823,12 @@ function filterProjects({
       return [{ ...project, tasks: project.tasks }];
     }
 
-    const projectMatchesSearch =
-      project.title.toLowerCase().includes(normalizedSearch) ||
-      (project.references ?? "").toLowerCase().includes(normalizedSearch) ||
-      (project.notes ?? "").toLowerCase().includes(normalizedSearch);
-    const hasMatchingSearchTask = project.tasks.some(
-      (task) =>
-        task.title.toLowerCase().includes(normalizedSearch) ||
-        (task.notes ?? "").toLowerCase().includes(normalizedSearch),
+    const projectMatchesSearch = projectMatchesSearchTerm(
+      project,
+      normalizedSearch,
+    );
+    const hasMatchingSearchTask = project.tasks.some((task) =>
+      taskMatchesSearchTerm(task, normalizedSearch),
     );
 
     if (!projectMatchesSearch && !hasMatchingSearchTask) {
@@ -7702,6 +7842,57 @@ function filterProjects({
       },
     ];
   });
+}
+
+function projectMatchesSearchTerm(
+  project: WorkspaceProject,
+  normalizedSearch: string,
+) {
+  return (
+    textMatchesSearch(project.title, normalizedSearch) ||
+    textMatchesSearch(project.references, normalizedSearch) ||
+    textMatchesSearch(project.notes, normalizedSearch)
+  );
+}
+
+function taskMatchesSearchTerm(task: WorkspaceTask, normalizedSearch: string) {
+  return (
+    textMatchesSearch(task.title, normalizedSearch) ||
+    textMatchesSearch(task.notes, normalizedSearch)
+  );
+}
+
+function findFirstMatchingSearchTaskTarget(
+  groupedProjects: Array<{ key: string; projects: WorkspaceProject[] }>,
+  normalizedSearch: string,
+  hideDoneTasksByProject: Record<string, boolean>,
+): SearchTaskRevealTarget | null {
+  if (!normalizedSearch) {
+    return null;
+  }
+
+  for (const group of groupedProjects) {
+    for (const project of group.projects) {
+      const matchingTask = project.tasks.find((task) =>
+        taskMatchesSearchTerm(task, normalizedSearch),
+      );
+
+      if (!matchingTask) {
+        continue;
+      }
+
+      return {
+        groupKey: group.key,
+        hiddenByDoneFilter:
+          hideDoneTasksByProject[project.id] === true &&
+          isDoneFilterHiddenTask(matchingTask),
+        projectId: project.id,
+        taskId: matchingTask.id,
+      };
+    }
+  }
+
+  return null;
 }
 
 function projectHasUnviewedChanges(project: WorkspaceProject) {
@@ -8575,6 +8766,14 @@ function revealElementInViewport(element: HTMLElement | null) {
       inline: "nearest",
     });
   }
+}
+
+function findTaskRowElementById(taskId: string) {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>("[data-task-row-id]")).find(
+      (element) => element.dataset.taskRowId === taskId,
+    ) ?? null
+  );
 }
 
 function readViewportScrollOffset() {

@@ -4,6 +4,12 @@ This file records the versions released in repository history. Dates reflect the
 
 ## Unreleased
 
+## 0.9.20 - 2026-06-04
+
+- Highlighted matching project, task, reference, and note text while workspace search is active.
+- Opened projects automatically when search matches one of their tasks and scrolled the browser to the first matching task row.
+- Kept matching hidden done/canceled tasks visible during search reveal so the scroll target is not hidden by the per-project done filter.
+
 ## 0.9.19 - 2026-05-22
 
 - Added a shared compact modal dialog foundation for workspace edit and confirmation flows.

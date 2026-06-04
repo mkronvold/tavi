@@ -1683,6 +1683,14 @@ button:disabled {
   box-shadow: var(--card-shadow);
 }
 
+.search-highlight {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-weight: 700;
+}
+
 .project-create-form,
 .nested-form {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

@@ -1211,7 +1211,13 @@ describe("App", () => {
     });
   });
 
-  it("shows the full project task list when search matches a task", async () => {
+  it("opens, highlights, and scrolls to a task matched by search", async () => {
+    const scrollIntoViewMock = vi.fn();
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => createResponse(createWorkspacePayload())),
@@ -1224,11 +1230,21 @@ describe("App", () => {
       expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
     });
 
-    toggleProjectByTitle("Roadmap refresh");
-
     await waitFor(() => {
       expect(screen.getByText("Kickoff")).toBeInTheDocument();
       expect(screen.getByText("Review plan")).toBeInTheDocument();
+    });
+
+    const taskMatch = screen.getByText("Kickoff");
+    const taskRow = taskMatch.closest("tr");
+
+    expect(taskMatch).toHaveClass("search-highlight");
+    expect(taskRow).toHaveAttribute("data-task-row-id", "task-1");
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({
+        block: "start",
+        inline: "nearest",
+      });
     });
   });
 
