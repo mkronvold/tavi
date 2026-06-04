@@ -123,6 +123,7 @@ const GROUP_LABELS: Record<GroupBy, string> = {
   status: "Status",
   progress: "Progress",
 };
+const appChangelogUrl = `${appRepositoryUrl}/blob/main/CHANGELOG.md`;
 
 const PROJECT_SORT_OPTIONS: Array<{
   label: string;
@@ -6007,14 +6008,14 @@ function SettingsPanel({
         </div>
         <div className="settings-version">
           <div className="settings-version-row">
-            <span>{`${appName} ${buildShaLabel}`}</span>
             <a
-              className="settings-link"
-              href={appRepositoryUrl}
+              className="settings-link settings-version-link"
+              href={appChangelogUrl}
               rel="noreferrer"
               target="_blank"
+              title="View changelog on GitHub"
             >
-              github
+              {`${appName} ${buildShaLabel}`}
             </a>
           </div>
           <span className="settings-version-detail">

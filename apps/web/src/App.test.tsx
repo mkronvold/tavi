@@ -3789,7 +3789,7 @@ describe("App", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows settings cards in the requested order and links the version tile to the repo", async () => {
+  it("shows settings cards in the requested order and links build metadata to the changelog", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -3834,11 +3834,9 @@ describe("App", () => {
     expect(settingsItems[7]?.textContent).toContain("Audit logins");
     expect(settingsItems[8]?.textContent).toContain("Audit notifications");
     expect(settingsItems[9]?.textContent).toContain("Audit changes");
-    expect(screen.getByRole("link", { name: "github" })).toHaveAttribute(
-      "href",
-      appRepositoryUrl,
-    );
-    expect(screen.getByText("tavi local build")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "tavi local build" }),
+    ).toHaveAttribute("href", `${appRepositoryUrl}/blob/main/CHANGELOG.md`);
     expect(screen.getByText("built local build")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("smtp://10.120.64.99:25")).toBeInTheDocument();

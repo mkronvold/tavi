@@ -842,6 +842,11 @@
   text-decoration: underline;
 }
 
+.settings-version-link {
+  font-size: inherit;
+  font-weight: 700;
+}
+
 .settings-version {
   display: flex;
   flex-direction: column;
