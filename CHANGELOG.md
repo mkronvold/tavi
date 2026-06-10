@@ -4,7 +4,7 @@ This file records the versions released in repository history. Section headings 
 
 ## Unreleased
 
-## 0.9.21 - 2026-06-10 - sha-a6ce0e9
+## 0.9.21 - 2026-06-10 - sha-39daeed
 
 - Added short release SHAs to historical changelog section headings and removed duplicate release-commit bullets.
 - Closed the User Profile panel automatically when opening Personal ToDo or User History from it.
