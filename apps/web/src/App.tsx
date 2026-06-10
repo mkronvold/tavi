@@ -1103,6 +1103,12 @@ function WorkspaceScreen({
       ),
     [assigneeFilterUserIds, validAssigneeUserIds],
   );
+  const smtpStatusQuery = useQuery({
+    enabled: data.currentUser.role === "admin",
+    queryFn: getSmtpStatus,
+    queryKey: ["smtp-status"],
+    staleTime: 60_000,
+  });
   const [search, setSearch] = useState(() =>
     readWorkspaceSearchQueryFromLocation(),
   );
@@ -1112,6 +1118,10 @@ function WorkspaceScreen({
   >(null);
   const [pendingSearchTaskReveal, setPendingSearchTaskReveal] =
     useState<SearchTaskRevealTarget | null>(null);
+  const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
+  const [adminAuditPanel, setAdminAuditPanel] =
+    useState<AdminAuditReportType | null>(null);
+  const [retentionOpen, setRetentionOpen] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<
     Record<string, boolean>
   >({});
@@ -2956,15 +2966,17 @@ function WorkspaceScreen({
               onToggleImportExportPanel={() =>
                 toggleWorkspacePanel("importExport")
               }
-              onTogglePersonalTodoPanel={() =>
-                toggleWorkspacePanel("personalTodo")
-              }
+              onTogglePersonalTodoPanel={() => {
+                toggleWorkspacePanel("personalTodo");
+                setWorkspacePanelOpen("profile", false);
+              }}
               onToggleUserHistory={() => {
                 if (
                   auditTarget?.entityType === "auth" &&
                   auditTarget.entityId === data.currentUser.id
                 ) {
                   setAuditTarget(null);
+                  setWorkspacePanelOpen("profile", false);
                   return;
                 }
 
@@ -2975,6 +2987,7 @@ function WorkspaceScreen({
                   subtitle: data.currentUser.email,
                   title: "User History",
                 });
+                setWorkspacePanelOpen("profile", false);
               }}
               theme={theme}
             />
@@ -3302,16 +3315,35 @@ function WorkspaceScreen({
 
           {panelState.settings && !isGuestUser ? (
             <SettingsPanel
-              currentUser={data.currentUser}
+              adminAuditPanel={adminAuditPanel}
               isBackupsOpen={panelState.backups}
               isAdmin={data.currentUser.role === "admin"}
               isImportExportOpen={panelState.importExport}
-              onToggleBackupsPanel={() => toggleWorkspacePanel("backups")}
-              onToggleImportExportPanel={() =>
-                toggleWorkspacePanel("importExport")
-              }
-              onNotice={setWorkspaceNotice}
-              users={data.users}
+              isLocalAccountsOpen={localAccountsOpen}
+              onToggleAdminAuditPanel={(panel) => {
+                setAdminAuditPanel((current) =>
+                  current === panel ? null : panel,
+                );
+                setWorkspacePanelOpen("settings", false);
+              }}
+              onToggleBackupsPanel={() => {
+                toggleWorkspacePanel("backups");
+                setWorkspacePanelOpen("settings", false);
+              }}
+              onToggleImportExportPanel={() => {
+                toggleWorkspacePanel("importExport");
+                setWorkspacePanelOpen("settings", false);
+              }}
+              onToggleLocalAccounts={() => {
+                setLocalAccountsOpen((current) => !current);
+                setWorkspacePanelOpen("settings", false);
+              }}
+              onToggleRetentionPanel={() => {
+                setRetentionOpen((current) => !current);
+                setWorkspacePanelOpen("settings", false);
+              }}
+              retentionOpen={retentionOpen}
+              smtpStatus={smtpStatusQuery.data}
             />
           ) : null}
 
@@ -3388,6 +3420,30 @@ function WorkspaceScreen({
                 variant="panel"
               />
             </section>
+          ) : null}
+
+          {localAccountsOpen ? (
+            <LocalAccountsPanel
+              currentUser={data.currentUser}
+              isAdmin={data.currentUser.role === "admin"}
+              onClose={() => setLocalAccountsOpen(false)}
+              onNotice={setWorkspaceNotice}
+              emailEnabled={smtpStatusQuery.data?.enabled ?? true}
+              smtpConfigured={smtpStatusQuery.data?.configured ?? false}
+            />
+          ) : null}
+
+          {retentionOpen ? (
+            <RetentionSettingsPanel onClose={() => setRetentionOpen(false)} />
+          ) : null}
+
+          {data.currentUser.role === "admin" && adminAuditPanel ? (
+            <AdminAuditReportPanel
+              currentUser={data.currentUser}
+              onClose={() => setAdminAuditPanel(null)}
+              type={adminAuditPanel}
+              users={data.users}
+            />
           ) : null}
         </div>
       </section>
@@ -5858,46 +5914,44 @@ function formatPersonalTodoRetentionLabel(
 }
 
 type SettingsPanelProps = {
-  currentUser: WorkspaceUser;
+  adminAuditPanel: AdminAuditReportType | null;
   isBackupsOpen: boolean;
   isAdmin: boolean;
   isImportExportOpen: boolean;
-  onNotice: (message: string) => void;
+  isLocalAccountsOpen: boolean;
+  onToggleAdminAuditPanel: (panel: AdminAuditReportType) => void;
   onToggleBackupsPanel: () => void;
   onToggleImportExportPanel: () => void;
-  users: WorkspaceUser[];
+  onToggleLocalAccounts: () => void;
+  onToggleRetentionPanel: () => void;
+  retentionOpen: boolean;
+  smtpStatus: SmtpStatus | undefined;
 };
 
 function SettingsPanel({
-  currentUser,
+  adminAuditPanel,
   isBackupsOpen,
   isAdmin,
   isImportExportOpen,
-  onNotice,
+  isLocalAccountsOpen,
+  onToggleAdminAuditPanel,
   onToggleBackupsPanel,
   onToggleImportExportPanel,
-  users,
+  onToggleLocalAccounts,
+  onToggleRetentionPanel,
+  retentionOpen,
+  smtpStatus,
 }: SettingsPanelProps) {
-  const [localAccountsOpen, setLocalAccountsOpen] = useState(false);
-  const [adminAuditPanel, setAdminAuditPanel] =
-    useState<AdminAuditReportType | null>(null);
-  const [retentionOpen, setRetentionOpen] = useState(false);
   const [emailPrefError, setEmailPrefError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
-  const smtpStatusQuery = useQuery({
-    enabled: isAdmin,
-    queryFn: getSmtpStatus,
-    queryKey: ["smtp-status"],
-    staleTime: 60_000,
-  });
   const smtpServer =
-    smtpStatusQuery.data?.host && smtpStatusQuery.data?.port != null
-      ? `${smtpStatusQuery.data.secure ? "smtps" : "smtp"}://${smtpStatusQuery.data.host}:${smtpStatusQuery.data.port}`
+    smtpStatus?.host && smtpStatus.port != null
+      ? `${smtpStatus.secure ? "smtps" : "smtp"}://${smtpStatus.host}:${smtpStatus.port}`
       : null;
-  const emailEnabled = smtpStatusQuery.data?.enabled ?? true;
-  const dragHandlesEnabled = smtpStatusQuery.data?.dragHandlesEnabled ?? true;
-  const guestAccessEnabled = smtpStatusQuery.data?.guestAccessEnabled ?? true;
+  const emailEnabled = smtpStatus?.enabled ?? true;
+  const dragHandlesEnabled = smtpStatus?.dragHandlesEnabled ?? true;
+  const guestAccessEnabled = smtpStatus?.guestAccessEnabled ?? true;
 
   const syncWorkspaceDragHandlesEnabled = (enabled: boolean) => {
     queryClient.setQueryData<WorkspaceResponse>(["workspace"], (current) =>
@@ -5952,47 +6006,37 @@ function SettingsPanel({
     },
   });
   const toggleEmailNotifications = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+    if (emailSettingsMutation.isPending || !smtpStatus) {
       return;
     }
 
     emailSettingsMutation.mutate({
-      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: !smtpStatusQuery.data.enabled,
-      guestAccessEnabled: smtpStatusQuery.data.guestAccessEnabled,
+      dragHandlesEnabled: smtpStatus.dragHandlesEnabled,
+      enabled: !smtpStatus.enabled,
+      guestAccessEnabled: smtpStatus.guestAccessEnabled,
     });
   };
   const toggleDragHandles = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+    if (emailSettingsMutation.isPending || !smtpStatus) {
       return;
     }
 
     emailSettingsMutation.mutate({
-      dragHandlesEnabled: !smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: smtpStatusQuery.data.enabled,
-      guestAccessEnabled: smtpStatusQuery.data.guestAccessEnabled,
+      dragHandlesEnabled: !smtpStatus.dragHandlesEnabled,
+      enabled: smtpStatus.enabled,
+      guestAccessEnabled: smtpStatus.guestAccessEnabled,
     });
   };
   const toggleGuestAccess = () => {
-    if (emailSettingsMutation.isPending || !smtpStatusQuery.data) {
+    if (emailSettingsMutation.isPending || !smtpStatus) {
       return;
     }
 
     emailSettingsMutation.mutate({
-      dragHandlesEnabled: smtpStatusQuery.data.dragHandlesEnabled,
-      enabled: smtpStatusQuery.data.enabled,
-      guestAccessEnabled: !smtpStatusQuery.data.guestAccessEnabled,
+      dragHandlesEnabled: smtpStatus.dragHandlesEnabled,
+      enabled: smtpStatus.enabled,
+      guestAccessEnabled: !smtpStatus.guestAccessEnabled,
     });
-  };
-
-  const toggleLocalAccounts = () => {
-    setLocalAccountsOpen((current) => !current);
-  };
-  const toggleAdminAuditPanel = (panel: AdminAuditReportType) => {
-    setAdminAuditPanel((current) => (current === panel ? null : panel));
-  };
-  const toggleRetentionPanel = () => {
-    setRetentionOpen((current) => !current);
   };
 
   if (!isAdmin) {
@@ -6024,9 +6068,9 @@ function SettingsPanel({
           {isAdmin && smtpServer ? (
             <span className="settings-version-detail">{smtpServer}</span>
           ) : null}
-          {isAdmin && smtpStatusQuery.data?.fromAddress ? (
+          {isAdmin && smtpStatus?.fromAddress ? (
             <span className="settings-version-detail">
-              {smtpStatusQuery.data.fromAddress}
+              {smtpStatus.fromAddress}
             </span>
           ) : null}
         </div>
@@ -6086,7 +6130,7 @@ function SettingsPanel({
               checked={dragHandlesEnabled}
               className="settings-switch-input"
               disabled={
-                emailSettingsMutation.isPending || !smtpStatusQuery.data
+                emailSettingsMutation.isPending || !smtpStatus
               }
               onChange={toggleDragHandles}
               role="switch"
@@ -6118,7 +6162,7 @@ function SettingsPanel({
               checked={guestAccessEnabled}
               className="settings-switch-input"
               disabled={
-                emailSettingsMutation.isPending || !smtpStatusQuery.data
+                emailSettingsMutation.isPending || !smtpStatus
               }
               onChange={toggleGuestAccess}
               role="switch"
@@ -6143,7 +6187,7 @@ function SettingsPanel({
         <div
           aria-expanded={retentionOpen}
           className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(toggleRetentionPanel)}
+          {...settingsCardButtonProps(onToggleRetentionPanel)}
         >
           <div className="settings-item-header">
             <strong>Retention</strong>
@@ -6168,9 +6212,9 @@ function SettingsPanel({
           </p>
         </div>
         <div
-          aria-expanded={localAccountsOpen}
+          aria-expanded={isLocalAccountsOpen}
           className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(toggleLocalAccounts)}
+          {...settingsCardButtonProps(onToggleLocalAccounts)}
         >
           <div className="settings-item-header">
             <strong>Local Accounts</strong>
@@ -6184,7 +6228,7 @@ function SettingsPanel({
         <div
           aria-expanded={adminAuditPanel === "logins"}
           className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(() => toggleAdminAuditPanel("logins"))}
+          {...settingsCardButtonProps(() => onToggleAdminAuditPanel("logins"))}
         >
           <div className="settings-item-header">
             <strong>Audit logins</strong>
@@ -6198,7 +6242,7 @@ function SettingsPanel({
         <div
           aria-expanded={adminAuditPanel === "emails"}
           className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(() => toggleAdminAuditPanel("emails"))}
+          {...settingsCardButtonProps(() => onToggleAdminAuditPanel("emails"))}
         >
           <div className="settings-item-header">
             <strong>Audit notifications</strong>
@@ -6212,7 +6256,7 @@ function SettingsPanel({
         <div
           aria-expanded={adminAuditPanel === "changes"}
           className="settings-item settings-item-toggle"
-          {...settingsCardButtonProps(() => toggleAdminAuditPanel("changes"))}
+          {...settingsCardButtonProps(() => onToggleAdminAuditPanel("changes"))}
         >
           <div className="settings-item-header">
             <strong>Audit changes</strong>
@@ -6225,29 +6269,6 @@ function SettingsPanel({
         </div>
       </div>
 
-      {localAccountsOpen ? (
-        <LocalAccountsPanel
-          currentUser={currentUser}
-          isAdmin={isAdmin}
-          onClose={() => setLocalAccountsOpen(false)}
-          onNotice={onNotice}
-          emailEnabled={smtpStatusQuery.data?.enabled ?? true}
-          smtpConfigured={smtpStatusQuery.data?.configured ?? false}
-        />
-      ) : null}
-
-      {retentionOpen ? (
-        <RetentionSettingsPanel onClose={() => setRetentionOpen(false)} />
-      ) : null}
-
-      {isAdmin && adminAuditPanel ? (
-        <AdminAuditReportPanel
-          currentUser={currentUser}
-          onClose={() => setAdminAuditPanel(null)}
-          type={adminAuditPanel}
-          users={users}
-        />
-      ) : null}
     </section>
   );
 }

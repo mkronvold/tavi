@@ -579,6 +579,10 @@ describe("App", () => {
     expect(personalTodoTile).not.toBeNull();
     fireEvent.click(personalTodoTile!);
 
+    await waitFor(() => {
+      expect(screen.queryByText("User Profile")).not.toBeInTheDocument();
+    });
+
     if (expectedPanelText) {
       await waitFor(() => {
         expect(screen.getByText(expectedPanelText)).toBeInTheDocument();
@@ -3844,6 +3848,54 @@ describe("App", () => {
     });
   });
 
+  it("closes settings when opening local accounts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+
+        if (url.endsWith("/auth/email/status")) {
+          return createResponse(createSmtpStatusPayload());
+        }
+
+        if (url.endsWith("/auth/accounts")) {
+          return createResponse({
+            accounts: [
+              {
+                id: "user-1",
+                email: "editor@tavi.local",
+                name: "Tavi Editor",
+                role: "admin",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+            ],
+          });
+        }
+
+        return createResponse(createAdminWorkspacePayload());
+      }),
+    );
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByText("Local Accounts").closest(".settings-item")!);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("editor@tavi.local")).toBeInTheDocument();
+    });
+  });
+
   it("opens the retention panel, saves retention changes, and prunes the selected target", async () => {
     const workspacePayload = createAdminWorkspacePayload();
     const updateRequests: UpdateRetentionSettingsPayload[] = [];
@@ -3941,6 +3993,11 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Retention").closest(".settings-item")!);
 
     const panel = await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
       const element = screen
         .getByText(
           "Control how long backups and admin-visible logs stay in storage.",
@@ -4056,14 +4113,17 @@ describe("App", () => {
     const importExportCard = screen
       .getByText("Import/Export")
       .closest(".settings-item");
-    const backupsCard = screen.getByText("Backups").closest(".settings-item");
 
     expect(importExportCard).not.toBeNull();
-    expect(backupsCard).not.toBeNull();
 
     fireEvent.click(importExportCard as HTMLElement);
 
     await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByText(
           "Download the current filtered workspace as CSV, XLSX, JSON, or a Loop-oriented CSV.",
@@ -4085,9 +4145,18 @@ describe("App", () => {
       within(importPanel as HTMLElement).getByRole("button", { name: "Close" }),
     ).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const backupsCard = screen.getByText("Backups").closest(".settings-item");
+
+    expect(backupsCard).not.toBeNull();
     fireEvent.click(backupsCard as HTMLElement);
 
     await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByText(
           "Configure scheduled snapshots and preview restore changes.",
@@ -4199,8 +4268,18 @@ describe("App", () => {
         screen.getByText(/Dates and times use your local timezone \(.+\)\./),
       ).toBeInTheDocument();
     });
+    expect(screen.queryByText("User Profile")).not.toBeInTheDocument();
 
-    fireEvent.click(authHistoryCard as HTMLElement);
+    const userHistoryPanel = screen
+      .getByRole("heading", { name: "User History" })
+      .closest("section");
+
+    expect(userHistoryPanel).not.toBeNull();
+    fireEvent.click(
+      within(userHistoryPanel as HTMLElement).getByRole("button", {
+        name: "Close",
+      }),
+    );
 
     await waitFor(() => {
       expect(
@@ -5966,6 +6045,11 @@ describe("App", () => {
     fireEvent.click(auditChangesCard as HTMLElement);
 
     const panel = await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
       const element = screen
         .getByText("Admin-only project and task change history")
         .closest("section");
@@ -6010,7 +6094,11 @@ describe("App", () => {
       ).toBe(true);
     });
 
-    fireEvent.click(auditChangesCard as HTMLElement);
+    fireEvent.click(
+      within(panel).getByRole("button", {
+        name: "Close",
+      }),
+    );
 
     await waitFor(() => {
       expect(
@@ -6072,6 +6160,11 @@ describe("App", () => {
     fireEvent.click(auditLoginsCard as HTMLElement);
 
     const panel = await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
       const element = screen
         .getByText("Admin-only sign-in and sign-out history")
         .closest("section");
@@ -6132,7 +6225,11 @@ describe("App", () => {
       ).toBe(true);
     });
 
-    fireEvent.click(auditLoginsCard as HTMLElement);
+    fireEvent.click(
+      within(panel).getByRole("button", {
+        name: "Close",
+      }),
+    );
 
     await waitFor(() => {
       expect(
@@ -6235,6 +6332,11 @@ describe("App", () => {
     fireEvent.click(auditEmailsCard as HTMLElement);
 
     const panel = await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Workspace-wide admin controls, tools, and system reports.",
+        ),
+      ).not.toBeInTheDocument();
       const element = screen
         .getByText("Admin-only email notification delivery history")
         .closest("section");
@@ -6321,7 +6423,11 @@ describe("App", () => {
       ).toBe(true);
     });
 
-    fireEvent.click(auditEmailsCard as HTMLElement);
+    fireEvent.click(
+      within(panel).getByRole("button", {
+        name: "Close",
+      }),
+    );
 
     await waitFor(() => {
       expect(
