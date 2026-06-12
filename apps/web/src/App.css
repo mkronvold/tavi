@@ -226,6 +226,7 @@
 
 .login-form label,
 .saved-view-grid label,
+.saved-view-current-search,
 .workspace-filter {
   display: grid;
   gap: 6px;
@@ -759,6 +760,18 @@
 
 .saved-view-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.saved-view-current-search strong {
+  min-height: 35px;
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--input-bg);
 }
 
 .saved-view-actions {

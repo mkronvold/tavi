@@ -18,7 +18,9 @@ import type {
   EmailAuditEvent,
   Priority,
   RetentionStatus,
+  SavedViewPayload,
   UpdateRetentionSettingsPayload,
+  UpdateSavedViewPayload,
   WorkspaceProject,
   WorkspaceResponse,
 } from "./types";
@@ -33,6 +35,9 @@ const createResponse = (payload: unknown, status = 200) =>
     status,
     headers: { "Content-Type": "application/json" },
   });
+
+const readJsonRequestBody = <Payload,>(init?: RequestInit): Payload =>
+  JSON.parse(String(init?.body)) as Payload;
 
 const createSmtpStatusPayload = (
   overrides: Partial<{
@@ -1195,9 +1200,154 @@ describe("App", () => {
       expect(screen.getByLabelText("Search")).toHaveValue("Roadmap");
       expect(screen.getByLabelText("Group by")).toHaveValue("status");
       expect(
+        screen.getByText("Current Search").closest(".saved-view-current-search"),
+      ).toHaveTextContent("Roadmap");
+      expect(
         screen.getByRole("button", { name: "Sort by: 1 Progress" }),
       ).toBeInTheDocument();
       expect(screen.getByText("Status: Blocked")).toBeInTheDocument();
+    });
+  });
+
+  it("includes the current workspace search when creating a saved view", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let savedPayload: SavedViewPayload | null = null;
+
+    workspacePayload.savedViews = [];
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/user-config") && method === "PUT") {
+          return createResponse(workspacePayload.userConfig);
+        }
+
+        if (url.endsWith("/views") && method === "POST") {
+          const payload = readJsonRequestBody<SavedViewPayload>(init);
+
+          savedPayload = payload;
+          return createResponse({
+            id: "view-new",
+            ...payload,
+            createdAt: "2026-06-12T16:00:00.000Z",
+            updatedAt: "2026-06-12T16:00:00.000Z",
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText("Search"), {
+      target: { value: "Kickoff" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("View name")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText("Current Search").closest(".saved-view-current-search"),
+    ).toHaveTextContent("Kickoff");
+
+    fireEvent.change(screen.getByLabelText("View name"), {
+      target: { value: "Kickoff tasks" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save new" }));
+
+    await waitFor(() => {
+      expect(savedPayload).toEqual(
+        expect.objectContaining({
+          name: "Kickoff tasks",
+          search: "Kickoff",
+        }),
+      );
+    });
+  });
+
+  it("includes the current workspace search when updating a saved view", async () => {
+    const workspacePayload = createWorkspacePayload();
+    let updatePayload: UpdateSavedViewPayload | null = null;
+
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        const method = init?.method ?? "GET";
+
+        if (url.endsWith("/workspace")) {
+          return createResponse(workspacePayload);
+        }
+
+        if (url.endsWith("/auth/user-config") && method === "PUT") {
+          return createResponse(workspacePayload.userConfig);
+        }
+
+        if (url.endsWith("/views/view-1") && method === "PATCH") {
+          const payload = readJsonRequestBody<UpdateSavedViewPayload>(init);
+
+          updatePayload = payload;
+          return createResponse({
+            ...workspacePayload.savedViews[0],
+            ...payload,
+            updatedAt: "2026-06-12T16:00:00.000Z",
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText("Roadmap refresh")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("My view")).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByLabelText("My view"), {
+      target: { value: "view-1" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Search")).toHaveValue("Roadmap");
+    });
+
+    fireEvent.change(screen.getByLabelText("Search"), {
+      target: { value: "Kickoff" },
+    });
+
+    expect(
+      screen.getByText("Current Search").closest(".saved-view-current-search"),
+    ).toHaveTextContent("Kickoff");
+
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+
+    await waitFor(() => {
+      expect(updatePayload).toEqual(
+        expect.objectContaining({
+          search: "Kickoff",
+        }),
+      );
     });
   });
 

@@ -3044,6 +3044,11 @@ function WorkspaceScreen({
                     placeholder="Sprint review"
                   />
                 </label>
+
+                <div className="saved-view-current-search">
+                  <span>Current Search</span>
+                  <strong>{search.trim().length > 0 ? search : "No search"}</strong>
+                </div>
               </div>
 
               <div className="saved-view-panel view-panel-controls">

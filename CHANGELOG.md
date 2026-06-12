@@ -4,6 +4,12 @@ This file records the versions released in repository history. Section headings 
 
 ## Unreleased
 
+## 0.9.22 - 2026-06-12
+
+- Included the active workspace Search value in saved-view create and update payloads.
+- Added a compact Current Search readout to the View panel so users can see what search text will be captured before saving a view.
+- Added regression coverage for creating and updating saved views with the current Search value.
+
 ## 0.9.21 - 2026-06-10 - sha-39daeed
 
 - Added short release SHAs to historical changelog section headings and removed duplicate release-commit bullets.
