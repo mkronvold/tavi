@@ -145,4 +145,4 @@ jobs:
             TAVI_BUILD_SHA=${{ github.sha }}
             TAVI_BUILD_DATE=${{ steps.build-metadata.outputs.date }}
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max,ignore-error=true
