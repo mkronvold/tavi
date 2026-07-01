@@ -15,13 +15,13 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.101.0",
+    "@tanstack/react-query": "^5.101.2",
     "@tavi/config": "workspace:*",
     "@tavi/schemas": "workspace:*",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.18.0",
+    "react-router-dom": "^7.18.1",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "xlsx": "^0.18.5"
@@ -33,15 +33,15 @@
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.2",
-    "eslint": "^10.5.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
-    "globals": "^17.6.0",
+    "globals": "^17.7.0",
     "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.61.1",
-    "vite": "^8.0.16",
+    "typescript-eslint": "^8.62.1",
+    "vite": "^8.1.2",
     "vitest": "^4.1.9"
   }
 }
