@@ -13,8 +13,8 @@
     "format:write": "prettier --write ."
   },
   "devDependencies": {
-    "prettier": "^3.8.4",
-    "turbo": "^2.9.18",
+    "prettier": "^3.9.4",
+    "turbo": "^2.10.2",
     "typescript": "^5.9.3"
   }
 }
