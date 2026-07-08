@@ -32,8 +32,8 @@
     "@tavi/config": "workspace:*",
     "@tavi/schemas": "workspace:*",
     "bcryptjs": "^3.0.2",
-    "csv-parse": "^7.0.0",
-    "fastify": "^5.9.0",
+    "csv-parse": "^7.0.1",
+    "fastify": "^5.10.0",
     "nodemailer": "^9.0.3",
     "prom-client": "^15.1.3",
     "reflect-metadata": "^0.2.2",
@@ -64,9 +64,9 @@
     "ts-loader": "^9.6.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "tsx": "^4.22.4",
+    "tsx": "^4.23.0",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.62.1"
+    "typescript-eslint": "^8.63.0"
   },
   "jest": {
     "moduleFileExtensions": [
