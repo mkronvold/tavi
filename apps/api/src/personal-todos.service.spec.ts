@@ -79,8 +79,7 @@ describe('PersonalTodosService', () => {
     );
 
     const firstCreateCall = mocks.createMock.mock.calls.at(0) as
-      | [Prisma.PersonalTodoCreateArgs]
-      | undefined;
+      [Prisma.PersonalTodoCreateArgs] | undefined;
 
     if (!firstCreateCall) {
       throw new Error('Expected createPersonalTodo to issue a create call');
@@ -125,8 +124,7 @@ describe('PersonalTodosService', () => {
     );
 
     const firstUpdateCall = mocks.updateMock.mock.calls.at(0) as
-      | [Prisma.PersonalTodoUpdateArgs]
-      | undefined;
+      [Prisma.PersonalTodoUpdateArgs] | undefined;
 
     if (!firstUpdateCall) {
       throw new Error('Expected updatePersonalTodo to issue an update call');
@@ -254,8 +252,7 @@ describe('PersonalTodosService', () => {
       where: { userId: actor.id },
     });
     const firstCreateManyCall = mocks.createManyMock.mock.calls.at(0) as
-      | [Prisma.PersonalTodoCreateManyArgs]
-      | undefined;
+      [Prisma.PersonalTodoCreateManyArgs] | undefined;
 
     if (!firstCreateManyCall) {
       throw new Error(

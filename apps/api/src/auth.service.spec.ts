@@ -1043,8 +1043,7 @@ describe('AuthService', () => {
     expect(auditEventCreateMock).toHaveBeenCalledTimes(1);
 
     const auditCall = auditEventCreateMock.mock.calls[0]?.[0] as
-      | AuditEventCreateCall[0]
-      | undefined;
+      AuditEventCreateCall[0] | undefined;
 
     expect(auditCall?.data.action).toBe('user_settings_reset');
     expect(auditCall?.data.entityId).toBe(actor.id);

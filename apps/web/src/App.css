@@ -57,7 +57,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(15 23 42 / 0.42);
+  background: var(--modal-backdrop);
 }
 
 .modal-dialog {
@@ -66,10 +66,10 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  background: var(--card-bg);
+  background: var(--modal-surface-bg);
   border: 1px solid var(--border-color);
   border-radius: 18px;
-  box-shadow: 0 24px 60px rgb(15 23 42 / 0.24);
+  box-shadow: var(--modal-shadow);
 }
 
 .modal-dialog--wide {
@@ -197,7 +197,7 @@
   display: inline-block;
   font-size: 0.9rem;
   letter-spacing: 0.2em;
-  color: var(--brand-color);
+  color: var(--brand-mark-color);
   margin-bottom: 6px;
   line-height: 1;
 }
@@ -285,7 +285,7 @@
 }
 
 .workspace-brand-link:focus-visible {
-  outline: 2px solid var(--brand-color);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 4px;
   border-radius: 12px;
 }
@@ -330,7 +330,7 @@
 }
 
 .header-user-button:focus-visible {
-  outline: 2px solid var(--brand-color);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 4px;
   border-radius: 8px;
 }
@@ -402,7 +402,8 @@
 
 .workspace-filter-trigger.is-open {
   border-color: var(--brand-color);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-color) 30%, transparent);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--focus-ring-color) 30%, transparent);
 }
 
 .workspace-multi-filter-menu {
@@ -834,7 +835,7 @@
 }
 
 .settings-item-toggle:focus-visible {
-  outline: 2px solid var(--brand-color);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
 }
 
@@ -846,7 +847,7 @@
 
 .settings-link {
   width: fit-content;
-  color: var(--brand-color);
+  color: var(--link-color);
   font-size: 0.9rem;
   text-decoration: none;
 }
@@ -1825,7 +1826,7 @@ button:disabled {
 }
 
 .formatted-notes a {
-  color: var(--brand-color);
+  color: var(--link-color);
   text-decoration: none;
 }
 
@@ -1835,7 +1836,7 @@ button:disabled {
 
 .formatted-notes a:focus-visible {
   border-radius: 6px;
-  outline: 2px solid var(--brand-color);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
 }
 
@@ -1921,7 +1922,7 @@ button:disabled {
 }
 
 .project-reference-link {
-  color: var(--brand-color);
+  color: var(--link-color);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1936,7 +1937,7 @@ button:disabled {
 
 .project-reference-link:focus-visible {
   border-radius: 6px;
-  outline: 2px solid var(--brand-color);
+  outline: 2px solid var(--focus-ring-color);
   outline-offset: 2px;
 }
 

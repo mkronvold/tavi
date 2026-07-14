@@ -858,8 +858,7 @@ describe('LocalAccountsService', () => {
     );
 
     const updatePasswordCall = mocks.updateUserMock.mock.calls[0]?.[0] as
-      | PasswordUpdateCall
-      | undefined;
+      PasswordUpdateCall | undefined;
 
     if (!updatePasswordCall) {
       throw new Error('Expected a password update call');
@@ -892,8 +891,7 @@ describe('LocalAccountsService', () => {
     );
 
     const updatePasswordCall = mocks.updateUserMock.mock.calls[0]?.[0] as
-      | PasswordUpdateCall
-      | undefined;
+      PasswordUpdateCall | undefined;
 
     if (!updatePasswordCall) {
       throw new Error('Expected a self password update call');

@@ -146,10 +146,19 @@ export const workspaceThemeSchema = z.enum([
   "light",
   "sepia",
   "spring",
+  "summer",
+  "sunshower",
   "ocean",
   "forest",
   "autumn",
+  "autumn-light",
+  "coyote",
+  "coyote-dark",
+  "guinness",
   "night",
+  "midnight",
+  "pine",
+  "obsidian",
 ]);
 export type WorkspaceTheme = z.infer<typeof workspaceThemeSchema>;
 

@@ -82,8 +82,8 @@ const toMockMapping = (value: unknown) => {
   return mapping;
 };
 
-const mockBuildLoopImportPreview = jest.fn(
-  (): MockLoopImportPreview => createMockPreview(),
+const mockBuildLoopImportPreview = jest.fn((): MockLoopImportPreview =>
+  createMockPreview(),
 );
 const mockLoopImportMappingSafeParse = jest.fn(
   (

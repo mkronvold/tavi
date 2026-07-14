@@ -1,5 +1,4 @@
 import cookie from '@fastify/cookie';
-import cors from '@fastify/cors';
 import { defaultPorts } from '@tavi/config';
 import { AppModule } from './app.module';
 import { AppLogger } from './app-logger';
@@ -26,11 +25,12 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
+  const fastify = app.getHttpAdapter().getInstance();
 
-  await app.register(cookie, {
+  await fastify.register(cookie, {
     secret: process.env.COOKIE_SECRET ?? 'tavi-local-dev-secret',
   });
-  await app.register(cors, {
+  app.enableCors({
     credentials: true,
     origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:5173'],
   });

@@ -259,17 +259,31 @@ type WorkspacePanelState = {
   view: boolean;
 };
 
-const WORKSPACE_THEMES = [
-  "light",
-  "sepia",
-  "spring",
-  "ocean",
-  "forest",
-  "autumn",
-  "night",
-] as const;
+const WORKSPACE_THEME_META = {
+  light: { colorScheme: "light", label: "Light" },
+  sepia: { colorScheme: "light", label: "Sepia" },
+  spring: { colorScheme: "light", label: "Spring" },
+  summer: { colorScheme: "light", label: "Summer" },
+  sunshower: { colorScheme: "light", label: "Sunshower" },
+  ocean: { colorScheme: "dark", label: "Ocean" },
+  forest: { colorScheme: "dark", label: "Forest" },
+  autumn: { colorScheme: "dark", label: "Autumn" },
+  "autumn-light": { colorScheme: "light", label: "Autumn Light" },
+  coyote: { colorScheme: "light", label: "Coyote" },
+  "coyote-dark": { colorScheme: "dark", label: "Coyote Dark" },
+  guinness: { colorScheme: "dark", label: "Guinness" },
+  night: { colorScheme: "dark", label: "Night" },
+  midnight: { colorScheme: "dark", label: "Midnight" },
+  pine: { colorScheme: "dark", label: "Pine" },
+  obsidian: { colorScheme: "dark", label: "Obsidian" },
+} as const satisfies Record<
+  string,
+  { colorScheme: "dark" | "light"; label: string }
+>;
 
-type WorkspaceTheme = (typeof WORKSPACE_THEMES)[number];
+const WORKSPACE_THEMES = Object.keys(WORKSPACE_THEME_META) as WorkspaceTheme[];
+
+type WorkspaceTheme = keyof typeof WORKSPACE_THEME_META;
 
 type WorkspaceFilterState = {
   assigneeUserIds: string[];
@@ -391,19 +405,6 @@ const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
   bulkActions: true,
   fullWidth: false,
   theme: DEFAULT_WORKSPACE_THEME,
-};
-
-const WORKSPACE_THEME_META: Record<
-  WorkspaceTheme,
-  { colorScheme: "dark" | "light"; label: string }
-> = {
-  autumn: { colorScheme: "dark", label: "Autumn" },
-  forest: { colorScheme: "dark", label: "Forest" },
-  light: { colorScheme: "light", label: "Light" },
-  night: { colorScheme: "dark", label: "Night" },
-  ocean: { colorScheme: "dark", label: "Ocean" },
-  sepia: { colorScheme: "light", label: "Sepia" },
-  spring: { colorScheme: "light", label: "Spring" },
 };
 
 const PANEL_STORAGE_KEY = "workspace.panels";

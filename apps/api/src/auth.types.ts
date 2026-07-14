@@ -8,6 +8,10 @@ export type SessionUser = {
   role: Role;
 };
 
-export type AuthenticatedRequest = FastifyRequest & {
-  user?: SessionUser;
-};
+declare module 'fastify' {
+  interface FastifyRequest {
+    user?: SessionUser;
+  }
+}
+
+export type AuthenticatedRequest = FastifyRequest;

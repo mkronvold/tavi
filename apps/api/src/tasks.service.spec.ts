@@ -849,8 +849,7 @@ describe('TasksService', () => {
     );
 
     const updateCall = mocks.updateSingleTaskMock.mock.calls[0]?.[0] as
-      | UpdateTaskCall
-      | undefined;
+      UpdateTaskCall | undefined;
 
     if (!updateCall) {
       throw new Error('Expected a task update call');
@@ -916,8 +915,7 @@ describe('TasksService', () => {
     );
 
     const updateCall = mocks.updateSingleTaskMock.mock.calls[0]?.[0] as
-      | UpdateTaskCall
-      | undefined;
+      UpdateTaskCall | undefined;
 
     if (!updateCall) {
       throw new Error('Expected a task update call');
@@ -1195,8 +1193,7 @@ describe('TasksService', () => {
     );
 
     const updateCall = mocks.updateSingleTaskMock.mock.calls[0]?.[0] as
-      | UpdateTaskCall
-      | undefined;
+      UpdateTaskCall | undefined;
 
     if (!updateCall) {
       throw new Error('Expected a task update call');
