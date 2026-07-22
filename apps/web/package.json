@@ -15,11 +15,11 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.101.2",
+    "@tanstack/react-query": "^5.101.4",
     "@tavi/config": "workspace:*",
     "@tavi/schemas": "workspace:*",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.1",
     "remark-breaks": "^4.0.0",
@@ -40,8 +40,8 @@
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.64.0",
-    "vite": "^8.1.4",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.1.5",
     "vitest": "^4.1.10"
   }
 }
