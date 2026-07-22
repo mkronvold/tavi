@@ -3386,6 +3386,27 @@ describe("App", () => {
     });
 
     fireEvent.click(within(themeCard!).getByRole("button", { name: "Spring" }));
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("data-theme", "summer");
+      expect(
+        within(themeCard!).getByRole("button", { name: "Summer" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(within(themeCard!).getByRole("button", { name: "Summer" }));
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute(
+        "data-theme",
+        "sunshower",
+      );
+      expect(
+        within(themeCard!).getByRole("button", { name: "Sunshower" }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      within(themeCard!).getByRole("button", { name: "Sunshower" }),
+    );
     fireEvent.click(autoCollapseSwitch);
     fireEvent.click(bulkActionsSwitch);
     fireEvent.click(fullWidthSwitch);
@@ -3434,45 +3455,74 @@ describe("App", () => {
     expect(screen.getByRole("switch", { name: "Full Width" })).toBeChecked();
     expect(screen.getByRole("main")).toHaveClass("workspace-shell--full-width");
 
-    fireEvent.click(
-      within(reloadedThemeCard!).getByRole("button", { name: "Ocean" }),
-    );
-    await waitFor(() => {
-      expect(document.documentElement).toHaveAttribute("data-theme", "forest");
-      expect(
-        within(reloadedThemeCard!).getByRole("button", { name: "Forest" }),
-      ).toBeInTheDocument();
-    });
+    const reloadedThemeCycle = [
+      { buttonLabel: "Ocean", expectedLabel: "Forest", expectedTheme: "forest" },
+      {
+        buttonLabel: "Forest",
+        expectedLabel: "Autumn",
+        expectedTheme: "autumn",
+      },
+      {
+        buttonLabel: "Autumn",
+        expectedLabel: "Autumn Light",
+        expectedTheme: "autumn-light",
+      },
+      {
+        buttonLabel: "Autumn Light",
+        expectedLabel: "Coyote",
+        expectedTheme: "coyote",
+      },
+      {
+        buttonLabel: "Coyote",
+        expectedLabel: "Coyote Dark",
+        expectedTheme: "coyote-dark",
+      },
+      {
+        buttonLabel: "Coyote Dark",
+        expectedLabel: "Guinness",
+        expectedTheme: "guinness",
+      },
+      {
+        buttonLabel: "Guinness",
+        expectedLabel: "Night",
+        expectedTheme: "night",
+      },
+      {
+        buttonLabel: "Night",
+        expectedLabel: "Midnight",
+        expectedTheme: "midnight",
+      },
+      {
+        buttonLabel: "Midnight",
+        expectedLabel: "Pine",
+        expectedTheme: "pine",
+      },
+      {
+        buttonLabel: "Pine",
+        expectedLabel: "Obsidian",
+        expectedTheme: "obsidian",
+      },
+      {
+        buttonLabel: "Obsidian",
+        expectedLabel: "Light",
+        expectedTheme: "light",
+      },
+    ] as const;
 
-    fireEvent.click(
-      within(reloadedThemeCard!).getByRole("button", { name: "Forest" }),
-    );
-    await waitFor(() => {
-      expect(document.documentElement).toHaveAttribute("data-theme", "autumn");
-      expect(
-        within(reloadedThemeCard!).getByRole("button", { name: "Autumn" }),
-      ).toBeInTheDocument();
-    });
-
-    fireEvent.click(
-      within(reloadedThemeCard!).getByRole("button", { name: "Autumn" }),
-    );
-    await waitFor(() => {
-      expect(document.documentElement).toHaveAttribute("data-theme", "night");
-      expect(
-        within(reloadedThemeCard!).getByRole("button", { name: "Night" }),
-      ).toBeInTheDocument();
-    });
-
-    fireEvent.click(
-      within(reloadedThemeCard!).getByRole("button", { name: "Night" }),
-    );
-    await waitFor(() => {
-      expect(document.documentElement).toHaveAttribute("data-theme", "light");
-      expect(
-        within(reloadedThemeCard!).getByRole("button", { name: "Light" }),
-      ).toBeInTheDocument();
-    });
+    for (const { buttonLabel, expectedLabel, expectedTheme } of reloadedThemeCycle) {
+      fireEvent.click(
+        within(reloadedThemeCard!).getByRole("button", { name: buttonLabel }),
+      );
+      await waitFor(() => {
+        expect(document.documentElement).toHaveAttribute(
+          "data-theme",
+          expectedTheme,
+        );
+        expect(
+          within(reloadedThemeCard!).getByRole("button", { name: expectedLabel }),
+        ).toBeInTheDocument();
+      });
+    }
   });
 
   it("keeps the global email notifications toggle in sync after saving", async () => {
