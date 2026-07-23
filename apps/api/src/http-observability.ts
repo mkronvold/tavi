@@ -1,7 +1,6 @@
 import '@fastify/cookie';
 import { randomUUID } from 'node:crypto';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import type { FastifyRequest } from 'fastify';
 import { ApiMetricsService } from './api-metrics.service';
 import { AppLogger } from './app-logger';
 
@@ -15,10 +14,15 @@ type RequestObservability = {
   statusCode?: number;
 };
 
-declare module 'fastify' {
-  interface FastifyRequest {
-    observability?: RequestObservability;
-  }
+interface ObservabilityRequest {
+  id: string;
+  method: string;
+  url: string;
+  ip: string;
+  headers: Record<string, string | string[] | undefined>;
+  routeOptions?: { url?: string };
+  user?: { id: string };
+  observability?: RequestObservability;
 }
 
 export function registerHttpObservability(app: NestFastifyApplication) {
@@ -26,7 +30,8 @@ export function registerHttpObservability(app: NestFastifyApplication) {
   const logger = app.get(AppLogger);
   const metrics = app.get(ApiMetricsService);
 
-  fastify.addHook('onRequest', (request, reply, done) => {
+  fastify.addHook('onRequest', (req, reply, done) => {
+    const request = req as ObservabilityRequest;
     const correlationId = readHeaderValue(request.headers['x-correlation-id']);
     const requestId =
       correlationId ??
@@ -46,7 +51,8 @@ export function registerHttpObservability(app: NestFastifyApplication) {
     done();
   });
 
-  fastify.addHook('onError', (request, reply, error: Error, done) => {
+  fastify.addHook('onError', (req, reply, error: Error, done) => {
+    const request = req as ObservabilityRequest;
     if (request.observability) {
       request.observability.error = error;
       request.observability.statusCode =
@@ -56,7 +62,8 @@ export function registerHttpObservability(app: NestFastifyApplication) {
     done();
   });
 
-  fastify.addHook('onResponse', (request, reply, done) => {
+  fastify.addHook('onResponse', (req, reply, done) => {
+    const request = req as ObservabilityRequest;
     const route = normalizeRoute(request);
     const durationMs =
       Number(
@@ -123,7 +130,7 @@ function inferStatusCode(
   return error.statusCode ?? error.status ?? 500;
 }
 
-function normalizeRoute(request: FastifyRequest) {
+function normalizeRoute(request: ObservabilityRequest) {
   const path = stripQuery(request.url);
   const route =
     typeof request.routeOptions?.url === 'string'
